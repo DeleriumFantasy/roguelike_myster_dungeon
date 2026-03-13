@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roguelike Dungeon Crawler</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Courier New', monospace;
+            background-color: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+        #game-container {
+            display: flex;
+            height: 100vh;
+        }
+        #canvas {
+            border: none;
+            image-rendering: pixelated;
+        }
+        #info-panel {
+            width: 300px;
+            padding: 10px;
+            background-color: #111;
+            border-left: 1px solid #333;
+            overflow-y: auto;
+        }
+        #inventory-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #222;
+            border: 1px solid #555;
+            padding: 20px;
+            z-index: 1000;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #map-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #111;
+            border: 1px solid #555;
+            padding: 20px;
+            z-index: 1000;
+            max-width: 90vw;
+            max-height: 80vh;
+            overflow: auto;
+        }
+        #map-canvas {
+            display: block;
+            image-rendering: pixelated;
+            border: 1px solid #333;
+            background: #000;
+        }
+        .inventory-item {
+            margin: 5px 0;
+            cursor: pointer;
+        }
+        .inventory-item:hover {
+            background-color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="canvas" width="800" height="800" tabindex="0"></canvas>
+        <div id="info-panel">
+            <div id="stats"></div>
+            <div id="messages"></div>
+        </div>
+    </div>
+    <div id="inventory-modal">
+        <h3>Inventory</h3>
+        <div id="inventory-list"></div>
+        <button id="close-inventory">Close</button>
+    </div>
+    <div id="map-modal">
+        <h3>Map</h3>
+        <canvas id="map-canvas"></canvas>
+        <button id="close-map">Close</button>
+    </div>
+    <script src="constants.js"></script>
+    <script src="utils.js"></script>
+    <script src="tileset.js"></script>
+    <script src="fov.js"></script>
+    <script src="world.js"></script>
+    <script src="items.js"></script>
+    <script src="player.js"></script>
+    <script src="enemy.js"></script>
+    <script src="ui.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
