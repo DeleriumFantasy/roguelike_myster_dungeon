@@ -55,6 +55,34 @@ class Item {
         return this.properties.hiddenName || `unknown ${this.type}`;
     }
 
+    getQuantity() {
+        const quantity = Number(this.properties?.quantity);
+        return Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+    }
+
+    setQuantity(quantity) {
+        const nextQuantity = Number(quantity);
+        if (Number.isFinite(nextQuantity) && nextQuantity > 1) {
+            this.properties.quantity = Math.floor(nextQuantity);
+            return;
+        }
+
+        if (this.properties && Object.prototype.hasOwnProperty.call(this.properties, 'quantity')) {
+            delete this.properties.quantity;
+        }
+    }
+
+    createSingleUseClone() {
+        const clonedProperties = { ...this.properties };
+        if (Object.prototype.hasOwnProperty.call(clonedProperties, 'quantity')) {
+            delete clonedProperties.quantity;
+        }
+
+        const clonedItem = new Item(this.name, this.type, clonedProperties);
+        clonedItem.knowledgeState = this.knowledgeState;
+        return clonedItem;
+    }
+
     isCursed() {
         return Boolean(this.properties.cursed);
     }
@@ -86,20 +114,27 @@ class Item {
 
         const damage = Math.max(0, Number(this.properties.power || 0) + Number(this.properties.armor || 0));
         const healing = Math.max(0, Number(this.properties.health || 0) + Number(this.properties.hunger || 0));
+        const condition = this.properties.condition;
+        const configuredDuration = getConditionDuration(condition, 10);
+        const duration = Number(this.properties.duration ?? configuredDuration);
+        let actualDamage = damage;
 
         if (damage > 0 && typeof target.takeDamage === 'function') {
-            const actualDamage = target.takeDamage(damage);
+            actualDamage = target.takeDamage(damage) || 0;
             if (actualDamage > 0 && typeof target.onAttacked === 'function') {
                 target.onAttacked();
             }
-            return { damage: actualDamage || 0, healing };
         }
 
         if (healing > 0 && typeof target.heal === 'function') {
             target.heal(healing);
         }
 
-        return { damage, healing };
+        if (condition && typeof target.addCondition === 'function') {
+            target.addCondition(condition, duration);
+        }
+
+        return { damage: actualDamage || 0, healing };
     }
 
     equip(user) {

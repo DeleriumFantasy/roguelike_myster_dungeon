@@ -61,6 +61,7 @@ const ENEMY_TYPES = {
     FLOATING: 'floating',
     GHOST: 'ghost',
     VANDAL: 'vandal',
+    THIEF: 'thief',
     FUSER: 'fuser',
     PARIAH: 'pariah',
     CRAFTER: 'Crafter'
@@ -111,71 +112,74 @@ const CONDITION_RULES = {
         preventsDamage: true
     },
     [CONDITIONS.SATIATED]: {
-        duration: 10,
+        duration: Infinity,
         removeOnFloorChange: true,
         damageMultiplier: 1.25,
         preventsPassiveHungerLoss: true
     },
     [CONDITIONS.HUNGRY]: {
-        duration: 10,
+        duration: 5,
         tickHunger: -5
     }
 };
 
-const TRAP_DEFINITIONS = {
+const HAZARD_DEFINITIONS = {
     [HAZARD_TYPES.TRAP_SLOW]: {
+        category: 'trap',
         condition: CONDITIONS.SLOW,
         message: 'You trigger a slowing trap.',
         icon: 'S'
     },
     [HAZARD_TYPES.TRAP_SLEEP]: {
+        category: 'trap',
         condition: CONDITIONS.SLEEP,
         message: 'You trigger a sleep trap.',
         icon: 'Z'
     },
     [HAZARD_TYPES.TRAP_BLIND]: {
+        category: 'trap',
         condition: CONDITIONS.BLIND,
         message: 'You trigger a blinding trap.',
         icon: 'B'
     },
     [HAZARD_TYPES.TRAP_BOUND]: {
+        category: 'trap',
         condition: CONDITIONS.BOUND,
         message: 'You trigger a binding trap.',
-        icon: 'N'
+        icon: 'X'
     },
     [HAZARD_TYPES.TRAP_POISON]: {
+        category: 'trap',
         condition: CONDITIONS.POISONED,
         message: 'You trigger a poison trap.',
         icon: 'P'
-    }
-};
-
-const TILE_EFFECT_RULES = {
-    [TILE_TYPES.PIT]: {
-        damage: 5
     },
-    [TILE_TYPES.WATER]: {
-        damage: 5
-    },
-    [TILE_TYPES.SPIKE]: {
-        damage: 3,
-        enemyImmuneTypes: [ENEMY_TYPES.FLOATING, ENEMY_TYPES.GHOST]
-    },
-    [TILE_TYPES.LAVA]: {
-        damage: 7,
-        enemyImmuneTypes: [ENEMY_TYPES.FLOATING, ENEMY_TYPES.GHOST],
-        itemBurns: true
-    }
-};
-
-const HAZARD_EFFECT_RULES = {
     [HAZARD_TYPES.STEAM]: {
-        damage: 4,
+        category: 'effect',
+        damage: 5,
         spawnTile: TILE_TYPES.LAVA,
         generationChance: 0.2,
         activationChance: 0.08,
         dissipateChance: 0.18,
         message: 'Steam scalds you.'
+    }
+};
+
+/* When an enemy is part of the ENEMY_TILE_TRAVERSAL_RULES it automatically ignores the tile's effects */
+const TILE_EFFECT_RULES = {
+    [TILE_TYPES.SPIKE]: {
+        damage: 3,
+        enemyImmuneTypes: [ENEMY_TYPES.FLOATING, ENEMY_TYPES.GHOST]
+    },
+    [TILE_TYPES.PIT]: {
+        damage: 10,
+    },
+    [TILE_TYPES.WATER]: {
+        damage: 5,
+    },
+    [TILE_TYPES.LAVA]: {
+        damage: 10,
+        itemBurns: true
     }
 };
 
@@ -196,7 +200,7 @@ const ENEMY_TILE_TRAVERSAL_RULES = {
 
 function getConditionDuration(condition, fallback = 1) {
     const configuredDuration = CONDITION_RULES[condition]?.duration;
-    if (Number.isFinite(configuredDuration)) {
+    if (configuredDuration === Infinity || Number.isFinite(configuredDuration)) {
         return configuredDuration;
     }
 
@@ -243,11 +247,12 @@ function conditionPreventsPassiveHungerLoss(condition) {
 }
 
 function getTrapDefinition(trapType) {
-    return TRAP_DEFINITIONS[trapType] || null;
+    const definition = HAZARD_DEFINITIONS[trapType] || null;
+    return definition?.category === 'trap' ? definition : null;
 }
 
 function getTrapTypes() {
-    return Object.keys(TRAP_DEFINITIONS);
+    return Object.keys(HAZARD_DEFINITIONS).filter((hazardType) => HAZARD_DEFINITIONS[hazardType]?.category === 'trap');
 }
 
 function getTileEffectRule(tileType) {
@@ -255,7 +260,8 @@ function getTileEffectRule(tileType) {
 }
 
 function getHazardEffectRule(hazardType) {
-    return HAZARD_EFFECT_RULES[hazardType] || null;
+    const definition = HAZARD_DEFINITIONS[hazardType] || null;
+    return definition?.category === 'effect' ? definition : null;
 }
 
 function getEnvironmentalDamageForTile(tileType, fallback = 0) {
@@ -264,7 +270,7 @@ function getEnvironmentalDamageForTile(tileType, fallback = 0) {
 }
 
 function getEnvironmentalDamageForHazard(hazardType, fallback = 0) {
-    const damage = HAZARD_EFFECT_RULES[hazardType]?.damage;
+    const damage = getHazardEffectRule(hazardType)?.damage;
     return Number.isFinite(damage) ? damage : fallback;
 }
 
@@ -283,7 +289,9 @@ function canEnemyTypeTraverseTile(tileType, enemyTypes = []) {
 
 function isEnemyTypeImmuneToTileEffect(tileType, enemyTypes = []) {
     const immuneTypes = TILE_EFFECT_RULES[tileType]?.enemyImmuneTypes || [];
-    return immuneTypes.some((enemyType) => enemyTypes.includes(enemyType));
+    const traversalRequiredTypes = ENEMY_TILE_TRAVERSAL_RULES[tileType]?.requiredTypes || [];
+    const combinedImmuneTypes = [...new Set([...immuneTypes, ...traversalRequiredTypes])];
+    return combinedImmuneTypes.some((enemyType) => enemyTypes.includes(enemyType));
 }
 
 // Equipment slots
@@ -325,7 +333,8 @@ const AI_TYPES = {
 const AREA_TYPES = {
     DUNGEON: 'dungeon',
     SWAMP: 'swamp',
-    FLOATING: 'floating'
+    FLOATING: 'floating',
+    CATACOMBS: 'catacombs'
 };
 
 // Planned save system metadata.
@@ -344,6 +353,54 @@ const FEATURE_FLAGS = {
     TAMING_ALLIES: false,
     ALLY_EQUIPMENT: false,
     MAP_OVERLAY: false
+};
+
+const CATACOMBS_GENERATION_CONFIG = {
+    roomPlacementAttempts: 320,
+    minRoomCount: 16,
+    targetRoomCountRatio: 0.5,
+    roomMinSize: 4,
+    roomMaxSize: 8,
+    roomPadding: 1,
+    hallwayHazardChance: 0.2,
+    hallwayHazardTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER, TILE_TYPES.SPIKE]
+};
+
+const AREA_SELECTION_RULES = {
+    floatingModulo: 9,
+    floatingRemainder: 8,
+    swampModulo: 7,
+    swampRemainder: 5,
+    dungeonModulo: 5,
+    dungeonRemainder: 2
+};
+
+const ATTACK_VARIANCE = {
+    MIN: 0.875,
+    MAX: 1.125
+};
+
+// Total cumulative EXP needed to reach each level key.
+const PLAYER_LEVEL_TOTAL_EXP = {
+    2: 10,
+    3: 40,
+    4: 100,
+    5: 200,
+    6: 400,
+    7: 700,
+    8: 1000,
+    9: 1300,
+    10: 1800,
+    11: 2400,
+    12: 3000,
+    13: 3600,
+    14: 4000,
+    15: 4800,
+    16: 5600,
+    17: 6400,
+    18: 7400,
+    19: 8400,
+    20: 9900
 };
 
 // Game constants
@@ -380,8 +437,8 @@ const TILE_VISUALS = {
     [TILE_TYPES.PIT]: { color: COLORS.PIT, sprite: { x: 2, y: 0 }, icon: 'pit' },
     [TILE_TYPES.WATER]: { color: COLORS.WATER, sprite: { x: 3, y: 0 } },
     [TILE_TYPES.SPIKE]: { color: COLORS.SPIKE, sprite: { x: 4, y: 0 }, icon: 'spike' },
-    [TILE_TYPES.STAIRS_DOWN]: { color: COLORS.STAIRS, sprite: { x: 5, y: 0 }, glyph: '>' },
-    [TILE_TYPES.STAIRS_UP]: { color: COLORS.STAIRS, sprite: { x: 6, y: 0 }, glyph: '<' },
+    [TILE_TYPES.STAIRS_DOWN]: { color: COLORS.STAIRS, sprite: { x: 5, y: 0 }, glyph: '<' },
+    [TILE_TYPES.STAIRS_UP]: { color: COLORS.STAIRS, sprite: { x: 6, y: 0 }, glyph: '>' },
     [TILE_TYPES.LAVA]: { color: COLORS.LAVA, sprite: { x: 7, y: 0 }, icon: 'lava' }
 };
 
@@ -443,7 +500,64 @@ const AREA_GENERATION_RULES = {
         replacementRules: [
             { chance: 0.12, tile: TILE_TYPES.PIT }
         ]
+    },
+    [AREA_TYPES.CATACOMBS]: {
+        boundaryTile: TILE_TYPES.WALL,
+        baseTile: TILE_TYPES.WALL,
+        replacementRules: []
     }
+};
+
+const PREMADE_TERRAIN_LEGEND = {
+    '.': TILE_TYPES.FLOOR,
+    '~': TILE_TYPES.WATER,
+    L: TILE_TYPES.LAVA,
+    P: TILE_TYPES.PIT
+};
+
+const PREMADE_TERRAIN_SHAPES = {
+    island_2x2: {
+        rows: [
+            '~~~~',
+            '~..~',
+            '~..~',
+            '~~~~'
+        ]
+    },
+    lava_pool_3x2: {
+        rows: [
+            '.....',
+            '.LLL.',
+            '.LLL.',
+            '.....'
+        ]
+    },
+    pit_cross: {
+        rows: [
+            '..P..',
+            '.PPP.',
+            'PPPPP',
+            '.PPP.',
+            '..P..'
+        ]
+    }
+};
+
+const PREMADE_TERRAIN_PLACEMENT_RULES = {
+    [AREA_TYPES.DUNGEON]: [
+        { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.45 },
+        { shapeId: 'lava_pool_3x2', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.35 },
+        { shapeId: 'island_2x2', minFloor: 0, minCount: 1, maxCount: 3, chance: 0.9 }
+    ],
+    [AREA_TYPES.SWAMP]: [
+        { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.45 },
+        { shapeId: 'island_2x2', minFloor: 0, minCount: 1, maxCount: 3, chance: 0.9 }
+    ],
+    [AREA_TYPES.FLOATING]: [
+        { shapeId: 'island_2x2', minFloor: 0, minCount: 0, maxCount: 2, chance: 0.6 },
+        { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.4 }
+    ],
+    [AREA_TYPES.CATACOMBS]: []
 };
 
 const ENEMY_SPEED_MULTIPLIERS = {
@@ -482,66 +596,75 @@ const ENEMY_FAMILY_DEFINITIONS = {
         }
     },
     beast: {
-        defaults: { speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, health: 1, power: 1, armor: 1, exp: 1, fovRange: 10, tameThreshold: 1, spawnWeight: 3, minFloor: 0 },
+        defaults: { types: [ENEMY_TYPES.BEAST], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 10 },
         tiers: {
-            1: { key: 'beastTier1', displayName: 'Wolf', types: [ENEMY_TYPES.BEAST] },
-            2: { key: 'beastTier2', displayName: 'Wolf', types: [ENEMY_TYPES.BEAST] },
-            3: { key: 'beastTier3', displayName: 'Wolf', types: [ENEMY_TYPES.BEAST] },
-            4: { key: 'beastTier4', displayName: 'Wolf', types: [ENEMY_TYPES.BEAST] },
+            1: { key: 'beastTier1', displayName: 'Hyena', health: 15, power: 9, armor: 4, exp: 12, tameThreshold: 3, spawnWeight: 12, minFloor: 1},
+            2: { key: 'beastTier2', displayName: 'Wolf', health: 45, power: 23, armor: 10, exp: 27, tameThreshold: 4, spawnWeight: 8, minFloor: 3},
+            3: { key: 'beastTier3', displayName: 'Dire wolf', health: 85, power: 40, armor: 33, exp: 350, tameThreshold: 5, spawnWeight: 3, minFloor: 5},
+            4: { key: 'beastTier4', displayName: 'Lion', health: 185, power: 60, armor: 40, exp: 1350, tameThreshold: 6, spawnWeight: 1, minFloor: 7, speed: ENEMY_SPEEDS.FAST},
         }
     },
     aquatic: {
-        defaults: { speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, health: 1, power: 1, armor: 1, exp: 1, fovRange: 10, tameThreshold: 1, spawnWeight: 3, minFloor: 0 },
+        defaults: { types: [ENEMY_TYPES.AQUATIC], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 10 },
         tiers: {
-            1: { key: 'aquaticTier1', displayName: 'Fish', types: [ENEMY_TYPES.AQUATIC] },
-            2: { key: 'aquaticTier2', displayName: 'Fish', types: [ENEMY_TYPES.AQUATIC] },
-            3: { key: 'aquaticTier3', displayName: 'Fish', types: [ENEMY_TYPES.AQUATIC] },
-            4: { key: 'aquaticTier4', displayName: 'Fish', types: [ENEMY_TYPES.AQUATIC] },
+            1: { key: 'aquaticTier1', displayName: 'Large frog', health: 16, power: 8, armor: 3, exp: 14, tameThreshold: 3, spawnWeight: 10, minFloor: 1 },
+            2: { key: 'aquaticTier2', displayName: 'Snake', health: 40, power: 20, armor: 9, exp: 70, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
+            3: { key: 'aquaticTier3', displayName: 'Crocodile', health: 92, power: 38, armor: 22, exp: 360, tameThreshold: 5, spawnWeight: 4, minFloor: 5 },
+            4: { key: 'aquaticTier4', displayName: 'Hippo', health: 165, power: 58, armor: 34, exp: 1450, tameThreshold: 6, spawnWeight: 2, minFloor: 7 },
         }
     },
     floating: {
-        defaults: { speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, health: 1, power: 1, armor: 1, exp: 1, fovRange: 10, tameThreshold: 1, spawnWeight: 3, minFloor: 0 },
+        defaults: { types: [ENEMY_TYPES.FLOATING], speed: ENEMY_SPEEDS.FAST, aiType: AI_TYPES.WANDER, fovRange: 11 },
         tiers: {
-            1: { key: 'floatingTier1', displayName: 'Bird', types: [ENEMY_TYPES.FLOATING] },
-            2: { key: 'floatingTier2', displayName: 'Bird', types: [ENEMY_TYPES.FLOATING] },
-            3: { key: 'floatingTier3', displayName: 'Bird', types: [ENEMY_TYPES.FLOATING] },
-            4: { key: 'floatingTier4', displayName: 'Bird', types: [ENEMY_TYPES.FLOATING] },
+            1: { key: 'floatingTier1', displayName: 'Raven', health: 12, power: 9, armor: 2, exp: 16, tameThreshold: 3, spawnWeight: 9, minFloor: 1 },
+            2: { key: 'floatingTier2', displayName: 'Hawk', health: 34, power: 22, armor: 8, exp: 78, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
+            3: { key: 'floatingTier3', displayName: 'Giant Eagle', health: 74, power: 41, armor: 17, exp: 390, tameThreshold: 5, spawnWeight: 4, minFloor: 5 },
+            4: { key: 'floatingTier4', displayName: 'Roc', health: 135, power: 60, armor: 28, exp: 1500, tameThreshold: 6, spawnWeight: 2, minFloor: 7 },
         }
     },
     vandal: {
-        defaults: { speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, health: 1, power: 1, armor: 1, exp: 1, fovRange: 10, tameThreshold: 1, spawnWeight: 3, minFloor: 0 },
+        defaults: { types: [ENEMY_TYPES.VANDAL], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.CHASE, fovRange: 10 },
         tiers: {
-            1: { key: 'vandalTier1', displayName: 'Vandal', types: [ENEMY_TYPES.VANDAL] },
-            2: { key: 'vandalTier2', displayName: 'Vandal', types: [ENEMY_TYPES.VANDAL] },
-            3: { key: 'vandalTier3', displayName: 'Vandal', types: [ENEMY_TYPES.VANDAL] },
-            4: { key: 'vandalTier4', displayName: 'Vandal', types: [ENEMY_TYPES.VANDAL] },
+            1: { key: 'vandalTier1', displayName: 'Mischief maker', health: 18, power: 10, armor: 5, exp: 18, tameThreshold: 3, spawnWeight: 10, minFloor: 1 },
+            2: { key: 'vandalTier2', displayName: 'Ruffian', health: 48, power: 24, armor: 12, exp: 95, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
+            3: { key: 'vandalTier3', displayName: 'Scoundrel', health: 95, power: 44, armor: 24, exp: 430, tameThreshold: 5, spawnWeight: 4, minFloor: 5 },
+            4: { key: 'vandalTier4', displayName: 'Brute', health: 170, power: 65, armor: 36, exp: 1600, tameThreshold: 6, spawnWeight: 2, minFloor: 7 },
+        }
+    },
+    thief: {
+        defaults: { types: [ENEMY_TYPES.THIEF], speed: ENEMY_SPEEDS.FAST, aiType: AI_TYPES.CHASE, fovRange: 12 },
+        tiers: {
+            1: { key: 'thiefTier1', displayName: 'Pickpocket', health: 12, power: 9, armor: 3, exp: 15, tameThreshold: 3, spawnWeight: 9, minFloor: 1 },
+            2: { key: 'thiefTier2', displayName: 'Snatcher', health: 35, power: 21, armor: 9, exp: 80, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
+            3: { key: 'thiefTier3', displayName: 'Bandit', health: 70, power: 36, armor: 18, exp: 320, tameThreshold: 5, spawnWeight: 4, minFloor: 5 },
+            4: { key: 'thiefTier4', displayName: 'Master thief', health: 120, power: 55, armor: 28, exp: 1200, tameThreshold: 6, spawnWeight: 2, minFloor: 7 },
         }
     },
     fuser: {
-        defaults: { speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, health: 1, power: 1, armor: 1, exp: 1, fovRange: 10, tameThreshold: 1, spawnWeight: 3, minFloor: 0 },
+        defaults: { types: [ENEMY_TYPES.FUSER], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.PATROL, fovRange: 11 },
         tiers: {
-            1: { key: 'fuserTier1', displayName: 'Fuser', types: [ENEMY_TYPES.FUSER] },
-            2: { key: 'fuserTier2', displayName: 'Fuser', types: [ENEMY_TYPES.FUSER] },
-            3: { key: 'fuserTier3', displayName: 'Fuser', types: [ENEMY_TYPES.FUSER] },
-            4: { key: 'fuserTier4', displayName: 'Fuser', types: [ENEMY_TYPES.FUSER] },
+            1: { key: 'fuserTier1', displayName: 'Pixy', health: 17, power: 10, armor: 4, exp: 20, tameThreshold: 3, spawnWeight: 8, minFloor: 2 },
+            2: { key: 'fuserTier2', displayName: 'Boggart', health: 45, power: 25, armor: 11, exp: 105, tameThreshold: 4, spawnWeight: 6, minFloor: 4 },
+            3: { key: 'fuserTier3', displayName: 'Fae', health: 88, power: 43, armor: 23, exp: 500, tameThreshold: 5, spawnWeight: 4, minFloor: 6 },
+            4: { key: 'fuserTier4', displayName: 'Homunculus', health: 155, power: 62, armor: 34, exp: 1750, tameThreshold: 6, spawnWeight: 2, minFloor: 8 },
         }
     },
     pariah: {
-        defaults: { speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, health: 1, power: 1, armor: 1, exp: 1, fovRange: 10, tameThreshold: 1, spawnWeight: 3, minFloor: 0 },
+        defaults: { types: [ENEMY_TYPES.PARIAH], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.AMBUSH, fovRange: 11 },
         tiers: {
-            1: { key: 'pariahTier1', displayName: 'Pariah', types: [ENEMY_TYPES.PARIAH] },
-            2: { key: 'pariahTier2', displayName: 'Pariah', types: [ENEMY_TYPES.PARIAH] },
-            3: { key: 'pariahTier3', displayName: 'Pariah', types: [ENEMY_TYPES.PARIAH] },
-            4: { key: 'pariahTier4', displayName: 'Pariah', types: [ENEMY_TYPES.PARIAH] },
+            1: { key: 'pariahTier1', displayName: 'Leper', health: 14, power: 11, armor: 3, exp: 22, tameThreshold: 3, spawnWeight: 8, minFloor: 2 },
+            2: { key: 'pariahTier2', displayName: 'Reject', health: 42, power: 27, armor: 9, exp: 115, tameThreshold: 4, spawnWeight: 6, minFloor: 4 },
+            3: { key: 'pariahTier3', displayName: 'Outcast', health: 82, power: 46, armor: 20, exp: 540, tameThreshold: 5, spawnWeight: 4, minFloor: 6 },
+            4: { key: 'pariahTier4', displayName: 'Exile', health: 145, power: 66, armor: 31, exp: 1900, tameThreshold: 6, spawnWeight: 2, minFloor: 8 },
         }
     },
     crafter: {
-        defaults: { speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, health: 1, power: 1, armor: 1, exp: 1, fovRange: 10, tameThreshold: 1, spawnWeight: 3, minFloor: 0 },
+        defaults: { types: [ENEMY_TYPES.CRAFTER], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.GUARD, fovRange: 10 },
         tiers: {
-            1: { key: 'crafterTier1', displayName: 'Trapper', types: [ENEMY_TYPES.CRAFTER] },
-            2: { key: 'crafterTier2', displayName: 'Trapper', types: [ENEMY_TYPES.CRAFTER] },
-            3: { key: 'crafterTier3', displayName: 'Trapper', types: [ENEMY_TYPES.CRAFTER] },
-            4: { key: 'crafterTier4', displayName: 'Trapper', types: [ENEMY_TYPES.CRAFTER] },
+            1: { key: 'crafterTier1', displayName: 'Snarer', health: 20, power: 8, armor: 6, exp: 25, tameThreshold: 3, spawnWeight: 8, minFloor: 2 },
+            2: { key: 'crafterTier2', displayName: 'Trapper', health: 55, power: 22, armor: 16, exp: 130, tameThreshold: 4, spawnWeight: 6, minFloor: 4 },
+            3: { key: 'crafterTier3', displayName: 'Schemer', health: 100, power: 38, armor: 30, exp: 620, tameThreshold: 5, spawnWeight: 4, minFloor: 6 },
+            4: { key: 'crafterTier4', displayName: 'Illaqueator', health: 175, power: 54, armor: 44, exp: 2100, tameThreshold: 6, spawnWeight: 2, minFloor: 8 },
         }
     }
 };
@@ -577,6 +700,30 @@ function getAreaGenerationRule(areaType) {
     return AREA_GENERATION_RULES[areaType] || AREA_GENERATION_RULES[AREA_TYPES.DUNGEON];
 }
 
+function getCatacombsGenerationConfig() {
+    return CATACOMBS_GENERATION_CONFIG;
+}
+
+function getAreaSelectionRules() {
+    return AREA_SELECTION_RULES;
+}
+
+function getPremadeTerrainShape(shapeId) {
+    return PREMADE_TERRAIN_SHAPES[shapeId] || null;
+}
+
+function getPremadeTerrainLegend() {
+    return PREMADE_TERRAIN_LEGEND;
+}
+
+function getPremadeTerrainPlacementRules(areaType) {
+    return PREMADE_TERRAIN_PLACEMENT_RULES[areaType] || [];
+}
+
+function getPremadeTerrainPlacementRulesForFloor(areaType, floorIndex) {
+    return getWeightedEntriesForFloor(getPremadeTerrainPlacementRules(areaType), floorIndex);
+}
+
 function getEnemySpeedMultiplier(speed) {
     return ENEMY_SPEED_MULTIPLIERS[speed] ?? ENEMY_SPEED_MULTIPLIERS[ENEMY_SPEEDS.NORMAL];
 }
@@ -605,4 +752,116 @@ function getWeightedEntriesForFloor(entries, floorIndex) {
         const maxFloor = Number.isFinite(entry.maxFloor) ? entry.maxFloor : Infinity;
         return floorIndex >= minFloor && floorIndex <= maxFloor;
     });
+}
+
+function getSortedDefinedPlayerExpLevels() {
+    return Object.keys(PLAYER_LEVEL_TOTAL_EXP)
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value))
+        .sort((left, right) => left - right);
+}
+
+function getPlayerTotalExpForLevel(level) {
+    if (level <= 1) {
+        return 0;
+    }
+
+    if (Number.isFinite(PLAYER_LEVEL_TOTAL_EXP[level])) {
+        return PLAYER_LEVEL_TOTAL_EXP[level];
+    }
+
+    const definedLevels = getSortedDefinedPlayerExpLevels();
+    const highestDefinedLevel = definedLevels[definedLevels.length - 1];
+    if (!Number.isFinite(highestDefinedLevel)) {
+        return Math.max(0, level - 1) * 10;
+    }
+
+    const previousDefinedLevel = definedLevels.length > 1
+        ? definedLevels[definedLevels.length - 2]
+        : 1;
+    const highestDefinedTotal = PLAYER_LEVEL_TOTAL_EXP[highestDefinedLevel];
+    const previousDefinedTotal = previousDefinedLevel > 1
+        ? PLAYER_LEVEL_TOTAL_EXP[previousDefinedLevel]
+        : 0;
+
+    let stepRequirement = Math.max(1, highestDefinedTotal - previousDefinedTotal);
+    let total = highestDefinedTotal;
+    for (let nextLevel = highestDefinedLevel + 1; nextLevel <= level; nextLevel++) {
+        stepRequirement = Math.max(1, Math.floor(stepRequirement * 1.5));
+        total += stepRequirement;
+    }
+
+    return total;
+}
+
+function getExpRequiredForPlayerLevel(level) {
+    const targetTotal = getPlayerTotalExpForLevel(level);
+    const previousTotal = getPlayerTotalExpForLevel(level - 1);
+    const required = targetTotal - previousTotal;
+    return Number.isFinite(required) && required > 0 ? required : 10;
+}
+
+function getAttackVarianceMultiplier(randomFn = Math.random) {
+    const roll = typeof randomFn === 'function' ? randomFn() : Math.random();
+    const normalizedRoll = Number.isFinite(roll) ? clamp(roll, 0, 1) : Math.random();
+    return ATTACK_VARIANCE.MIN + (ATTACK_VARIANCE.MAX - ATTACK_VARIANCE.MIN) * normalizedRoll;
+}
+
+function calculateStandardAttackDamage(attackPower, randomFn = Math.random) {
+    const normalizedPower = Math.max(0, Number(attackPower) || 0);
+    const variance = getAttackVarianceMultiplier(randomFn);
+    return Math.max(1, Math.round(normalizedPower * variance) + 1);
+}
+
+function applyDamageToActor(actor, incomingDamage, defenseValue = 0) {
+    if (!actor) {
+        return 0;
+    }
+
+    const normalizedIncomingDamage = Math.max(0, Number(incomingDamage) || 0);
+    const normalizedDefense = Math.max(0, Number(defenseValue) || 0);
+    if (normalizedIncomingDamage <= 0) {
+        return 0;
+    }
+
+    const activeConditions = Array.from(actor.conditions?.keys?.() || []);
+    if (activeConditions.some((condition) => conditionPreventsDamage(condition))) {
+        return 0;
+    }
+
+    const mitigatedDamage = Math.max(1, normalizedIncomingDamage - normalizedDefense);
+    const nextHealth = actor.health - mitigatedDamage;
+    const fatalProtectionCondition = activeConditions.find((condition) => conditionSurvivesFatalDamage(condition));
+
+    if (nextHealth <= 0 && fatalProtectionCondition) {
+        const dealtDamage = Math.max(0, actor.health - 1);
+        actor.health = Math.max(1, actor.health - dealtDamage);
+        if (typeof actor.removeCondition === 'function') {
+            actor.removeCondition(fatalProtectionCondition);
+        } else if (actor.conditions instanceof Map) {
+            actor.conditions.delete(fatalProtectionCondition);
+        }
+        return dealtDamage;
+    }
+
+    actor.health = Math.max(0, nextHealth);
+    return Math.min(mitigatedDamage, actor.health + mitigatedDamage);
+}
+
+function applyStandardAttackToTarget(target, attackPower, randomFn = Math.random) {
+    if (!target) {
+        return 0;
+    }
+
+    const rolledDamage = calculateStandardAttackDamage(attackPower, randomFn);
+
+    const damage = typeof target.takeDamage === 'function'
+        ? target.takeDamage(rolledDamage)
+        : applyDamageToActor(target, rolledDamage);
+
+    if (damage > 0 && typeof target.onAttacked === 'function') {
+        target.onAttacked();
+    }
+
+    return damage || 0;
 }

@@ -30,10 +30,26 @@ class Game {
 
     initializeGame() {
         this.populateCurrentFloorIfNeeded();
+        this.spawnPlayerOnFloor();
         this.seedPlayerInventory();
 
         this.updateFOV();
         this.ui.render(this.world, this.player, this.fov);
+    }
+
+    spawnPlayerOnFloor() {
+        const grid = this.world.getCurrentFloor().grid;
+        const rng = new SeededRNG(this.seed + 999999);
+
+        for (let attempt = 0; attempt < 600; attempt++) {
+            const x = rng.randomInt(1, GRID_SIZE - 2);
+            const y = rng.randomInt(1, GRID_SIZE - 2);
+            if (grid[y][x] === TILE_TYPES.FLOOR) {
+                this.player.x = x;
+                this.player.y = y;
+                return;
+            }
+        }
     }
 
     populateCurrentFloorIfNeeded() {
@@ -540,34 +556,18 @@ class Game {
                 return false;
             }
 
-            // Pre-turn status tick
             this.player.tickConditions();
 
-            const throwResult = this.resolveThrow(input.item, input.dx, input.dy);
-            this.player.removeItem(input.item);
-            if (typeof input.item.identify === 'function') {
-                input.item.identify();
+            const thrownItem = this.player.dequeueThrowItem(input.item);
+            if (!thrownItem) {
+                return false;
             }
 
-            const itemLabel = typeof input.item.getDisplayName === 'function' ? input.item.getDisplayName() : input.item.name;
-            if (throwResult.type === 'hit') {
-                this.ui.addMessage(`${itemLabel} hits ${throwResult.enemy.name}.`);
-                if ((throwResult.damage || 0) > 0) {
-                    this.ui.addMessage(`${throwResult.enemy.name} takes ${throwResult.damage} throw damage.`);
-                }
-                if ((throwResult.healing || 0) > 0) {
-                    this.ui.addMessage(`${throwResult.enemy.name} recovers ${throwResult.healing} health from the throw.`);
-                }
-                this.ui.addMessage(`${itemLabel} shatters on impact.`);
-                if (throwResult.enemyDefeated) {
-                    this.ui.addMessage(`${throwResult.enemy.name} is defeated.`);
-                }
-            } else if (throwResult.type === 'burned') {
-                this.ui.addMessage(`${itemLabel} burns up in lava.`);
-            } else {
-                this.ui.addMessage(`${itemLabel} lands at ${throwResult.x}, ${throwResult.y}.`);
-            }
+            input.item.identify?.();
+            thrownItem.identify?.();
 
+            const throwResult = this.resolveThrow(thrownItem, input.dx, input.dy);
+            this.announceThrowResult(thrownItem, throwResult);
             this.clearFailedMoveRecord();
             return true;
         }
@@ -586,6 +586,20 @@ class Game {
 
             const targetX = this.player.x + attackDx;
             const targetY = this.player.y + attackDy;
+
+            if (typeof this.world.getTrap === 'function') {
+                const trapType = this.world.getTrap(targetX, targetY);
+                if (trapType && typeof this.world.revealTrap === 'function') {
+                    const alreadyRevealed = typeof this.world.isTrapRevealed === 'function'
+                        ? this.world.isTrapRevealed(targetX, targetY)
+                        : false;
+                    this.world.revealTrap(targetX, targetY);
+                    if (!alreadyRevealed) {
+                        this.ui.addMessage('You reveal a hidden trap.');
+                    }
+                }
+            }
+
             const enemyOnTarget = this.world.getEnemyAt(targetX, targetY);
 
             if (enemyOnTarget) {
@@ -737,6 +751,27 @@ class Game {
             x: dropX,
             y: dropY
         };
+    }
+
+    announceThrowResult(item, result) {
+        const label = typeof item.getDisplayName === 'function' ? item.getDisplayName() : item.name;
+        if (result.type === 'hit') {
+            this.ui.addMessage(`${label} hits ${result.enemy.name}.`);
+            if ((result.damage || 0) > 0) {
+                this.ui.addMessage(`${result.enemy.name} takes ${result.damage} throw damage.`);
+            }
+            if ((result.healing || 0) > 0) {
+                this.ui.addMessage(`${result.enemy.name} recovers ${result.healing} health from the throw.`);
+            }
+            this.ui.addMessage(`${label} shatters on impact.`);
+            if (result.enemyDefeated) {
+                this.ui.addMessage(`${result.enemy.name} is defeated.`);
+            }
+        } else if (result.type === 'burned') {
+            this.ui.addMessage(`${label} burns up in lava.`);
+        } else {
+            this.ui.addMessage(`${label} lands at ${result.x}, ${result.y}.`);
+        }
     }
 
     processEnemyTurns() {
@@ -991,6 +1026,9 @@ class Game {
                 x: this.player.x,
                 y: this.player.y,
                 facing: this.player.getFacingDirection(),
+                level: this.player.level,
+                exp: this.player.exp,
+                expToNextLevel: this.player.expToNextLevel,
                 health: this.player.health,
                 hunger: this.player.hunger,
                 conditions: Array.from(this.player.conditions.entries()),
@@ -1088,6 +1126,11 @@ class Game {
         if (data.player.facing) {
             this.player.setFacingDirection(data.player.facing.dx, data.player.facing.dy);
         }
+        this.player.level = Number.isFinite(data.player.level) ? data.player.level : this.player.level;
+        this.player.exp = Number.isFinite(data.player.exp) ? data.player.exp : this.player.exp;
+        this.player.expToNextLevel = Number.isFinite(data.player.expToNextLevel)
+            ? data.player.expToNextLevel
+            : this.player.getExpToNextLevel();
         this.player.health = data.player.health;
         this.player.hunger = data.player.hunger;
         this.player.conditions = new Map(data.player.conditions || []);

@@ -662,27 +662,12 @@ class Enemy {
     }
 
     takeDamage(amount) {
-        const activeConditions = Array.from(this.conditions.keys());
-        if (activeConditions.some((condition) => conditionPreventsDamage(condition))) {
-            return 0;
-        }
-
-        const actualDamage = Math.max(1, amount - this.getEffectiveArmor());
-        const nextHealth = this.health - actualDamage;
-        const fatalProtectionCondition = activeConditions.find((condition) => conditionSurvivesFatalDamage(condition));
-        if (nextHealth <= 0 && fatalProtectionCondition) {
-            const dealtDamage = Math.max(0, this.health - 1);
-            this.health = Math.max(1, this.health - dealtDamage);
-            this.conditions.delete(fatalProtectionCondition);
-            return dealtDamage;
-        }
-
-        this.health = Math.max(0, nextHealth);
+        const damageDealt = applyDamageToActor(this, amount, this.getEffectiveArmor());
         if (this.health <= 0) {
             // Drop items
             // Placeholder
         }
-        return Math.min(actualDamage, this.health + actualDamage);
+        return damageDealt;
     }
 
     heal(amount) {
@@ -700,6 +685,10 @@ class Enemy {
 
     addCondition(condition, duration = getConditionDuration(condition, 1)) {
         this.conditions.set(condition, duration);
+    }
+
+    hasCondition(condition) {
+        return this.conditions.has(condition);
     }
 
     onAttacked() {
@@ -730,15 +719,7 @@ class Enemy {
     }
 
     attackTarget(target) {
-        if (!target || typeof target.takeDamage !== 'function') {
-            return 0;
-        }
-
-        const damage = target.takeDamage(this.getAttackPower());
-        if (damage > 0 && typeof target.onAttacked === 'function') {
-            target.onAttacked();
-        }
-        return damage;
+        return applyStandardAttackToTarget(target, this.getAttackPower());
     }
 
     attackPlayer(player) {

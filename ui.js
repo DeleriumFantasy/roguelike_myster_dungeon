@@ -314,14 +314,15 @@ class UI {
 
     updateInfoPanel(player, world, fov) {
         const areaType = world.getAreaType(world.currentFloor);
+        const playerBlind = this.isActorBlind(player);
         const conditionEntries = Array.from(player.conditions.entries());
         const conditionText = conditionEntries.length > 0
             ? conditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
             : 'none';
         const visibleEnemyLines = [];
         for (const enemy of world.getEnemies()) {
-            const enemyInvisible = typeof enemy.hasCondition === 'function' && enemy.hasCondition(CONDITIONS.INVISIBLE);
-            if (enemyInvisible && !this.game.debugShowAllMonsters) continue;
+            if (!this.shouldRenderEnemy(enemy, (x, y) => fov && fov.isVisible(x, y))) continue;
+            if (playerBlind && !this.game.debugShowAllMonsters) continue;
             const isVisible = this.game.debugShowAllMonsters || (fov && fov.isVisible(enemy.x, enemy.y));
             if (!isVisible) continue;
             const aiState = enemy.lastResolvedAi || enemy.baseAiType || enemy.aiType || AI_TYPES.WANDER;
@@ -335,6 +336,8 @@ class UI {
         const statsDiv = this.infoPanel.querySelector('#stats');
         statsDiv.innerHTML = `
             <h3>Player Stats</h3>
+            <p>Level: ${player.level}</p>
+            <p>EXP: ${player.exp}/${player.expToNextLevel}</p>
             <p>Health: ${player.health}/${player.maxHealth}</p>
             <p>Hunger: ${player.hunger}/${player.maxHunger}</p>
             <p>Power: ${player.power}</p>
@@ -462,14 +465,51 @@ class UI {
         }
     }
 
+    getItemQuantity(item) {
+        if (!item) {
+            return 0;
+        }
+
+        if (typeof item.getQuantity === 'function') {
+            return item.getQuantity();
+        }
+
+        const quantity = Number(item.properties?.quantity);
+        return Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+    }
+
+    pluralizeItemLabel(label) {
+        const name = String(label || '').trim();
+        if (!name) {
+            return name;
+        }
+
+        if (/[^aeiou]y$/i.test(name)) {
+            return `${name.slice(0, -1)}ies`;
+        }
+
+        if (/(s|x|z|ch|sh)$/i.test(name)) {
+            return `${name}es`;
+        }
+
+        return `${name}s`;
+    }
+
     formatInventoryItemLabel(item) {
         const baseLabel = typeof item.getDisplayName === 'function' ? item.getDisplayName() : item.name;
         const identified = typeof item.isIdentified === 'function' ? item.isIdentified() : true;
         const cursed = typeof item.isCursed === 'function' ? item.isCursed() : Boolean(item?.properties?.cursed);
-        if (identified && cursed) {
-            return `${baseLabel} *cursed`;
+        const quantity = this.getItemQuantity(item);
+
+        let label = baseLabel;
+        if (item?.type === ITEM_TYPES.THROWABLE && quantity > 1) {
+            label = `${this.pluralizeItemLabel(baseLabel)} x${quantity}`;
         }
-        return baseLabel;
+
+        if (identified && cursed) {
+            return `${label} *cursed`;
+        }
+        return label;
     }
 
     getAvailableInventoryActions(item) {

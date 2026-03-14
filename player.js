@@ -11,7 +11,7 @@ class Player {
         this.maxHunger = 100;
         this.hunger = 100;
         this.turns = 0;
-        this.power = 5;
+        this.power = 1;
         this.armor = 0;
         this.conditions = new Map();
         this.equipment = new Map();
@@ -22,7 +22,8 @@ class Player {
         // EXP / level
         this.exp = 0;
         this.level = 1;
-        this.expToNextLevel = 50;
+        this.expToNextLevel = this.getExpToNextLevel();
+        this.updateStats();
     }
 
     move(dx, dy, world) {
@@ -82,35 +83,14 @@ class Player {
     }
 
     takeDamage(amount) {
-        const activeConditions = Array.from(this.conditions.keys());
-        if (activeConditions.some((condition) => conditionPreventsDamage(condition))) {
-            return 0;
-        }
-
-        const actualDamage = Math.max(1, amount - this.armor);
-        const nextHealth = this.health - actualDamage;
-        const fatalProtectionCondition = activeConditions.find((condition) => conditionSurvivesFatalDamage(condition));
-        if (nextHealth <= 0 && fatalProtectionCondition) {
-            const dealtDamage = Math.max(0, this.health - 1);
-            this.health = Math.max(1, this.health - dealtDamage);
-            this.removeCondition(fatalProtectionCondition);
-            return dealtDamage;
-        }
-
-        this.health = Math.max(0, nextHealth);
-        return Math.min(actualDamage, this.health + actualDamage);
+        return applyDamageToActor(this, amount, this.armor);
     }
 
     attackEnemy(enemy) {
         if (!enemy || !enemy.isAlive()) {
             return 0;
         }
-        const baseDamage = Math.max(1, this.power);
-        const damage = enemy.takeDamage(baseDamage);
-        if (damage > 0 && typeof enemy.onAttacked === 'function') {
-            enemy.onAttacked();
-        }
-        return damage;
+        return applyStandardAttackToTarget(enemy, this.power);
     }
 
     heal(amount) {
@@ -180,7 +160,8 @@ class Player {
 
     applyPerTurnRegen() {
         this.turns += 1;
-        this.heal(1);
+        const regenAmount = this.level >= 20 ? 3 : (this.level >= 10 ? 2 : 1);
+        this.heal(regenAmount);
         const preventsPassiveHungerLoss = Array.from(this.conditions.keys()).some((condition) => conditionPreventsPassiveHungerLoss(condition));
         if (this.turns % 5 === 0 && !preventsPassiveHungerLoss) {
             this.hunger = Math.max(0, this.hunger - 1);
@@ -243,7 +224,7 @@ class Player {
     }
 
     updateStats() {
-        this.power = 10;
+        this.power = Math.max(1, Number(this.level) || 1);
         this.armor = 0;
         for (const item of this.equipment.values()) {
             if (item.properties.power) this.power += item.properties.power;
@@ -251,8 +232,142 @@ class Player {
         }
     }
 
+    isStackableItem(item) {
+        return Boolean(item) && item.type === ITEM_TYPES.THROWABLE;
+    }
+
+    getItemQuantity(item) {
+        if (!item) {
+            return 0;
+        }
+
+        if (typeof item.getQuantity === 'function') {
+            return item.getQuantity();
+        }
+
+        const quantity = Number(item.properties?.quantity);
+        return Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+    }
+
+    setItemQuantity(item, quantity) {
+        if (!item) {
+            return;
+        }
+
+        if (typeof item.setQuantity === 'function') {
+            item.setQuantity(quantity);
+            return;
+        }
+
+        if (!item.properties) {
+            item.properties = {};
+        }
+
+        const nextQuantity = Number(quantity);
+        if (Number.isFinite(nextQuantity) && nextQuantity > 1) {
+            item.properties.quantity = Math.floor(nextQuantity);
+            return;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(item.properties, 'quantity')) {
+            delete item.properties.quantity;
+        }
+    }
+
+    getStackKey(item) {
+        if (!item) {
+            return null;
+        }
+
+        const properties = { ...(item.properties || {}) };
+        if (Object.prototype.hasOwnProperty.call(properties, 'quantity')) {
+            delete properties.quantity;
+        }
+
+        const orderedProperties = {};
+        Object.keys(properties).sort().forEach((key) => {
+            orderedProperties[key] = properties[key];
+        });
+
+        return `${item.type}|${item.name}|${item.knowledgeState || ''}|${JSON.stringify(orderedProperties)}`;
+    }
+
+    findMatchingThrowableStack(item) {
+        if (!this.isStackableItem(item)) {
+            return null;
+        }
+
+        const stackKey = this.getStackKey(item);
+        if (!stackKey) {
+            return null;
+        }
+
+        for (const existingItem of this.inventory) {
+            if (!this.isStackableItem(existingItem)) {
+                continue;
+            }
+
+            if (this.getStackKey(existingItem) === stackKey) {
+                return existingItem;
+            }
+        }
+
+        return null;
+    }
+
     addItem(item) {
+        if (!item) {
+            return;
+        }
+
+        if (this.isStackableItem(item)) {
+            const existingStack = this.findMatchingThrowableStack(item);
+            if (existingStack) {
+                const nextQuantity = this.getItemQuantity(existingStack) + this.getItemQuantity(item);
+                this.setItemQuantity(existingStack, nextQuantity);
+                return;
+            }
+
+            this.setItemQuantity(item, this.getItemQuantity(item));
+        }
+
         this.inventory.push(item);
+    }
+
+    dequeueThrowItem(item) {
+        if (!item) {
+            return null;
+        }
+
+        if (this.isStackableItem(item)) {
+            return this.consumeThrowableFromStack(item);
+        }
+
+        this.removeItem(item);
+        return item;
+    }
+
+    consumeThrowableFromStack(item) {
+        if (!item || !this.isStackableItem(item)) {
+            return null;
+        }
+
+        const currentQuantity = this.getItemQuantity(item);
+        if (currentQuantity <= 0) {
+            return null;
+        }
+
+        const thrownItem = typeof item.createSingleUseClone === 'function'
+            ? item.createSingleUseClone()
+            : item;
+
+        if (currentQuantity > 1) {
+            this.setItemQuantity(item, currentQuantity - 1);
+        } else {
+            this.removeItem(item);
+        }
+
+        return thrownItem;
     }
 
     addAlly(enemy) {
@@ -300,6 +415,23 @@ class Player {
         return Array.from(this.equipment.entries());
     }
 
+    getExpToNextLevel() {
+        return getExpRequiredForPlayerLevel(this.level + 1);
+    }
+
+    applyLevelUpRewards() {
+        this.maxHealth += 5;
+        this.health = this.maxHealth;
+        this.power += 1;
+    }
+
+    levelUpOnce() {
+        this.exp -= this.expToNextLevel;
+        this.level += 1;
+        this.expToNextLevel = this.getExpToNextLevel();
+        this.applyLevelUpRewards();
+    }
+
     addExp(amount) {
         if (typeof amount !== 'number' || amount <= 0) {
             return 0;
@@ -309,12 +441,7 @@ class Player {
         let levelUps = 0;
 
         while (this.exp >= this.expToNextLevel) {
-            this.exp -= this.expToNextLevel;
-            this.level += 1;
-            this.expToNextLevel = Math.floor(this.expToNextLevel * 1.5);
-            this.maxHealth += 5;
-            this.health = this.maxHealth;
-            this.power += 1;
+            this.levelUpOnce();
             levelUps += 1;
         }
 
