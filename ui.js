@@ -47,6 +47,19 @@ class UI {
     }
 
     renderTopDownScene(world, player, fov) {
+        if (this.isActorBlind(player)) {
+            this.renderPlayer(player);
+
+            if (this.game.debugShowAllMonsters) {
+                for (const enemy of world.getEnemies()) {
+                    if (!this.isInCameraBounds(enemy.x, enemy.y)) continue;
+                    this.renderEnemy(enemy);
+                }
+            }
+
+            return;
+        }
+
         const { minX, maxX, minY, maxY } = this.cameraBounds;
 
         for (let y = minY; y <= maxY; y++) {
@@ -71,6 +84,7 @@ class UI {
         // Render enemies
         for (const enemy of world.getEnemies()) {
             if (!this.isInCameraBounds(enemy.x, enemy.y)) continue;
+            if (!this.shouldRenderEnemy(enemy, (x, y) => fov.isVisible(x, y))) continue;
             if (fov.isVisible(enemy.x, enemy.y) || this.game.debugShowAllMonsters) {
                 this.renderEnemy(enemy);
             }
@@ -96,9 +110,9 @@ class UI {
                 destX = enemy.targetX;
                 destY = enemy.targetY;
                 color = enemy.aiType === AI_TYPES.WANDER ? 'cyan' : 'yellow';
-            } else if (enemy.lastPlayerPos) {
-                destX = enemy.lastPlayerPos.x;
-                destY = enemy.lastPlayerPos.y;
+            } else if (enemy.lastHostilePos) {
+                destX = enemy.lastHostilePos.x;
+                destY = enemy.lastHostilePos.y;
                 color = 'red';
             }
 
@@ -117,6 +131,7 @@ class UI {
 
     renderTile(x, y, world, fov) {
         const tile = world.getTile(x, y);
+        const overlays = this.getTileOverlayData(world, x, y);
 
         if (!fov.isVisible(x, y) && !fov.isExplored(x, y)) {
             // unexplored – draw nothing (black background)
@@ -132,6 +147,8 @@ class UI {
             screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE
         );
 
+        this.renderTileOverlays(this.ctx, overlays.hazard, overlays.trapType, overlays.trapRevealed, screenPos.x, screenPos.y, TILE_SIZE);
+
         // if fogged (explored but not visible) overlay grey
         if (!fov.isVisible(x, y) && fov.isExplored(x, y)) {
             this.ctx.fillStyle = COLORS.FOG_OVERLAY;
@@ -143,6 +160,37 @@ class UI {
         const screenPos = this.worldToTopDownScreen(player.x, player.y);
         this.ctx.fillStyle = COLORS.PLAYER;
         this.ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
+
+        const facing = typeof player.getFacingDirection === 'function'
+            ? player.getFacingDirection()
+            : (player.facing || { dx: 0, dy: -1 });
+        this.renderPlayerFacingArrow(screenPos.x, screenPos.y, facing);
+    }
+
+    renderPlayerFacingArrow(x, y, facing) {
+        const cx = x + TILE_SIZE / 2;
+        const cy = y + TILE_SIZE / 2;
+        const tip = TILE_SIZE * 0.38;
+        const wing = TILE_SIZE * 0.2;
+        const rawDx = Number(facing?.dx);
+        const rawDy = Number(facing?.dy);
+        const dx = Number.isFinite(rawDx) ? rawDx : 0;
+        const dy = Number.isFinite(rawDy) ? rawDy : -1;
+        const length = Math.hypot(dx, dy) || 1;
+        const ux = dx / length;
+        const uy = dy / length;
+        const px = -uy;
+        const py = ux;
+
+        this.ctx.fillStyle = '#111';
+        this.ctx.beginPath();
+
+        this.ctx.moveTo(cx + ux * tip, cy + uy * tip);
+        this.ctx.lineTo(cx - ux * wing + px * wing, cy - uy * wing + py * wing);
+        this.ctx.lineTo(cx - ux * wing - px * wing, cy - uy * wing - py * wing);
+
+        this.ctx.closePath();
+        this.ctx.fill();
     }
 
     renderEnemy(enemy) {
@@ -155,6 +203,76 @@ class UI {
         const screenPos = this.worldToTopDownScreen(x, y);
         this.ctx.fillStyle = COLORS.ITEM;
         this.ctx.fillRect(screenPos.x + 4, screenPos.y + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+    }
+
+    renderTileOverlays(ctx, hazard, trapType, trapRevealed, x, y, size) {
+        if (hazard === HAZARD_TYPES.STEAM) {
+            this.renderSteamOverlay(ctx, x, y, size);
+        }
+
+        if (trapType && trapRevealed) {
+            this.renderTrapOverlay(ctx, trapType, x, y, size);
+        }
+    }
+
+    renderSteamOverlay(ctx, x, y, size) {
+        ctx.fillStyle = COLORS.STEAM;
+        const centers = [
+            { x: x + size * 0.3, y: y + size * 0.35, r: size * 0.16 },
+            { x: x + size * 0.55, y: y + size * 0.28, r: size * 0.18 },
+            { x: x + size * 0.48, y: y + size * 0.55, r: size * 0.2 }
+        ];
+
+        for (const puff of centers) {
+            ctx.beginPath();
+            ctx.arc(puff.x, puff.y, puff.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    renderTrapOverlay(ctx, trapType, x, y, size) {
+        const icon = this.getTrapIcon(trapType);
+        if (!icon) {
+            return;
+        }
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
+        ctx.fillStyle = '#ffd166';
+        ctx.font = `bold ${Math.max(8, Math.floor(size * 0.55))}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icon, x + size / 2, y + size / 2);
+    }
+
+    getTrapIcon(trapType) {
+        return getTrapDefinition(trapType)?.icon || null;
+    }
+
+    isActorBlind(actor) {
+        return typeof actor?.hasCondition === 'function' && actor.hasCondition(CONDITIONS.BLIND);
+    }
+
+    isEnemyInvisible(enemy) {
+        return typeof enemy?.hasCondition === 'function' && enemy.hasCondition(CONDITIONS.INVISIBLE);
+    }
+
+    shouldRenderEnemy(enemy, isVisibleFn = () => true) {
+        if (this.isEnemyInvisible(enemy) && !this.game.debugShowAllMonsters) {
+            return false;
+        }
+        if (!this.game.debugShowAllMonsters && !isVisibleFn(enemy.x, enemy.y)) {
+            return false;
+        }
+        return true;
+    }
+
+    getTileOverlayData(world, x, y) {
+        return {
+            hazard: typeof world.getHazard === 'function' ? world.getHazard(x, y) : null,
+            trapType: typeof world.getTrap === 'function' ? world.getTrap(x, y) : null,
+            trapRevealed: typeof world.isTrapRevealed === 'function' ? world.isTrapRevealed(x, y) : false
+        };
     }
 
     getScreenCenter(tileX, tileY) {
@@ -194,29 +312,16 @@ class UI {
         };
     }
 
-    getTileColor(tileType) {
-        switch (tileType) {
-            case TILE_TYPES.WALL:
-                return COLORS.WALL;
-            case TILE_TYPES.PIT:
-                return COLORS.PIT;
-            case TILE_TYPES.WATER:
-                return COLORS.WATER;
-            case TILE_TYPES.SPIKE:
-                return COLORS.SPIKE;
-            case TILE_TYPES.STAIRS_DOWN:
-            case TILE_TYPES.STAIRS_UP:
-                return COLORS.STAIRS;
-            case TILE_TYPES.FLOOR:
-            default:
-                return COLORS.FLOOR;
-        }
-    }
-
     updateInfoPanel(player, world, fov) {
         const areaType = world.getAreaType(world.currentFloor);
+        const conditionEntries = Array.from(player.conditions.entries());
+        const conditionText = conditionEntries.length > 0
+            ? conditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
+            : 'none';
         const visibleEnemyLines = [];
         for (const enemy of world.getEnemies()) {
+            const enemyInvisible = typeof enemy.hasCondition === 'function' && enemy.hasCondition(CONDITIONS.INVISIBLE);
+            if (enemyInvisible && !this.game.debugShowAllMonsters) continue;
             const isVisible = this.game.debugShowAllMonsters || (fov && fov.isVisible(enemy.x, enemy.y));
             if (!isVisible) continue;
             const aiState = enemy.lastResolvedAi || enemy.baseAiType || enemy.aiType || AI_TYPES.WANDER;
@@ -234,6 +339,7 @@ class UI {
             <p>Hunger: ${player.hunger}/${player.maxHunger}</p>
             <p>Power: ${player.power}</p>
             <p>Armor: ${player.armor}</p>
+            <p>Conditions: ${conditionText}</p>
             <p>Floor: ${world.currentFloor + 1}</p>
             <p>Area: ${areaType}</p>
             <p>Allies: ${player.allies.length}</p>
@@ -346,8 +452,12 @@ class UI {
 
         if (choice === 'drop') {
             this.game.player.removeItem(item);
-            this.game.world.addItem(this.game.player.x, this.game.player.y, item);
-            this.addMessage(`Dropped ${itemLabel}`);
+            const dropResult = this.game.world.addItem(this.game.player.x, this.game.player.y, item);
+            if (dropResult?.burned) {
+                this.addMessage(`${itemLabel} burns up in lava.`);
+            } else {
+                this.addMessage(`Dropped ${itemLabel}`);
+            }
             this.openInventory(this.game.player);
         }
     }
@@ -363,21 +473,7 @@ class UI {
     }
 
     getAvailableInventoryActions(item) {
-        if (item && item.type === ITEM_TYPES.THROWABLE) {
-            return ['throw', 'drop'];
-        }
-        if (this.isEquipmentItem(item)) {
-            return ['equip', 'throw', 'drop'];
-        }
-        return ['use', 'throw', 'drop'];
-    }
-
-    isEquipmentItem(item) {
-        if (!item) return false;
-        return item.type === ITEM_TYPES.WEAPON ||
-            item.type === ITEM_TYPES.ARMOR ||
-            item.type === ITEM_TYPES.SHIELD ||
-            item.type === ITEM_TYPES.ACCESSORY;
+        return getInventoryActionsForItemType(item?.type);
     }
 
     promptForInventoryAction(itemLabel, actions) {
@@ -420,6 +516,14 @@ class UI {
 
         if (!this.mapCtx || !this.mapCanvas) return;
 
+        if (this.isActorBlind(player)) {
+            this.mapCtx.clearRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
+            const tileSize = this.mapTileSize;
+            this.mapCtx.fillStyle = COLORS.PLAYER;
+            this.mapCtx.fillRect(player.x * tileSize, player.y * tileSize, tileSize, tileSize);
+            return;
+        }
+
         const mapCtx = this.mapCtx;
         const mapFov = world.getCurrentFloor().fov;
         const floorMeta = world.getCurrentFloorMeta();
@@ -443,6 +547,9 @@ class UI {
                     x * tileSize, y * tileSize, tileSize, tileSize
                 );
 
+                const overlays = this.getTileOverlayData(world, x, y);
+                this.renderTileOverlays(mapCtx, overlays.hazard, overlays.trapType, overlays.trapRevealed, x * tileSize, y * tileSize, tileSize);
+
                 if (!visible) {
                     mapCtx.fillStyle = COLORS.FOG_OVERLAY;
                     mapCtx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
@@ -463,7 +570,7 @@ class UI {
         }
 
         for (const enemy of world.getEnemies()) {
-            if (!mapFov.isVisible(enemy.x, enemy.y) && !this.game.debugShowAllMonsters) {
+            if (!this.shouldRenderEnemy(enemy, (x, y) => mapFov.isVisible(x, y))) {
                 continue;
             }
             mapCtx.fillStyle = COLORS.ENEMY;

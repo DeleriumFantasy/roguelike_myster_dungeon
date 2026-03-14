@@ -43,7 +43,11 @@ function getNeighbors(x, y) {
         { x: x - 1, y: y },
         { x: x + 1, y: y },
         { x: x, y: y - 1 },
-        { x: x, y: y + 1 }
+        { x: x, y: y + 1 },
+        { x: x - 1, y: y - 1 },
+        { x: x + 1, y: y - 1 },
+        { x: x - 1, y: y + 1 },
+        { x: x + 1, y: y + 1 }
     ];
 }
 
@@ -78,17 +82,55 @@ function findNearestSafeTile(x, y, grid, floor) {
 
 function isSafeTile(x, y, grid) {
     const tile = grid[y][x];
-    return tile !== TILE_TYPES.PIT && tile !== TILE_TYPES.WATER && tile !== TILE_TYPES.SPIKE;
+    return tile !== TILE_TYPES.PIT && tile !== TILE_TYPES.WATER && tile !== TILE_TYPES.SPIKE && tile !== TILE_TYPES.LAVA;
 }
 
-function getDirection(dx, dy) {
-    if (dx === 0 && dy === -1) return 'north';
-    if (dx === 0 && dy === 1) return 'south';
-    if (dx === 1 && dy === 0) return 'east';
-    if (dx === -1 && dy === 0) return 'west';
-    if (dx === 1 && dy === -1) return 'northeast';
-    if (dx === -1 && dy === -1) return 'northwest';
-    if (dx === 1 && dy === 1) return 'southeast';
-    if (dx === -1 && dy === 1) return 'southwest';
-    return 'unknown';
+// Shared A* pathfinding. canTraverseFn(x, y, isGoal) returns true if the tile can be entered.
+function findPathAStar(startX, startY, goalX, goalY, canTraverseFn) {
+    const start = { x: startX, y: startY };
+    const goal = { x: goalX, y: goalY };
+    const openSet = [start];
+    const cameFrom = new Map();
+    const gScore = new Map();
+    const fScore = new Map();
+
+    gScore.set(`${start.x},${start.y}`, 0);
+    fScore.set(`${start.x},${start.y}`, distance(start.x, start.y, goal.x, goal.y));
+
+    while (openSet.length > 0) {
+        openSet.sort((a, b) => fScore.get(`${a.x},${a.y}`) - fScore.get(`${b.x},${b.y}`));
+        const current = openSet.shift();
+
+        if (current.x === goal.x && current.y === goal.y) {
+            const path = [current];
+            let node = current;
+            while (cameFrom.has(`${node.x},${node.y}`)) {
+                node = cameFrom.get(`${node.x},${node.y}`);
+                path.unshift(node);
+            }
+            return path;
+        }
+
+        for (const neighbor of getNeighbors(current.x, current.y)) {
+            const isGoal = neighbor.x === goal.x && neighbor.y === goal.y;
+            if (!canTraverseFn(neighbor.x, neighbor.y, isGoal)) {
+                continue;
+            }
+
+            const tentativeGScore = gScore.get(`${current.x},${current.y}`) + 1;
+            const neighborKey = `${neighbor.x},${neighbor.y}`;
+
+            if (!gScore.has(neighborKey) || tentativeGScore < gScore.get(neighborKey)) {
+                cameFrom.set(neighborKey, current);
+                gScore.set(neighborKey, tentativeGScore);
+                fScore.set(neighborKey, tentativeGScore + distance(neighbor.x, neighbor.y, goal.x, goal.y));
+
+                if (!openSet.some((n) => n.x === neighbor.x && n.y === neighbor.y)) {
+                    openSet.push(neighbor);
+                }
+            }
+        }
+    }
+
+    return null;
 }

@@ -5,6 +5,7 @@ class Player {
     constructor(x, y) {
         this.x = x;
         this.y = y;
+        this.facing = { dx: 0, dy: -1 };
         this.maxHealth = 20;
         this.health = 20;
         this.maxHunger = 100;
@@ -37,57 +38,67 @@ class Player {
         return false;
     }
 
+    setFacingDirection(dx, dy) {
+        const normalizedDx = Math.sign(dx);
+        const normalizedDy = Math.sign(dy);
+        if (normalizedDx === 0 && normalizedDy === 0) {
+            return;
+        }
+
+        this.facing = { dx: normalizedDx, dy: normalizedDy };
+    }
+
+    getFacingDirection() {
+        if (!this.facing || (this.facing.dx === 0 && this.facing.dy === 0)) {
+            return { dx: 0, dy: -1 };
+        }
+
+        return { dx: this.facing.dx, dy: this.facing.dy };
+    }
+
     checkHazards(world) {
         const tile = world.getTile(this.x, this.y);
         if (tile === TILE_TYPES.PIT || tile === TILE_TYPES.WATER) {
-            this.takeDamage(5);
-            const safePos = findNearestSafeTile(this.x, this.y, world.getCurrentFloor().grid, world.currentFloor);
-            this.x = safePos.x;
-            this.y = safePos.y;
-            if (tile === TILE_TYPES.PIT && world.currentFloor > 0) {
-                // Save the pit location before ascending
-                const pitX = this.x;
-                const pitY = this.y;
-                world.ascendFloor();
-                // Find nearest safe tile to the pit's x,y on the previous floor
-                const safePosPrevFloor = findNearestSafeTile(pitX, pitY, world.getCurrentFloor().grid, world.currentFloor);
-                this.x = safePosPrevFloor.x;
-                this.y = safePosPrevFloor.y;
-            }
-        } else if (tile === TILE_TYPES.SPIKE) {
-            this.takeDamage(3);
-        } else if (tile === TILE_TYPES.STAIRS_DOWN) {
-            world.descendFloor();
-            // Find up stairs on new floor
-            let found = false;
-            for (let y = 0; y < GRID_SIZE && !found; y++) {
-                for (let x = 0; x < GRID_SIZE && !found; x++) {
-                    if (world.getTile(x, y) === TILE_TYPES.STAIRS_UP) {
-                        this.x = x;
-                        this.y = y;
-                        found = true;
-                    }
-                }
-            }
-        } else if (tile === TILE_TYPES.STAIRS_UP && world.currentFloor > 0) {
-            world.ascendFloor();
-            // Find down stairs on previous floor
-            let found = false;
-            for (let y = 0; y < GRID_SIZE && !found; y++) {
-                for (let x = 0; x < GRID_SIZE && !found; x++) {
-                    if (world.getTile(x, y) === TILE_TYPES.STAIRS_DOWN) {
-                        this.x = x;
-                        this.y = y;
-                        found = true;
-                    }
-                }
-            }
+            this.takeDamage(getEnvironmentalDamageForTile(tile, 5));
+        }
+
+        world.resolvePlayerHazardTransition(this, tile);
+        this.applyEnvironmentEffects(world);
+    }
+
+    applyEnvironmentEffects(world) {
+        const tile = world.getTile(this.x, this.y);
+        const hazard = typeof world.getHazard === 'function' ? world.getHazard(this.x, this.y) : null;
+        const tileDamage = getEnvironmentalDamageForTile(tile, 0);
+        const hazardDamage = getEnvironmentalDamageForHazard(hazard, 0);
+
+        if (tileDamage > 0 && tile !== TILE_TYPES.PIT && tile !== TILE_TYPES.WATER) {
+            this.takeDamage(tileDamage);
+        }
+
+        if (hazardDamage > 0) {
+            this.takeDamage(hazardDamage);
         }
     }
 
     takeDamage(amount) {
+        const activeConditions = Array.from(this.conditions.keys());
+        if (activeConditions.some((condition) => conditionPreventsDamage(condition))) {
+            return 0;
+        }
+
         const actualDamage = Math.max(1, amount - this.armor);
-        this.health = Math.max(0, this.health - actualDamage);
+        const nextHealth = this.health - actualDamage;
+        const fatalProtectionCondition = activeConditions.find((condition) => conditionSurvivesFatalDamage(condition));
+        if (nextHealth <= 0 && fatalProtectionCondition) {
+            const dealtDamage = Math.max(0, this.health - 1);
+            this.health = Math.max(1, this.health - dealtDamage);
+            this.removeCondition(fatalProtectionCondition);
+            return dealtDamage;
+        }
+
+        this.health = Math.max(0, nextHealth);
+        return Math.min(actualDamage, this.health + actualDamage);
     }
 
     attackEnemy(enemy) {
@@ -95,8 +106,11 @@ class Player {
             return 0;
         }
         const baseDamage = Math.max(1, this.power);
-        enemy.takeDamage(baseDamage);
-        return baseDamage;
+        const damage = enemy.takeDamage(baseDamage);
+        if (damage > 0 && typeof enemy.onAttacked === 'function') {
+            enemy.onAttacked();
+        }
+        return damage;
     }
 
     heal(amount) {
@@ -107,8 +121,16 @@ class Player {
         this.hunger = Math.min(this.maxHunger, this.hunger + amount);
     }
 
-    addCondition(condition, duration = 1) {
+    addCondition(condition, duration = getConditionDuration(condition, 1)) {
         this.conditions.set(condition, duration);
+    }
+
+    onAttacked() {
+        for (const condition of [...this.conditions.keys()]) {
+            if (shouldRemoveConditionOnAttacked(condition)) {
+                this.removeCondition(condition);
+            }
+        }
     }
 
     removeCondition(condition) {
@@ -125,14 +147,18 @@ class Player {
 
     tickConditions() {
         for (const [condition, duration] of this.conditions) {
-            switch (condition) {
-                case CONDITIONS.POISONED:
-                    this.takeDamage(2);
-                    break;
-                case CONDITIONS.HUNGRY:
-                    this.hunger = Math.max(0, this.hunger - 5);
-                    break;
+            const tickDamage = getConditionTickDamage(condition, 0);
+            const tickHunger = getConditionTickHunger(condition, 0);
+            const preventsPassiveHungerLoss = Array.from(this.conditions.keys()).some((activeCondition) => conditionPreventsPassiveHungerLoss(activeCondition));
+
+            if (tickDamage > 0) {
+                this.takeDamage(tickDamage);
             }
+
+            if (tickHunger !== 0 && !(tickHunger < 0 && preventsPassiveHungerLoss)) {
+                this.hunger = clamp(this.hunger + tickHunger, 0, this.maxHunger);
+            }
+
             if (duration > 1) {
                 this.conditions.set(condition, duration - 1);
             } else {
@@ -141,10 +167,22 @@ class Player {
         }
     }
 
+    getTempoMultiplier() {
+        let multiplier = 1;
+        if (this.hasCondition(CONDITIONS.HASTE)) {
+            multiplier *= 0.5;
+        }
+        if (this.hasCondition(CONDITIONS.SLOW)) {
+            multiplier *= 2;
+        }
+        return multiplier;
+    }
+
     applyPerTurnRegen() {
         this.turns += 1;
         this.heal(1);
-        if (this.turns % 5 === 0) {
+        const preventsPassiveHungerLoss = Array.from(this.conditions.keys()).some((condition) => conditionPreventsPassiveHungerLoss(condition));
+        if (this.turns % 5 === 0 && !preventsPassiveHungerLoss) {
             this.hunger = Math.max(0, this.hunger - 1);
             return true;
         }

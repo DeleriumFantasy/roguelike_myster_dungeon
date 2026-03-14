@@ -1,52 +1,7 @@
 // Main game class
 console.log('game.js loaded');
 
-const ENEMY_TEMPLATES = {
-    goblinTier1: {
-        displayName: 'Goblin',
-        aiType: AI_TYPES.WANDER,
-        health: 8,
-        power: 3,
-        armor: 4,
-        exp: 2,
-        fovRange: 9,
-        tameThreshold: 3
-    },
-    goblinTier2: {
-        displayName: 'Goblin',
-        aiType: AI_TYPES.WANDER,
-        health: 45,
-        power: 5,
-        armor: 0,
-        exp: 14,
-        fovRange: 9,
-        tameThreshold: 3
-    },
-    goblinTier3: {
-        displayName: 'Goblin',
-        aiType: AI_TYPES.WANDER,
-        health: 20,
-        power: 5,
-        armor: 0,
-        exp: 19,
-        fovRange: 9,
-        tameThreshold: 3
-    },
-
-
-
-    ghost: {
-        displayName: 'Ghost',
-        aiType: AI_TYPES.AMBUSH,
-        health: 16,
-        power: 6,
-        armor: 0,
-        exp: 18,
-        fovRange: 11,
-        tameThreshold: 5
-    }
-};
-
+const ENEMY_TEMPLATES = buildEnemyTemplates();
 
 class Game {
     constructor() {
@@ -63,11 +18,11 @@ class Game {
         this.fov = null; // will be set per floor
         this.isGameOver = false;
         this.lastFailedMove = null;
-        this.awaitingThrowDirection = false;
-        this.pendingThrowItem = null;
         this.inventoryOpen = false;
         this.debugShowAllMonsters = false;
         this.lastSaveTimestamp = null;
+        this.pressedMoveKeys = new Set();
+        this.pendingMoveTimer = null;
 
         this.setupEventListeners();
         this.initializeGame();
@@ -110,23 +65,63 @@ class Game {
 
     spawnEnemiesForCurrentFloor(rng, floorIndex = this.world.currentFloor) {
         const enemyCount = this.getEnemySpawnCountForFloor(floorIndex);
-        const enemyTypes = Object.keys(ENEMY_TEMPLATES);
+        const enemyEntries = this.getEnemySpawnEntriesForFloor(floorIndex);
         for (let i = 0; i < enemyCount; i++) {
-            const spawn = this.world.findRandomOpenTile(rng, this.player);
+            const chosenEntry = this.chooseWeightedEntry(rng, enemyEntries);
+            if (!chosenEntry) {
+                continue;
+            }
+
+            const enemyTypeKey = chosenEntry.key;
+            const template = ENEMY_TEMPLATES[enemyTypeKey];
+            const enemy = this.createEnemyForType(0, 0, enemyTypeKey, floorIndex);
+            const spawn = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
             if (!spawn) {
                 console.warn('Could not find open tile for enemy spawn');
                 continue;
             }
-            const enemyTypeKey = enemyTypes[rng.randomInt(0, enemyTypes.length - 1)];
-            const template = ENEMY_TEMPLATES[enemyTypeKey];
-            const enemy = this.createEnemyForType(spawn.x, spawn.y, enemyTypeKey, floorIndex);
+            enemy.x = spawn.x;
+            enemy.y = spawn.y;
             this.world.addEnemy(enemy);
             console.log(`Created ${template.displayName} (${enemyTypeKey}) at (${spawn.x}, ${spawn.y}) with AI type: ${enemy.aiType}`);
         }
     }
 
+    getEnemySpawnEntriesForFloor(floorIndex) {
+        const entries = Object.entries(ENEMY_TEMPLATES).map(([key, template]) => ({
+            key,
+            weight: template.spawnWeight || 1,
+            minFloor: template.minFloor,
+            maxFloor: template.maxFloor
+        }));
+        return getWeightedEntriesForFloor(entries, floorIndex);
+    }
+
+    chooseWeightedEntry(rng, entries) {
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return null;
+        }
+
+        const totalWeight = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.weight) || 0), 0);
+        if (totalWeight <= 0) {
+            return entries[0] || null;
+        }
+
+        let roll = (typeof rng?.next === 'function' ? rng.next() : Math.random()) * totalWeight;
+        for (const entry of entries) {
+            roll -= Math.max(0, Number(entry.weight) || 0);
+            if (roll <= 0) {
+                return entry;
+            }
+        }
+
+        return entries[entries.length - 1] || null;
+    }
+
     createEnemyForType(x, y, enemyTypeKey, floorIndex = this.world.currentFloor) {
-        const template = ENEMY_TEMPLATES[enemyTypeKey] || ENEMY_TEMPLATES.goblinTier1;
+        const templateKeys = Object.keys(ENEMY_TEMPLATES);
+        const fallbackTemplate = ENEMY_TEMPLATES[templateKeys[0]];
+        const template = ENEMY_TEMPLATES[enemyTypeKey] || fallbackTemplate;
         const depth = Math.max(0, floorIndex);
 
         const scaledStats = {
@@ -136,7 +131,9 @@ class Game {
             exp: template.exp + depth * 2,
             fovRange: template.fovRange,
             tameThreshold: template.tameThreshold,
-            monsterType: enemyTypeKey
+            monsterType: enemyTypeKey,
+            creatureTypes: template.types,
+            speed: template.speed
         };
 
         return new Enemy(x, y, template.displayName, template.aiType, scaledStats);
@@ -161,13 +158,13 @@ class Game {
 
     createRandomItemForFloor(rng, floorIndex = this.world.currentFloor) {
         const tier = this.rollItemTierForFloor(floorIndex, rng);
-        const tierFactories = this.getItemFactoriesForTier(tier);
-        if (tierFactories.length === 0) {
+        const tierEntries = getWeightedItemEntriesForTier(tier);
+        const chosenEntry = this.chooseWeightedEntry(rng, tierEntries);
+        if (!chosenEntry || typeof chosenEntry.create !== 'function') {
             return null;
         }
 
-        const factory = tierFactories[rng.randomInt(0, tierFactories.length - 1)];
-        const item = factory();
+        const item = chosenEntry.create();
         return applyWorldCurseRoll(item, rng);
     }
 
@@ -183,67 +180,13 @@ class Game {
         return baseTier;
     }
 
-    getItemFactoriesForTier(tier) {
-        const normalizedTier = clamp(tier, 1, 4);
-        const accessoryTier = Math.min(normalizedTier, 2);
-
-        switch (normalizedTier) {
-            case 4:
-                return [
-                    createHealingTier4,
-                    createFoodTier4,
-                    createThrowableTier4,
-                    createWeaponTier4,
-                    createArmorTier4,
-                    createShieldTier4,
-                    accessoryTier === 2 ? createAccessoryAttackTier2 : createAccessoryAttackTier1,
-                    accessoryTier === 2 ? createAccessoryDefenseTier2 : createAccessoryDefenseTier1
-                ];
-            case 3:
-                return [
-                    createHealingTier3,
-                    createFoodTier3,
-                    createThrowableTier3,
-                    createWeaponTier3,
-                    createArmorTier3,
-                    createShieldTier3,
-                    accessoryTier === 2 ? createAccessoryAttackTier2 : createAccessoryAttackTier1,
-                    accessoryTier === 2 ? createAccessoryDefenseTier2 : createAccessoryDefenseTier1
-                ];
-            case 2:
-                return [
-                    createHealingTier2,
-                    createFoodTier2,
-                    createThrowableTier2,
-                    createWeaponTier2,
-                    createArmorTier2,
-                    createShieldTier2,
-                    createAccessoryAttackTier2,
-                    createAccessoryDefenseTier2
-                ];
-            case 1:
-            default:
-                return [
-                    createHealingTier1,
-                    createFoodTier1,
-                    createThrowableTier1,
-                    createWeaponTier1,
-                    createArmorTier1,
-                    createShieldTier1,
-                    createAccessoryAttackTier1,
-                    createAccessoryDefenseTier1
-                ];
-        }
-    }
-
     seedPlayerInventory() {
-        this.player.addItem(createHealingTier1());
-        this.player.addItem(createFoodTier1());
-        this.player.addItem(createThrowableTier1());
-        this.player.addItem(createWeaponTier1());
-        this.player.addItem(createShieldTier1());
-        this.player.addItem(createArmorTier1());
-        this.player.addItem(createAccessoryDefenseTier1());
+        const starterItems = [
+            ...createTieredStarterItems(),
+            ...createAllStatusConsumables()
+        ];
+
+        starterItems.forEach((item) => this.player.addItem(item));
     }
 
     setupEventListeners() {
@@ -251,30 +194,44 @@ class Game {
             const key = e.key;
             const lowerKey = key.toLowerCase();
 
-            if (this.awaitingThrowDirection) {
-                const handledThrow = this.handleThrowDirectionInput(key, lowerKey);
-                if (handledThrow) {
-                    e.preventDefault();
-                }
-                return;
-            }
-
             if (this.inventoryOpen && key !== 'Escape') return;
             if (this.ui.mapOpen && key !== 'Escape' && lowerKey !== 'm') return;
 
+            const normalizedMoveKey = normalizeMoveInputKey(key, lowerKey);
+            if (normalizedMoveKey) {
+                const wasPressed = this.pressedMoveKeys.has(normalizedMoveKey);
+                this.pressedMoveKeys.add(normalizedMoveKey);
+                if (wasPressed) {
+                    e.preventDefault();
+                    return;
+                }
+
+                const moveDirection = this.getDirectionFromPressedKeys();
+                if (!moveDirection) {
+                    e.preventDefault();
+                    return;
+                }
+
+                if (e.shiftKey) {
+                    this.lookTowards(moveDirection.dx, moveDirection.dy);
+                } else {
+                    this.queueCombinedMoveFromPressedKeys();
+                }
+                e.preventDefault();
+                return;
+            }
+
+            const lookDirection = this.getDirectionFromKey(key, lowerKey);
+            if (e.shiftKey && lookDirection) {
+                this.lookTowards(lookDirection.dx, lookDirection.dy);
+                e.preventDefault();
+                return;
+            }
+
             let handled = true;
             switch (key) {
-                case 'ArrowUp':
-                    this.handleMoveInput(0, -1);
-                    break;
-                case 'ArrowDown':
-                    this.handleMoveInput(0, 1);
-                    break;
-                case 'ArrowLeft':
-                    this.handleMoveInput(-1, 0);
-                    break;
-                case 'ArrowRight':
-                    this.handleMoveInput(1, 0);
+                case ' ':
+                    this.handleFacingAttackInput();
                     break;
                 case 'Escape':
                     if (this.inventoryOpen) {
@@ -293,8 +250,18 @@ class Game {
             }
         };
 
+        const handleKeyUp = (e) => {
+            const key = e.key;
+            const lowerKey = key.toLowerCase();
+            const normalizedMoveKey = normalizeMoveInputKey(key, lowerKey);
+            if (normalizedMoveKey) {
+                this.pressedMoveKeys.delete(normalizedMoveKey);
+            }
+        };
+
         // use document listener only; canvas focus not strictly required now
         document.addEventListener('keydown', handleKey);
+        document.addEventListener('keyup', handleKeyUp);
 
         document.getElementById('close-inventory').addEventListener('click', () => {
             this.ui.closeInventory();
@@ -307,107 +274,109 @@ class Game {
         });
     }
 
-    handleThrowDirectionInput(key, lowerKey) {
-        if (key === 'Escape') {
-            this.cancelThrowMode();
-            return true;
+    queueCombinedMoveFromPressedKeys() {
+        if (this.pendingMoveTimer !== null) {
+            return;
         }
 
-        const direction = this.getDirectionFromKey(key, lowerKey);
-        if (!direction) {
-            return false;
+        this.pendingMoveTimer = window.setTimeout(() => {
+            this.pendingMoveTimer = null;
+
+            const moveDirection = this.getDirectionFromPressedKeys();
+            if (!moveDirection) {
+                return;
+            }
+
+            this.handleMoveInput(moveDirection.dx, moveDirection.dy);
+        }, 40);
+    }
+
+    lookTowards(dx, dy) {
+        if (typeof this.player.setFacingDirection === 'function') {
+            this.player.setFacingDirection(dx, dy);
+        } else {
+            this.player.facing = { dx, dy };
         }
 
-        const throwItem = this.pendingThrowItem;
-        this.pendingThrowItem = null;
-        this.awaitingThrowDirection = false;
+        this.ui.render(this.world, this.player, this.fov);
+    }
+
+    handleFacingAttackInput() {
+        const facing = typeof this.player.getFacingDirection === 'function'
+            ? this.player.getFacingDirection()
+            : (this.player.facing || { dx: 0, dy: -1 });
 
         this.performTurn({
-            type: 'throw',
-            item: throwItem,
-            dx: direction.dx,
-            dy: direction.dy
+            type: 'attack',
+            dx: facing.dx,
+            dy: facing.dy
         });
-        return true;
     }
 
     getDirectionFromKey(key, lowerKey) {
-        switch (key) {
-            case 'ArrowUp':
-                return { dx: 0, dy: -1 };
-            case 'ArrowDown':
-                return { dx: 0, dy: 1 };
-            case 'ArrowLeft':
-                return { dx: -1, dy: 0 };
-            case 'ArrowRight':
-                return { dx: 1, dy: 0 };
-            default:
-                break;
+        return getDirectionForInputKey(key, lowerKey);
+    }
+
+    getDirectionFromPressedKeys() {
+        let dx = 0;
+        let dy = 0;
+
+        for (const pressedKey of this.pressedMoveKeys) {
+            const direction = getDirectionForInputKey(pressedKey, pressedKey);
+            if (!direction) {
+                continue;
+            }
+            dx += direction.dx;
+            dy += direction.dy;
         }
 
-        switch (lowerKey) {
-            case 'w':
-                return { dx: 0, dy: -1 };
-            case 's':
-                return { dx: 0, dy: 1 };
-            case 'a':
-                return { dx: -1, dy: 0 };
-            case 'd':
-                return { dx: 1, dy: 0 };
-            default:
-                return null;
+        dx = Math.sign(dx);
+        dy = Math.sign(dy);
+        if (dx === 0 && dy === 0) {
+            return null;
         }
+
+        return { dx, dy };
     }
 
     beginThrowMode(item) {
         if (!item) return;
-        this.awaitingThrowDirection = true;
-        this.pendingThrowItem = item;
-        this.ui.addMessage('Choose throw direction (WASD or arrows). Press Escape to cancel.');
-    }
 
-    cancelThrowMode() {
-        this.awaitingThrowDirection = false;
-        this.pendingThrowItem = null;
-        this.ui.addMessage('Throw cancelled.');
+        const facing = typeof this.player.getFacingDirection === 'function'
+            ? this.player.getFacingDirection()
+            : (this.player.facing || { dx: 0, dy: -1 });
+
+        this.performTurn({
+            type: 'throw',
+            item,
+            dx: facing.dx,
+            dy: facing.dy
+        });
     }
 
     handleLetterKey(lowerKey) {
-        switch (lowerKey) {
-            case 'w':
-                this.handleMoveInput(0, -1);
-                return true;
-            case 's':
-                this.handleMoveInput(0, 1);
-                return true;
-            case 'a':
-                this.handleMoveInput(-1, 0);
-                return true;
-            case 'd':
-                this.handleMoveInput(1, 0);
-                return true;
-            case 'i':
+        const action = getInputActionForKey(lowerKey);
+        switch (action) {
+            case 'open-inventory':
                 this.ui.openInventory(this.player);
                 this.inventoryOpen = true;
                 return true;
-            case 'm':
+            case 'toggle-map':
                 this.ui.toggleMap(this.world, this.player);
                 return true;
-            case 'k':
+            case 'quick-save':
                 this.quickSave();
                 return true;
-            case 'l':
+            case 'quick-load':
                 this.quickLoad();
                 return true;
-            case 't':
+            case 'tame-nearest':
                 this.tryTameNearestEnemy();
                 return true;
-            case 'v':
-                // DEBUG: reveal all tiles
+            case 'debug-reveal-fov':
                 this.fov.revealAll();
                 return true;
-            case 'b':
-                // DEBUG: toggle show all monsters
+            case 'debug-toggle-monsters':
                 this.debugShowAllMonsters = !this.debugShowAllMonsters;
                 console.log(`Show all monsters: ${this.debugShowAllMonsters}`);
                 return true;
@@ -417,6 +386,8 @@ class Game {
     }
 
     handleMoveInput(dx, dy) {
+        this.lookTowards(dx, dy);
+
         const moveInput = { type: 'move', dx, dy };
         if (this.shouldDropRepeatedFailedMove(moveInput)) {
             return;
@@ -461,10 +432,23 @@ class Game {
             return;
         }
 
+        if (!this.player.isAlive()) {
+            this.finishGameOverState();
+            return;
+        }
+
         // Per-turn player effects
         const hungerChange = this.player.applyPerTurnRegen();
 
         this.handleFloorChange(startFloor);
+        if (input.type !== 'move') {
+            this.player.applyEnvironmentEffects(this.world);
+        }
+
+        if (!this.player.isAlive()) {
+            this.finishGameOverState();
+            return;
+        }
 
         // Enemy turns
         this.processEnemyTurns();
@@ -476,9 +460,15 @@ class Game {
         this.ui.render(this.world, this.player, this.fov);
 
         if (!this.player.isAlive()) {
-            this.ui.addMessage('Game Over!');
-            this.isGameOver = true;
+            this.finishGameOverState();
         }
+    }
+
+    finishGameOverState() {
+        this.updateFOV();
+        this.ui.render(this.world, this.player, this.fov);
+        this.ui.addMessage('Game Over!');
+        this.isGameOver = true;
     }
 
     handleFloorChange(previousFloor) {
@@ -489,28 +479,35 @@ class Game {
         this.populateCurrentFloorIfNeeded();
         this.ui.addMessage(`You arrive on floor ${this.world.currentFloor + 1}.`);
         this.clearFailedMoveRecord();
+
+        for (const condition of [...this.player.conditions.keys()]) {
+            if (shouldRemoveConditionOnFloorChange(condition)) {
+                this.player.removeCondition(condition);
+            }
+        }
+
     }
 
     processPlayerTurn(input) {
+        if (this.player.hasCondition(CONDITIONS.SLEEP)) {
+            this.player.tickConditions();
+            this.ui.addMessage('You are asleep and miss your turn.');
+            return true;
+        }
+
+        if (this.player.hasCondition(CONDITIONS.BERSERK)) {
+            return this.processPlayerBerserkTurn();
+        }
+
         // Action
         if (input.type === 'move') {
+            if (this.player.hasCondition(CONDITIONS.BOUND)) {
+                this.ui.addMessage('You are bound and cannot move.');
+                return false;
+            }
+
             const targetX = this.player.x + input.dx;
             const targetY = this.player.y + input.dy;
-
-            const enemyOnTarget = this.world.getEnemyAt(targetX, targetY);
-            if (enemyOnTarget) {
-                // Pre-turn status tick
-                this.player.tickConditions();
-
-                const damage = this.player.attackEnemy(enemyOnTarget);
-                this.ui.addMessage(`You attack ${enemyOnTarget.name} for ${damage}.`);
-                if (!enemyOnTarget.isAlive()) {
-                    this.handleEnemyDefeat(enemyOnTarget, { announceDefeat: true });
-                }
-
-                this.clearFailedMoveRecord();
-                return true;
-            }
 
             if (!this.world.canPlayerOccupy(targetX, targetY)) {
                 this.recordFailedMove(input);
@@ -524,6 +521,8 @@ class Game {
             const moved = this.player.move(input.dx, input.dy, this.world);
             if (moved) {
                 this.clearFailedMoveRecord();
+
+                this.applyPlayerTrapAtCurrentPosition();
 
                 if (this.world.currentFloor === floorBeforeMove) {
                     this.pickupItemsAfterMove(targetX, targetY);
@@ -563,8 +562,43 @@ class Game {
                 if (throwResult.enemyDefeated) {
                     this.ui.addMessage(`${throwResult.enemy.name} is defeated.`);
                 }
+            } else if (throwResult.type === 'burned') {
+                this.ui.addMessage(`${itemLabel} burns up in lava.`);
             } else {
                 this.ui.addMessage(`${itemLabel} lands at ${throwResult.x}, ${throwResult.y}.`);
+            }
+
+            this.clearFailedMoveRecord();
+            return true;
+        }
+
+        if (input.type === 'attack') {
+            const attackDx = Number(input.dx) || 0;
+            const attackDy = Number(input.dy) || 0;
+            if (attackDx === 0 && attackDy === 0) {
+                return false;
+            }
+
+            this.lookTowards(attackDx, attackDy);
+
+            // Pre-turn status tick
+            this.player.tickConditions();
+
+            const targetX = this.player.x + attackDx;
+            const targetY = this.player.y + attackDy;
+            const enemyOnTarget = this.world.getEnemyAt(targetX, targetY);
+
+            if (enemyOnTarget) {
+                if (typeof enemyOnTarget.onAttacked === 'function') {
+                    enemyOnTarget.onAttacked();
+                }
+                const damage = this.player.attackEnemy(enemyOnTarget);
+                this.ui.addMessage(`You attack ${enemyOnTarget.name} for ${damage}.`);
+                if (!enemyOnTarget.isAlive()) {
+                    this.handleEnemyDefeat(enemyOnTarget, { announceDefeat: true });
+                }
+            } else {
+                this.ui.addMessage('You swing at empty space.');
             }
 
             this.clearFailedMoveRecord();
@@ -579,14 +613,90 @@ class Game {
         return true;
     }
 
+    processPlayerBerserkTurn() {
+        const actors = this.world.getEnemies().filter((enemy) => {
+            if (!enemy || !enemy.isAlive()) {
+                return false;
+            }
+
+            return !(typeof enemy.hasCondition === 'function' && enemy.hasCondition(CONDITIONS.INVISIBLE));
+        });
+
+        if (actors.length === 0) {
+            this.player.tickConditions();
+            this.ui.addMessage('You rage, but there is nothing to attack.');
+            return true;
+        }
+
+        actors.sort((left, right) => {
+            const leftDistance = distance(this.player.x, this.player.y, left.x, left.y);
+            const rightDistance = distance(this.player.x, this.player.y, right.x, right.y);
+            return leftDistance - rightDistance;
+        });
+
+        const target = actors[0];
+        const dx = Math.sign(target.x - this.player.x);
+        const dy = Math.sign(target.y - this.player.y);
+
+        this.player.tickConditions();
+        this.lookTowards(dx, dy);
+
+        if (distance(this.player.x, this.player.y, target.x, target.y) <= 1.5) {
+            const damage = this.player.attackEnemy(target);
+            this.ui.addMessage(`You berserk attack ${target.name} for ${damage}.`);
+            if (!target.isAlive()) {
+                this.handleEnemyDefeat(target, { announceDefeat: true });
+            }
+            return true;
+        }
+
+        if (this.player.hasCondition(CONDITIONS.BOUND)) {
+            this.ui.addMessage('You rage in place, unable to move while bound.');
+            return true;
+        }
+
+        const path = this.findPathForPlayer(target.x, target.y);
+        if (!path || path.length <= 1) {
+            this.ui.addMessage('You rage, but cannot reach a target.');
+            return true;
+        }
+
+        const next = path[1];
+        const moved = this.player.move(next.x - this.player.x, next.y - this.player.y, this.world);
+        if (moved) {
+            this.applyPlayerTrapAtCurrentPosition();
+            this.pickupItemsAfterMove(next.x, next.y);
+            return true;
+        }
+
+        this.ui.addMessage('You rage, but your path is blocked.');
+        return true;
+    }
+
+    findPathForPlayer(targetX, targetY) {
+        return findPathAStar(this.player.x, this.player.y, targetX, targetY, (nx, ny, isGoal) => {
+            return isGoal || this.world.canPlayerOccupy(nx, ny);
+        });
+    }
+
     resolveThrow(item, dx, dy) {
         const grid = this.world.getCurrentFloor().grid;
         let x = this.player.x + dx;
         let y = this.player.y + dy;
         let lastValid = null;
+        const burnable = Boolean(item?.properties?.burnable);
 
         while (isValidPosition(x, y, grid)) {
             lastValid = { x, y };
+
+            const tile = this.world.getTile(x, y);
+            if (burnable && doesTileBurnItems(tile)) {
+                return {
+                    type: 'burned',
+                    x,
+                    y
+                };
+            }
 
             const enemy = this.world.getEnemyAt(x, y);
             if (enemy && !enemy.isAlly) {
@@ -613,7 +723,15 @@ class Game {
 
         const dropX = lastValid ? lastValid.x : this.player.x;
         const dropY = lastValid ? lastValid.y : this.player.y;
-        this.world.addItem(dropX, dropY, item);
+        const dropResult = this.world.addItem(dropX, dropY, item);
+        if (dropResult?.burned) {
+            return {
+                type: 'burned',
+                x: dropX,
+                y: dropY
+            };
+        }
+
         return {
             type: 'drop',
             x: dropX,
@@ -623,18 +741,27 @@ class Game {
 
     processEnemyTurns() {
         for (const enemy of [...this.world.getEnemies()]) {
-            const result = enemy.takeTurn(this.world, this.player, this.fov);
+            const actionsToTake = enemy.consumeActionTurns(this.player);
+            for (let actionIndex = 0; actionIndex < actionsToTake; actionIndex++) {
+                const result = enemy.takeTurn(this.world, this.player, this.fov);
 
-            if (!enemy.isAlive()) {
-                this.handleEnemyDefeat(enemy, { announceDefeat: true });
-                continue;
-            }
+                if (!enemy.isAlive()) {
+                    this.handleEnemyDefeat(enemy, { announceDefeat: true });
+                    break;
+                }
 
-            if (result?.type === 'attack-player') {
-                this.ui.addMessage(`${enemy.name} hits you for ${result.damage}.`);
-            }
-            if (!this.player.isAlive()) {
-                break;
+                if (result?.type === 'attack-player') {
+                    this.ui.addMessage(`${enemy.name} hits you for ${result.damage}.`);
+                }
+                if (result?.type === 'attack-enemy' && result.target) {
+                    this.ui.addMessage(`${enemy.name} hits ${result.target.name} for ${result.damage}.`);
+                    if (!result.target.isAlive()) {
+                        this.handleEnemyDefeat(result.target, { announceDefeat: true, grantExp: false });
+                    }
+                }
+                if (!this.player.isAlive()) {
+                    return;
+                }
             }
         }
     }
@@ -644,7 +771,7 @@ class Game {
             return;
         }
 
-        const { announceDefeat = false } = options;
+        const { announceDefeat = false, grantExp = true } = options;
         const floorEnemies = this.world.getEnemies();
         if (floorEnemies.includes(enemy)) {
             this.world.removeEnemy(enemy);
@@ -652,12 +779,16 @@ class Game {
 
         const droppedItem = this.rollEnemyDrop(enemy);
         if (droppedItem) {
-            this.world.addItem(enemy.x, enemy.y, droppedItem);
             const dropName = typeof droppedItem.getDisplayName === 'function' ? droppedItem.getDisplayName() : droppedItem.name;
-            this.ui.addMessage(`${enemy.name} dropped ${dropName}.`);
+            const dropResult = this.world.addItem(enemy.x, enemy.y, droppedItem);
+            if (dropResult?.burned) {
+                this.ui.addMessage(`${enemy.name} dropped ${dropName}, but it burned in lava.`);
+            } else {
+                this.ui.addMessage(`${enemy.name} dropped ${dropName}.`);
+            }
         }
 
-        if (enemy.exp) {
+        if (grantExp && enemy.exp) {
             const levelUps = this.player.addExp(enemy.exp);
             this.ui.addMessage(`Gained ${enemy.exp} EXP.`);
             if (levelUps > 0) {
@@ -743,7 +874,54 @@ class Game {
     }
 
     worldAdvance() {
-        // Placeholder for world updates
+        const activatedSteam = this.world.advanceHazards();
+        const playerKey = `${this.player.x},${this.player.y}`;
+        const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
+        if (activatedSteam.includes(playerKey)) {
+            this.player.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0));
+            if (steamRule?.message) {
+                this.ui.addMessage(steamRule.message);
+            }
+        }
+
+        for (const enemy of [...this.world.getEnemies()]) {
+            const enemyKey = `${enemy.x},${enemy.y}`;
+            if (!activatedSteam.includes(enemyKey)) {
+                continue;
+            }
+
+            enemy.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0));
+            if (!enemy.isAlive()) {
+                this.handleEnemyDefeat(enemy, { announceDefeat: true, grantExp: false });
+            }
+        }
+    }
+
+    applyPlayerTrapAtCurrentPosition() {
+        const x = this.player.x;
+        const y = this.player.y;
+        if (typeof this.world.getTrap !== 'function') {
+            return;
+        }
+
+        const trapType = this.world.getTrap(x, y);
+        if (!trapType) {
+            return;
+        }
+
+        if (typeof this.world.revealTrap === 'function') {
+            this.world.revealTrap(x, y);
+        }
+
+        const trapDefinition = getTrapDefinition(trapType);
+        if (!trapDefinition) {
+            return;
+        }
+
+        this.player.addCondition(trapDefinition.condition, getConditionDuration(trapDefinition.condition));
+        if (trapDefinition.message) {
+            this.ui.addMessage(trapDefinition.message);
+        }
     }
 
     tryTameNearestEnemy() {
@@ -812,11 +990,12 @@ class Game {
             player: {
                 x: this.player.x,
                 y: this.player.y,
+                facing: this.player.getFacingDirection(),
                 health: this.player.health,
                 hunger: this.player.hunger,
                 conditions: Array.from(this.player.conditions.entries()),
-                equipment: Array.from(this.player.equipment.entries()).map(([slot, item]) => [slot, this.serializeItem(item)]),
-                inventory: this.player.inventory.map((item) => this.serializeItem(item))
+                equipment: this.serializeEquipmentMap(this.player.equipment),
+                inventory: this.serializeItemList(this.player.inventory)
             }
         };
     }
@@ -824,9 +1003,12 @@ class Game {
     serializeFloor(floor) {
         return {
             grid: floor.grid,
+            hazards: Array.from(floor.hazards.entries()),
+            traps: Array.from(floor.traps.entries()),
+            revealedTraps: Array.from(floor.revealedTraps.values()),
             meta: floor.meta,
             explored: Array.from(floor.fov.explored),
-            items: Array.from(floor.items.entries()).map(([key, items]) => [key, items.map((item) => this.serializeItem(item))]),
+            items: this.serializeItemMap(floor.items),
             enemies: floor.enemies.map((enemy) => this.serializeEnemy(enemy))
         };
     }
@@ -837,16 +1019,24 @@ class Game {
             y: enemy.y,
             name: enemy.name,
             aiType: enemy.aiType,
+            baseAiType: enemy.baseAiType,
             health: enemy.health,
             stats: {
                 health: enemy.maxHealth,
                 power: enemy.power,
-                armor: enemy.armor
+                armor: enemy.armor,
+                exp: enemy.exp,
+                fovRange: enemy.fovRange,
+                tameThreshold: enemy.tameThreshold,
+                monsterType: enemy.monsterType,
+                creatureTypes: enemy.creatureTypes,
+                speed: enemy.speed,
+                actionCharge: enemy.actionCharge
             },
             isAlly: enemy.isAlly,
             tamingProgress: enemy.tamingProgress,
             conditions: Array.from(enemy.conditions.entries()),
-            equipment: Array.from(enemy.equipment.entries()).map(([slot, item]) => [slot, this.serializeItem(item)])
+            equipment: this.serializeEquipmentMap(enemy.equipment)
         };
     }
 
@@ -857,6 +1047,30 @@ class Game {
             properties: item.properties,
             knowledgeState: item.knowledgeState
         };
+    }
+
+    serializeItemMap(itemMap) {
+        return Array.from(itemMap.entries()).map(([key, items]) => [key, this.serializeItemList(items)]);
+    }
+
+    serializeItemList(items) {
+        return (items || []).map((item) => this.serializeItem(item));
+    }
+
+    serializeEquipmentMap(equipment) {
+        return Array.from(equipment.entries()).map(([slot, item]) => [slot, this.serializeItem(item)]);
+    }
+
+    deserializeItemList(itemList) {
+        return (itemList || []).map((itemData) => this.deserializeItem(itemData));
+    }
+
+    deserializeItemMap(itemMapData) {
+        return new Map((itemMapData || []).map(([key, items]) => [key, this.deserializeItemList(items)]));
+    }
+
+    deserializeEquipmentMap(equipmentData) {
+        return new Map((equipmentData || []).map(([slot, itemData]) => [slot, this.deserializeItem(itemData)]));
     }
 
     loadGameState(data) {
@@ -871,16 +1085,17 @@ class Game {
 
         this.player.x = data.player.x;
         this.player.y = data.player.y;
+        if (data.player.facing) {
+            this.player.setFacingDirection(data.player.facing.dx, data.player.facing.dy);
+        }
         this.player.health = data.player.health;
         this.player.hunger = data.player.hunger;
         this.player.conditions = new Map(data.player.conditions || []);
-        this.player.equipment = new Map((data.player.equipment || []).map(([slot, itemData]) => [slot, this.deserializeItem(itemData)]));
-        this.player.inventory = (data.player.inventory || []).map((itemData) => this.deserializeItem(itemData));
+        this.player.equipment = this.deserializeEquipmentMap(data.player.equipment);
+        this.player.inventory = this.deserializeItemList(data.player.inventory);
         this.player.allies = [];
         this.isGameOver = false;
         this.lastFailedMove = null;
-        this.awaitingThrowDirection = false;
-        this.pendingThrowItem = null;
 
         this.bindLoadedAllies();
         this.populateCurrentFloorIfNeeded();
@@ -907,7 +1122,10 @@ class Game {
 
         return {
             grid,
-            items: new Map((floorData.items || []).map(([key, items]) => [key, items.map((itemData) => this.deserializeItem(itemData))])),
+            hazards: new Map(floorData.hazards || []),
+            traps: new Map(floorData.traps || []),
+            revealedTraps: new Set(floorData.revealedTraps || []),
+            items: this.deserializeItemMap(floorData.items),
             enemies: (floorData.enemies || []).map((enemyData) => this.deserializeEnemy(enemyData)),
             fov,
             meta
@@ -919,14 +1137,16 @@ class Game {
             enemyData.x,
             enemyData.y,
             enemyData.name,
-            enemyData.aiType,
+            enemyData.baseAiType || enemyData.aiType,
             enemyData.stats || {}
         );
+        enemy.aiType = enemyData.aiType ?? enemy.aiType;
+        enemy.baseAiType = enemyData.baseAiType || enemy.baseAiType;
         enemy.health = enemyData.health ?? enemy.health;
         enemy.isAlly = Boolean(enemyData.isAlly);
         enemy.tamingProgress = enemyData.tamingProgress || 0;
         enemy.conditions = new Map(enemyData.conditions || []);
-        enemy.equipment = new Map((enemyData.equipment || []).map(([slot, itemData]) => [slot, this.deserializeItem(itemData)]));
+        enemy.equipment = this.deserializeEquipmentMap(enemyData.equipment);
         return enemy;
     }
 

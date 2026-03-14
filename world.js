@@ -13,9 +13,14 @@ class World {
         const rng = new SeededRNG(this.baseSeed + this.currentFloor);
         const grid = this.generateGridForArea(areaType, rng);
         this.placeStairs(grid, rng);
+        const hazards = this.generateHazardsForGrid(grid, rng);
+        const traps = this.generateTrapsForGrid(grid, rng);
 
         this.floors[this.currentFloor] = {
             grid,
+            hazards,
+            traps,
+            revealedTraps: new Set(),
             items: new Map(),
             enemies: [],
             fov: new FOV(grid),
@@ -29,88 +34,63 @@ class World {
     }
 
     generateGridForArea(areaType, rng) {
-        switch (areaType) {
-            case AREA_TYPES.SWAMP:
-                return this.generateSwampGrid(rng);
-            case AREA_TYPES.FLOATING:
-                return this.generateFloatingGrid(rng);
-            case AREA_TYPES.DUNGEON:
-            default:
-                return this.generateDungeonGrid(rng);
-        }
-    }
-
-    generateDungeonGrid(rng) {
+        const rule = getAreaGenerationRule(areaType);
         const grid = [];
+
         for (let y = 0; y < GRID_SIZE; y++) {
             grid[y] = [];
             for (let x = 0; x < GRID_SIZE; x++) {
-                if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
-                    grid[y][x] = TILE_TYPES.WALL;
-                } else if (rng.next() < 0.1) {
-                    grid[y][x] = TILE_TYPES.WALL;
-                } else if (rng.next() < 0.05) {
-                    const hazards = [TILE_TYPES.PIT, TILE_TYPES.WATER, TILE_TYPES.SPIKE];
-                    grid[y][x] = hazards[rng.randomInt(0, hazards.length - 1)];
-                } else {
-                    grid[y][x] = TILE_TYPES.FLOOR;
-                }
+                grid[y][x] = this.generateTileFromAreaRule(rule, rng, x, y);
             }
         }
 
+        this.applyAreaWalkers(grid, rule, rng);
         return grid;
     }
 
-    generateSwampGrid(rng) {
-        const grid = [];
-        for (let y = 0; y < GRID_SIZE; y++) {
-            grid[y] = [];
-            for (let x = 0; x < GRID_SIZE; x++) {
-                if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
-                    grid[y][x] = TILE_TYPES.WALL;
-                } else if (rng.next() < 0.25) {
-                    grid[y][x] = TILE_TYPES.WATER;
-                } else if (rng.next() < 0.06) {
-                    grid[y][x] = TILE_TYPES.WALL;
-                } else {
-                    grid[y][x] = TILE_TYPES.FLOOR;
-                }
-            }
+    generateTileFromAreaRule(rule, rng, x, y) {
+        if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
+            return rule.boundaryTile;
         }
 
-        // Placeholder for "crooked pathways": random walkers carve floor corridors.
-        const walkers = 4;
-        for (let i = 0; i < walkers; i++) {
+        for (const replacementRule of rule.replacementRules || []) {
+            if (rng.next() >= replacementRule.chance) {
+                continue;
+            }
+
+            if (Array.isArray(replacementRule.choices) && replacementRule.choices.length > 0) {
+                return replacementRule.choices[rng.randomInt(0, replacementRule.choices.length - 1)];
+            }
+
+            return replacementRule.tile;
+        }
+
+        return rule.baseTile;
+    }
+
+    applyAreaWalkers(grid, rule, rng) {
+        const walkerRule = rule.walkers;
+        if (!walkerRule) {
+            return;
+        }
+
+        for (let i = 0; i < walkerRule.count; i++) {
             let x = rng.randomInt(1, GRID_SIZE - 2);
             let y = rng.randomInt(1, GRID_SIZE - 2);
-            for (let step = 0; step < GRID_SIZE * 2; step++) {
+            for (let step = 0; step < walkerRule.steps; step++) {
                 grid[y][x] = TILE_TYPES.FLOOR;
-                const next = getNeighbors(x, y)[rng.randomInt(0, 3)];
+                const neighbors = getNeighbors(x, y).filter((neighbor) => {
+                    if (!walkerRule.cardinalOnly) {
+                        return true;
+                    }
+
+                    return neighbor.x === x || neighbor.y === y;
+                });
+                const next = neighbors[rng.randomInt(0, neighbors.length - 1)];
                 x = clamp(next.x, 1, GRID_SIZE - 2);
                 y = clamp(next.y, 1, GRID_SIZE - 2);
             }
         }
-
-        return grid;
-    }
-
-    generateFloatingGrid(rng) {
-        const grid = [];
-        for (let y = 0; y < GRID_SIZE; y++) {
-            grid[y] = [];
-            for (let x = 0; x < GRID_SIZE; x++) {
-                // Floating floors use pits as boundaries instead of walls.
-                if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
-                    grid[y][x] = TILE_TYPES.PIT;
-                } else if (rng.next() < 0.12) {
-                    grid[y][x] = TILE_TYPES.PIT;
-                } else {
-                    grid[y][x] = TILE_TYPES.FLOOR;
-                }
-            }
-        }
-
-        return grid;
     }
 
     placeStairs(grid, rng) {
@@ -131,6 +111,43 @@ class World {
         if (this.currentFloor > 0) {
             place(TILE_TYPES.STAIRS_UP);
         }
+    }
+
+    generateHazardsForGrid(grid, rng) {
+        const hazards = new Map();
+        const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
+
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                if (grid[y][x] === steamRule?.spawnTile && rng.next() < (steamRule?.generationChance ?? 0)) {
+                    hazards.set(`${x},${y}`, HAZARD_TYPES.STEAM);
+                }
+            }
+        }
+
+        return hazards;
+    }
+
+    generateTrapsForGrid(grid, rng) {
+        const traps = new Map();
+        const trapTypes = getTrapTypes();
+
+        for (let y = 1; y < GRID_SIZE - 1; y++) {
+            for (let x = 1; x < GRID_SIZE - 1; x++) {
+                const tile = grid[y][x];
+                if (tile !== TILE_TYPES.FLOOR) {
+                    continue;
+                }
+
+                if (rng.next() >= 0.025) {
+                    continue;
+                }
+
+                traps.set(`${x},${y}`, trapTypes[rng.randomInt(0, trapTypes.length - 1)]);
+            }
+        }
+
+        return traps;
     }
 
     selectAreaTypeForFloor(floorIndex) {
@@ -191,9 +208,104 @@ class World {
         }
     }
 
+    findFirstTile(tileType) {
+        const grid = this.getCurrentFloor().grid;
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                if (grid[y][x] === tileType) {
+                    return { x, y };
+                }
+            }
+        }
+        return null;
+    }
+
+    moveActorToTile(actor, tileType) {
+        const position = this.findFirstTile(tileType);
+        if (!position || !actor) {
+            return false;
+        }
+
+        actor.x = position.x;
+        actor.y = position.y;
+        return true;
+    }
+
+    resolvePlayerHazardTransition(player, tileType) {
+        if (!player) {
+            return false;
+        }
+
+        if (tileType === TILE_TYPES.PIT || tileType === TILE_TYPES.WATER) {
+            const safePos = findNearestSafeTile(player.x, player.y, this.getCurrentFloor().grid, this.currentFloor);
+            player.x = safePos.x;
+            player.y = safePos.y;
+
+            if (tileType === TILE_TYPES.PIT && this.currentFloor > 0) {
+                const pitX = player.x;
+                const pitY = player.y;
+                this.ascendFloor();
+                const safePrevFloor = findNearestSafeTile(pitX, pitY, this.getCurrentFloor().grid, this.currentFloor);
+                player.x = safePrevFloor.x;
+                player.y = safePrevFloor.y;
+            }
+            return true;
+        }
+
+        if (tileType === TILE_TYPES.STAIRS_DOWN) {
+            this.descendFloor();
+            return this.moveActorToTile(player, TILE_TYPES.STAIRS_UP);
+        }
+
+        if (tileType === TILE_TYPES.STAIRS_UP && this.currentFloor > 0) {
+            this.ascendFloor();
+            return this.moveActorToTile(player, TILE_TYPES.STAIRS_DOWN);
+        }
+
+        return false;
+    }
+
     getTile(x, y) {
         if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return TILE_TYPES.WALL;
         return this.getCurrentFloor().grid[y][x];
+    }
+
+    getHazard(x, y) {
+        return this.getCurrentFloor().hazards.get(this.tileKey(x, y)) || null;
+    }
+
+    getTrap(x, y) {
+        return this.getCurrentFloor().traps.get(this.tileKey(x, y)) || null;
+    }
+
+    isTrapRevealed(x, y) {
+        return this.getCurrentFloor().revealedTraps.has(this.tileKey(x, y));
+    }
+
+    revealTrap(x, y) {
+        const key = this.tileKey(x, y);
+        if (this.getCurrentFloor().traps.has(key)) {
+            this.getCurrentFloor().revealedTraps.add(key);
+        }
+    }
+
+    setHazard(x, y, hazardType) {
+        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
+            return;
+        }
+
+        const key = this.tileKey(x, y);
+
+        if (!hazardType) {
+            this.getCurrentFloor().hazards.delete(key);
+            return;
+        }
+
+        this.getCurrentFloor().hazards.set(key, hazardType);
+    }
+
+    removeHazard(x, y) {
+        this.getCurrentFloor().hazards.delete(this.tileKey(x, y));
     }
 
     setTile(x, y, tile) {
@@ -202,22 +314,33 @@ class World {
         }
     }
 
+    tileKey(x, y) {
+        return `${x},${y}`;
+    }
+
     addItem(x, y, item) {
         // prevent items on walls; other tile types are allowed
         const tile = this.getTile(x, y);
         if (tile === TILE_TYPES.WALL) {
             console.warn(`attempted to place item on wall at ${x},${y}`);
-            return;
+            return { placed: false, burned: false, blocked: true };
         }
-        const key = `${x},${y}`;
+
+        const burnable = Boolean(item?.properties?.burnable);
+        if (doesTileBurnItems(tile) && burnable) {
+            return { placed: false, burned: true, blocked: false };
+        }
+
+        const key = this.tileKey(x, y);
         if (!this.getCurrentFloor().items.has(key)) {
             this.getCurrentFloor().items.set(key, []);
         }
         this.getCurrentFloor().items.get(key).push(item);
+        return { placed: true, burned: false, blocked: false };
     }
 
     removeItem(x, y, item) {
-        const key = `${x},${y}`;
+        const key = this.tileKey(x, y);
         const items = this.getCurrentFloor().items.get(key);
         if (items) {
             const index = items.indexOf(item);
@@ -231,13 +354,17 @@ class World {
     }
 
     getItems(x, y) {
-        return this.getCurrentFloor().items.get(`${x},${y}`) || [];
+        return this.getCurrentFloor().items.get(this.tileKey(x, y)) || [];
     }
 
     addEnemy(enemy) {
-        // only add enemies to non-wall tiles
         const tile = this.getTile(enemy.x, enemy.y);
-        if (tile === TILE_TYPES.WALL) {
+        if (typeof enemy.canTraverseTile === 'function' && !enemy.canTraverseTile(tile)) {
+            console.warn(`enemy ${enemy.name} cannot be placed on ${tile} at ${enemy.x},${enemy.y}`);
+            return;
+        }
+
+        if (typeof enemy.canTraverseTile !== 'function' && tile === TILE_TYPES.WALL) {
             console.warn(`enemy ${enemy.name} placed on wall at ${enemy.x},${enemy.y}`);
             return;
         }
@@ -280,14 +407,21 @@ class World {
         return !this.getEnemyAt(x, y);
     }
 
-    canEnemyOccupy(x, y, player, enemy) {
-        const grid = this.getCurrentFloor().grid;
-        if (!isValidPosition(x, y, grid)) {
+    canEnemyOccupy(x, y, player, enemy, candidateEnemy = null) {
+        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
             return false;
         }
         if (player && player.x === x && player.y === y) {
             return false;
         }
+
+        if (candidateEnemy && typeof candidateEnemy.canTraverseTile === 'function') {
+            const tile = this.getTile(x, y);
+            if (!candidateEnemy.canTraverseTile(tile)) {
+                return false;
+            }
+        }
+
         return !this.getEnemyAt(x, y, enemy);
     }
 
@@ -298,7 +432,7 @@ class World {
         }
 
         const tile = grid[y][x];
-        if (tile === TILE_TYPES.WATER || tile === TILE_TYPES.PIT) {
+        if (tile === TILE_TYPES.WATER || tile === TILE_TYPES.PIT || doesTileBurnItems(tile)) {
             return false;
         }
 
@@ -309,25 +443,55 @@ class World {
         return !this.getEnemyAt(x, y);
     }
 
-    findRandomOpenTile(rng, player = null, attempts = 200) {
+    findRandomTile(rng, attempts, predicate) {
         for (let i = 0; i < attempts; i++) {
             const x = rng.randomInt(1, GRID_SIZE - 2);
             const y = rng.randomInt(1, GRID_SIZE - 2);
-            if (this.canEnemyOccupy(x, y, player, null)) {
+            if (predicate(x, y)) {
                 return { x, y };
             }
         }
         return null;
     }
 
+    findRandomOpenTile(rng, player = null, attempts = 200, candidateEnemy = null) {
+        return this.findRandomTile(rng, attempts, (x, y) => this.canEnemyOccupy(x, y, player, null, candidateEnemy));
+    }
+
     findRandomItemSpawnTile(rng, player = null, attempts = 200) {
-        for (let i = 0; i < attempts; i++) {
-            const x = rng.randomInt(1, GRID_SIZE - 2);
-            const y = rng.randomInt(1, GRID_SIZE - 2);
-            if (this.canSpawnItemAt(x, y, player)) {
-                return { x, y };
+        return this.findRandomTile(rng, attempts, (x, y) => this.canSpawnItemAt(x, y, player));
+    }
+
+    advanceHazards() {
+        const activatedSteam = [];
+        const floor = this.getCurrentFloor();
+        const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
+
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                const tile = floor.grid[y][x];
+                const key = this.tileKey(x, y);
+                const existingHazard = floor.hazards.get(key);
+
+                if (tile !== steamRule?.spawnTile) {
+                    floor.hazards.delete(key);
+                    continue;
+                }
+
+                if (existingHazard === HAZARD_TYPES.STEAM) {
+                    if (Math.random() < (steamRule?.dissipateChance ?? 0)) {
+                        floor.hazards.delete(key);
+                    }
+                    continue;
+                }
+
+                if (Math.random() < (steamRule?.activationChance ?? 0)) {
+                    floor.hazards.set(key, HAZARD_TYPES.STEAM);
+                    activatedSteam.push(key);
+                }
             }
         }
-        return null;
+
+        return activatedSteam;
     }
 }

@@ -5,21 +5,13 @@ console.log('tileset.js loaded');
 class Tileset {
     constructor(tileSize = 16) {
         this.tileSize = tileSize;
-        this.tiles = {
-            [TILE_TYPES.FLOOR]: { x: 0, y: 0 },
-            [TILE_TYPES.WALL]: { x: 1, y: 0 },
-            [TILE_TYPES.PIT]: { x: 2, y: 0 },
-            [TILE_TYPES.WATER]: { x: 3, y: 0 },
-            [TILE_TYPES.SPIKE]: { x: 4, y: 0 },
-            [TILE_TYPES.STAIRS_DOWN]: { x: 5, y: 0 },
-            [TILE_TYPES.STAIRS_UP]: { x: 6, y: 0 }
-        };
+        this.tiles = Object.fromEntries(Object.entries(TILE_VISUALS).map(([tileType, visual]) => [tileType, visual.sprite]));
         this.spriteSheet = this.generateSpriteSheet();
     }
 
     generateSpriteSheet() {
         const canvas = document.createElement('canvas');
-        canvas.width = this.tileSize * 7;
+        canvas.width = this.tileSize * 8;
         canvas.height = this.tileSize;
         const ctx = canvas.getContext('2d');
 
@@ -31,6 +23,7 @@ class Tileset {
         this.drawTile(ctx, TILE_TYPES.SPIKE, 4, 0);
         this.drawTile(ctx, TILE_TYPES.STAIRS_DOWN, 5, 0);
         this.drawTile(ctx, TILE_TYPES.STAIRS_UP, 6, 0);
+        this.drawTile(ctx, TILE_TYPES.LAVA, 7, 0);
 
         return canvas;
     }
@@ -41,28 +34,7 @@ class Tileset {
         const cx = x + this.tileSize / 2;
         const cy = y + this.tileSize / 2;
 
-        // Draw base color
-        let color = COLORS.FLOOR;
-        switch (tileType) {
-            case TILE_TYPES.WALL:
-                color = COLORS.WALL;
-                break;
-            case TILE_TYPES.PIT:
-                color = COLORS.PIT;
-                break;
-            case TILE_TYPES.WATER:
-                color = COLORS.WATER;
-                break;
-            case TILE_TYPES.SPIKE:
-                color = COLORS.SPIKE;
-                break;
-            case TILE_TYPES.STAIRS_DOWN:
-            case TILE_TYPES.STAIRS_UP:
-                color = COLORS.STAIRS;
-                break;
-        }
-
-        ctx.fillStyle = color;
+        ctx.fillStyle = getTileVisual(tileType).color;
         ctx.fillRect(x, y, this.tileSize, this.tileSize);
 
         // Draw icons
@@ -86,6 +58,13 @@ class Tileset {
                 ctx.arc(cx + offset.x, cy + offset.y, dotRadius, 0, Math.PI * 2);
                 ctx.fill();
             }
+        } else if (tileType === TILE_TYPES.LAVA) {
+            ctx.fillStyle = '#ffb347';
+            ctx.beginPath();
+            ctx.arc(cx - 3, cy, this.tileSize / 6, 0, Math.PI * 2);
+            ctx.arc(cx + 2, cy - 2, this.tileSize / 7, 0, Math.PI * 2);
+            ctx.arc(cx + 4, cy + 3, this.tileSize / 8, 0, Math.PI * 2);
+            ctx.fill();
         } else if (tileType === TILE_TYPES.STAIRS_DOWN) {
             ctx.fillStyle = '#fff';
             ctx.font = 'bold 12px monospace';
