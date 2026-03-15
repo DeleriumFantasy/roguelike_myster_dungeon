@@ -31,6 +31,12 @@ class Enemy {
         this.tamingProgress = 0;
         this.tamedBy = null;
         this.equipment = new Map();
+        this.swallowedItems = new Map();
+        this.fuserFusionLocked = false;
+        this.heldItem = null;
+        this.shopOfferItem = null;
+        this.shopOfferPrice = null;
+        this.shopSoldOut = false;
         this.lastResolvedAi = this.baseAiType;
     }
 
@@ -55,6 +61,119 @@ class Enemy {
 
     hasEnemyType(enemyType) {
         return this.creatureTypes.includes(enemyType);
+    }
+
+    isNeutralNpc() {
+        return this.hasEnemyType(ENEMY_TYPES.NPC);
+    }
+
+    isVandal() {
+        return this.hasEnemyType(ENEMY_TYPES.VANDAL);
+    }
+
+    hasHeldItem() {
+        return Boolean(this.heldItem);
+    }
+
+    getVandalTier() {
+        const match = String(this.monsterType || '').match(/vandalTier(\d+)/i);
+        const parsedTier = match ? Number(match[1]) : NaN;
+        return Number.isFinite(parsedTier) ? parsedTier : 1;
+    }
+
+    canSwallowThrownItems() {
+        return this.hasEnemyType(ENEMY_TYPES.FUSER) && !this.fuserFusionLocked;
+    }
+
+    swallowThrownItem(item) {
+        if (!item || !this.canSwallowThrownItems()) {
+            return null;
+        }
+
+        const itemType = item.type;
+        if (typeof itemType !== 'string' || itemType.length === 0) {
+            return null;
+        }
+
+        const incomingItem = typeof item.createSingleUseClone === 'function'
+            ? item.createSingleUseClone()
+            : new Item(item.name, item.type, { ...(item.properties || {}) });
+
+        const differentTypeEntries = Array.from(this.swallowedItems.entries())
+            .filter(([storedType]) => storedType !== itemType);
+        if (differentTypeEntries.length > 0) {
+            const ejectedItems = [];
+            for (const [storedType, storedItem] of differentTypeEntries) {
+                this.swallowedItems.delete(storedType);
+                ejectedItems.push(storedItem);
+            }
+
+            ejectedItems.push(incomingItem);
+            return {
+                combined: false,
+                itemType,
+                storedItem: null,
+                mergedEnchantmentCount: 0,
+                ejectedItems,
+                ejectedBecauseDifferentTypes: true
+            };
+        }
+
+        const existingItem = this.swallowedItems.get(itemType);
+        if (!existingItem) {
+            this.swallowedItems.set(itemType, incomingItem);
+            return {
+                combined: false,
+                itemType,
+                storedItem: incomingItem,
+                mergedEnchantmentCount: 0,
+                ejectedItems: [],
+                ejectedBecauseDifferentTypes: false
+            };
+        }
+
+        const mergedEnchantmentCount = this.mergeEnchantmentsIntoBaseItem(existingItem, incomingItem);
+        this.fuserFusionLocked = true;
+        return {
+            combined: true,
+            itemType,
+            storedItem: existingItem,
+            mergedEnchantmentCount,
+            ejectedItems: [],
+            ejectedBecauseDifferentTypes: false
+        };
+    }
+
+    mergeEnchantmentsIntoBaseItem(baseItem, sourceItem) {
+        if (!baseItem || !sourceItem) {
+            return 0;
+        }
+
+        const baseEnchantments = typeof baseItem.getEnchantments === 'function'
+            ? baseItem.getEnchantments()
+            : [];
+        const sourceEnchantments = typeof sourceItem.getEnchantments === 'function'
+            ? sourceItem.getEnchantments()
+            : [];
+
+        const mergedEnchantments = [...baseEnchantments];
+        let mergedCount = 0;
+        for (const enchantmentKey of sourceEnchantments) {
+            if (mergedEnchantments.includes(enchantmentKey)) {
+                continue;
+            }
+
+            mergedEnchantments.push(enchantmentKey);
+            mergedCount += 1;
+        }
+
+        if (mergedEnchantments.length > 0) {
+            baseItem.properties.enchantments = mergedEnchantments;
+        } else if (baseItem.properties && Object.prototype.hasOwnProperty.call(baseItem.properties, 'enchantments')) {
+            delete baseItem.properties.enchantments;
+        }
+
+        return mergedCount;
     }
 
     isPariahTarget(enemy) {
@@ -82,7 +201,7 @@ class Enemy {
 
     canSeePosition(world, x, y) {
         const distanceToTarget = distance(this.x, this.y, x, y);
-        return distanceToTarget <= this.getFovRange() && this.hasLineOfSight(world, x, y);
+        return distanceToTarget <= this.fovRange && this.hasLineOfSight(world, x, y);
     }
 
     getNearestVisiblePariah(world) {
@@ -119,7 +238,7 @@ class Enemy {
             };
         }
 
-        if (this.canSeePlayer(world, player)) {
+        if (this.canSeeActor(world, player)) {
             return {
                 kind: 'player',
                 target: player,
@@ -142,6 +261,9 @@ class Enemy {
 
         for (const enemy of world.getEnemies()) {
             if (enemy !== this && enemy.isAlive()) {
+                if (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc()) {
+                    continue;
+                }
                 candidates.push(enemy);
             }
         }
@@ -207,8 +329,6 @@ class Enemy {
 
         this.applyEnvironmentEffects(world);
 
-        // Post-turn resolution (placeholder)
-        // World advance (placeholder)
         return actionResult;
     }
 
@@ -227,6 +347,11 @@ class Enemy {
     }
 
     performAction(world, player, fov) {
+        if (this.isNeutralNpc()) {
+            this.lastResolvedAi = AI_TYPES.WANDER;
+            return this.performWanderAction(world, player);
+        }
+
         if (this.conditions.has(CONDITIONS.BLIND)) {
             return this.performBlindAction(world, player);
         }
@@ -234,6 +359,11 @@ class Enemy {
         if (this.conditions.has(CONDITIONS.BERSERK)) {
             this.lastResolvedAi = 'berserk';
             return this.performBerserkAction(world, player);
+        }
+
+        const vandalAction = this.performVandalAction(world, player);
+        if (vandalAction) {
+            return vandalAction;
         }
 
         const resolvedAi = this.getAiTypeForTurn(world, player, fov);
@@ -250,6 +380,10 @@ class Enemy {
     getAiTypeForTurn(world, player, fov) {
         if (this.isAlly) {
             return AI_TYPES.SUPPORT;
+        }
+
+        if (this.isVandal() && this.hasHeldItem() && this.getVandalTier() === 2) {
+            return AI_TYPES.FLEE;
         }
 
         for (const [condition, overrideAi] of this.aiByStatus) {
@@ -292,6 +426,145 @@ class Enemy {
 
     canTraverseTile(tile) {
         return canEnemyTypeTraverseTile(tile, this.creatureTypes);
+    }
+
+    getNearestVisibleGroundItem(world) {
+        if (!world || this.hasHeldItem()) {
+            return null;
+        }
+
+        let nearest = null;
+        let nearestDistance = Infinity;
+        for (const [key, items] of world.getCurrentFloor().items.entries()) {
+            if (!Array.isArray(items) || items.length === 0) {
+                continue;
+            }
+
+            const [x, y] = key.split(',').map(Number);
+            if (!this.canSeePosition(world, x, y)) {
+                continue;
+            }
+
+            const itemDistance = distance(this.x, this.y, x, y);
+            if (itemDistance < nearestDistance) {
+                nearest = { x, y, item: items[0] };
+                nearestDistance = itemDistance;
+            }
+        }
+
+        return nearest;
+    }
+
+    getNearestVisibleVandalDisposalTile(world) {
+        if (!world || !this.hasHeldItem()) {
+            return null;
+        }
+
+        let nearest = null;
+        let nearestDistance = Infinity;
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                const tile = world.getTile(x, y);
+                if (tile !== TILE_TYPES.WATER && tile !== TILE_TYPES.LAVA) {
+                    continue;
+                }
+
+                if (!this.canSeePosition(world, x, y)) {
+                    continue;
+                }
+
+                const tileDistance = distance(this.x, this.y, x, y);
+                if (tileDistance < nearestDistance) {
+                    nearest = { x, y, tile };
+                    nearestDistance = tileDistance;
+                }
+            }
+        }
+
+        return nearest;
+    }
+
+    pickUpGroundItem(world) {
+        if (!world || this.hasHeldItem()) {
+            return null;
+        }
+
+        const items = world.getItems(this.x, this.y);
+        if (!Array.isArray(items) || items.length === 0) {
+            return null;
+        }
+
+        const item = items[0];
+        world.removeItem(this.x, this.y, item);
+        this.heldItem = item;
+        return item;
+    }
+
+    applyVandalPickupEffect() {
+        if (!this.isVandal() || !this.heldItem) {
+            return null;
+        }
+
+        const vandalTier = this.getVandalTier();
+        if (vandalTier === 2) {
+            this.heldItem = createLowerTierVersionOfItem(this.heldItem) || this.heldItem;
+            return { type: 'vandal-downgrade', item: this.heldItem };
+        }
+
+        if (vandalTier === 3) {
+            this.heldItem = createBitterSeedsItemFrom(this.heldItem) || this.heldItem;
+            return { type: 'vandal-transform-food', item: this.heldItem };
+        }
+
+        if (vandalTier === 4) {
+            const destroyedItem = this.heldItem;
+            this.heldItem = null;
+            return { type: 'vandal-destroy-item', item: destroyedItem };
+        }
+
+        return { type: 'vandal-hold-item', item: this.heldItem };
+    }
+
+    performVandalAction(world, player) {
+        if (!this.isVandal()) {
+            return null;
+        }
+
+        if (!this.hasHeldItem()) {
+            const pickedUpItem = this.pickUpGroundItem(world);
+            if (pickedUpItem) {
+                const pickupEffect = this.applyVandalPickupEffect();
+                return {
+                    type: 'vandal-pickup-item',
+                    pickedUpItem,
+                    pickupEffect
+                };
+            }
+
+            const visibleItem = this.getNearestVisibleGroundItem(world);
+            if (visibleItem) {
+                this.targetX = visibleItem.x;
+                this.targetY = visibleItem.y;
+                return this.tryMoveTowardTarget(world, visibleItem.x, visibleItem.y, player);
+            }
+
+            return null;
+        }
+
+        if (this.getVandalTier() === 1) {
+            const disposalTile = this.getNearestVisibleVandalDisposalTile(world);
+            if (disposalTile) {
+                const thrownItem = this.heldItem;
+                this.heldItem = null;
+                return {
+                    type: 'vandal-dispose-item',
+                    item: thrownItem,
+                    tile: disposalTile
+                };
+            }
+        }
+
+        return null;
     }
 
     applyEnvironmentEffects(world) {
@@ -353,10 +626,6 @@ class Enemy {
         return true;
     }
 
-    canSeePlayer(world, player) {
-        return this.canSeeActor(world, player);
-    }
-
     performWanderAction(world, player) {
         if (this.targetX === null || (this.x === this.targetX && this.y === this.targetY)) {
             const target = this.getRandomWalkableTarget(world);
@@ -376,7 +645,7 @@ class Enemy {
             if (meleeRange <= 1.5) {
                 if (visibleHostile.kind === 'player') {
                     if (!this.isAlly) {
-                        const damage = this.attackPlayer(player);
+                        const damage = this.attackTarget(player);
                         return { type: 'attack-player', damage };
                     }
                     return { type: 'blocked' };
@@ -412,7 +681,7 @@ class Enemy {
 
     performAmbushAction(world, player) {
         const distanceToPlayer = distance(this.x, this.y, player.x, player.y);
-        if (distanceToPlayer <= Math.max(1, this.getFovRange() - 2) && this.hasLineOfSight(world, player.x, player.y)) {
+        if (distanceToPlayer <= Math.max(1, this.fovRange - 2) && this.hasLineOfSight(world, player.x, player.y)) {
             return this.performChaseAction(world, player);
         }
 
@@ -447,7 +716,7 @@ class Enemy {
         const targetDistance = distance(this.x, this.y, target.x, target.y);
         if (targetDistance <= 1.5) {
             if (target === player) {
-                const damage = this.attackPlayer(player);
+                const damage = this.attackTarget(player);
                 return { type: 'attack-player', damage };
             }
 
@@ -465,12 +734,12 @@ class Enemy {
         if (this.conditions.has(CONDITIONS.BOUND)) {
             for (const neighbor of neighbors) {
                 if (player && !this.isAlly && neighbor.x === player.x && neighbor.y === player.y) {
-                    const damage = this.attackPlayer(player);
+                    const damage = this.attackTarget(player);
                     return { type: 'attack-player', damage };
                 }
 
                 const blockingEnemy = world.getEnemyAt(neighbor.x, neighbor.y, this);
-                if (blockingEnemy) {
+                if (blockingEnemy && !(typeof blockingEnemy.isNeutralNpc === 'function' && blockingEnemy.isNeutralNpc())) {
                     const damage = this.attackEnemy(blockingEnemy);
                     return { type: 'attack-enemy', damage, target: blockingEnemy };
                 }
@@ -481,12 +750,12 @@ class Enemy {
 
         for (const neighbor of neighbors) {
             if (player && !this.isAlly && neighbor.x === player.x && neighbor.y === player.y) {
-                const damage = this.attackPlayer(player);
+                const damage = this.attackTarget(player);
                 return { type: 'attack-player', damage };
             }
 
             const blockingEnemy = world.getEnemyAt(neighbor.x, neighbor.y, this);
-            if (blockingEnemy) {
+            if (blockingEnemy && !(typeof blockingEnemy.isNeutralNpc === 'function' && blockingEnemy.isNeutralNpc())) {
                 const damage = this.attackEnemy(blockingEnemy);
                 return { type: 'attack-enemy', damage, target: blockingEnemy };
             }
@@ -502,10 +771,21 @@ class Enemy {
     }
 
     getRandomWalkableTarget(world) {
-        return {
-            x: Math.floor(Math.random() * (GRID_SIZE - 2)) + 1,
-            y: Math.floor(Math.random() * (GRID_SIZE - 2)) + 1
-        };
+        if (!world || typeof world.getTile !== 'function') {
+            return { x: this.x, y: this.y };
+        }
+
+        for (let attempt = 0; attempt < 200; attempt++) {
+            const x = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
+            const y = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
+            if (world.getTile(x, y) !== TILE_TYPES.FLOOR) {
+                continue;
+            }
+
+            return { x, y };
+        }
+
+        return { x: this.x, y: this.y };
     }
 
     tryMoveTowardTarget(world, targetX, targetY, player = null) {
@@ -526,7 +806,7 @@ class Enemy {
 
             if (player && next.x === player.x && next.y === player.y) {
                 if (!this.isAlly) {
-                    const damage = this.attackPlayer(player);
+                    const damage = this.attackTarget(player);
                     return { type: 'attack-player', damage };
                 }
                 return { type: 'blocked' };
@@ -548,7 +828,7 @@ class Enemy {
     }
 
     canBeTamed() {
-        return this.isAlive() && !this.isAlly;
+        return this.isAlive() && !this.isAlly && !this.isNeutralNpc();
     }
 
     attemptTame(tamer, amount = 1) {
@@ -598,7 +878,12 @@ class Enemy {
         }
 
         const currentItem = this.equipment.get(item.type);
-        if (currentItem && this.itemIsCursed(currentItem)) {
+        const currentItemIsCursed = currentItem
+            ? (typeof currentItem.isCursed === 'function'
+                ? currentItem.isCursed()
+                : Boolean(currentItem.properties?.cursed))
+            : false;
+        if (currentItem && currentItemIsCursed) {
             return false;
         }
 
@@ -612,20 +897,15 @@ class Enemy {
             return true;
         }
 
-        if (this.itemIsCursed(item)) {
+        const isCursed = typeof item.isCursed === 'function'
+            ? item.isCursed()
+            : Boolean(item.properties?.cursed);
+        if (isCursed) {
             return false;
         }
 
         this.equipment.delete(slot);
         return true;
-    }
-
-    itemIsCursed(item) {
-        if (!item) return false;
-        if (typeof item.isCursed === 'function') {
-            return item.isCursed();
-        }
-        return Boolean(item.properties?.cursed);
     }
 
     flee(world, player) {
@@ -635,7 +915,7 @@ class Enemy {
 
         const dx = this.x - player.x;
         const dy = this.y - player.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const dist = distance(this.x, this.y, player.x, player.y);
         if (dist > 0) {
             const dirX = Math.round(dx / dist);
             const dirY = Math.round(dy / dist);
@@ -656,13 +936,19 @@ class Enemy {
         return findPathAStar(this.x, this.y, targetX, targetY, (nx, ny, isGoal) => {
             if (isGoal) return true;
             if (!this.canOccupyTile(world, nx, ny, null, { avoidDamagingTiles })) return false;
-            if (world.getEnemyAt(nx, ny, this)) return false;
             return true;
         });
     }
 
-    takeDamage(amount) {
-        const damageDealt = applyDamageToActor(this, amount, this.getEffectiveArmor());
+    takeDamage(amount, attacker = null) {
+        const incomingDamage = Math.max(0, Number(amount) || 0);
+        if (incomingDamage <= 0) {
+            return 0;
+        }
+
+        const mitigationMultiplier = this.getIncomingDamageMultiplierAgainst(attacker);
+        const adjustedIncomingDamage = Math.max(1, Math.round(incomingDamage * mitigationMultiplier));
+        const damageDealt = applyDamageToActor(this, adjustedIncomingDamage, this.getEffectiveArmor());
         if (this.health <= 0) {
             // Drop items
             // Placeholder
@@ -679,24 +965,39 @@ class Enemy {
         let armor = this.armor;
         for (const item of this.equipment.values()) {
             armor += item.properties?.armor || 0;
+            if (typeof item.getEnchantmentArmorBonus === 'function') {
+                armor += item.getEnchantmentArmorBonus();
+            }
         }
         return armor;
     }
 
+    getIncomingDamageMultiplierAgainst(attacker) {
+        let multiplier = 1;
+        for (const item of this.equipment.values()) {
+            if (typeof item.getIncomingDamageMultiplierFrom === 'function') {
+                multiplier *= item.getIncomingDamageMultiplierFrom(attacker);
+            }
+        }
+
+        return Math.max(0.1, multiplier);
+    }
+
     addCondition(condition, duration = getConditionDuration(condition, 1)) {
-        this.conditions.set(condition, duration);
+        if (this.shouldPreventConditionFromEquipment(condition)) {
+            return false;
+        }
+
+        actorAddCondition(this, condition, duration);
+        return true;
     }
 
     hasCondition(condition) {
-        return this.conditions.has(condition);
+        return actorHasCondition(this, condition);
     }
 
     onAttacked() {
-        for (const condition of [...this.conditions.keys()]) {
-            if (shouldRemoveConditionOnAttacked(condition)) {
-                this.conditions.delete(condition);
-            }
-        }
+        actorResolveOnAttackedConditions(this);
     }
 
     getAttackPower() {
@@ -704,6 +1005,9 @@ class Enemy {
         for (const item of this.equipment.values()) {
             if (item.properties?.power) {
                 basePower += item.properties.power;
+            }
+            if (typeof item.getEnchantmentPowerBonus === 'function') {
+                basePower += item.getEnchantmentPowerBonus();
             }
         }
 
@@ -718,16 +1022,56 @@ class Enemy {
         return basePower;
     }
 
-    attackTarget(target) {
-        return applyStandardAttackToTarget(target, this.getAttackPower());
+    getAttackPowerAgainst(target) {
+        let basePower = this.getAttackPower();
+        const weapon = this.equipment.get(EQUIPMENT_SLOTS.WEAPON);
+        if (weapon && typeof weapon.getDamageMultiplierAgainst === 'function') {
+            basePower = Math.max(1, Math.round(basePower * weapon.getDamageMultiplierAgainst(target)));
+        }
+
+        return basePower;
     }
 
-    attackPlayer(player) {
-        return this.attackTarget(player);
+    getWeaponInflictedConditions() {
+        const weapon = this.equipment.get(EQUIPMENT_SLOTS.WEAPON);
+        if (!weapon || typeof weapon.getOnHitInflictedConditions !== 'function') {
+            return [];
+        }
+
+        return weapon.getOnHitInflictedConditions(Math.random);
+    }
+
+    shouldPreventConditionFromEquipment(condition) {
+        if (!condition) {
+            return false;
+        }
+
+        const armor = this.equipment.get(EQUIPMENT_SLOTS.ARMOR);
+        if (!armor || typeof armor.getConditionPreventionChance !== 'function') {
+            return false;
+        }
+
+        const preventionChance = armor.getConditionPreventionChance(condition);
+        return preventionChance > 0 && Math.random() < preventionChance;
+    }
+
+    attackTarget(target) {
+        const damage = applyStandardAttackToTarget(target, this.getAttackPowerAgainst(target), Math.random, this);
+        if (damage > 0 && target && target.isAlive?.() && typeof target.addCondition === 'function') {
+            for (const condition of this.getWeaponInflictedConditions()) {
+                target.addCondition(condition, getConditionDuration(condition, 10));
+            }
+        }
+
+        return damage;
     }
 
     attackEnemy(targetEnemy) {
         if (!targetEnemy || !targetEnemy.isAlive()) {
+            return 0;
+        }
+
+        if (typeof targetEnemy.isNeutralNpc === 'function' && targetEnemy.isNeutralNpc()) {
             return 0;
         }
 
@@ -776,7 +1120,4 @@ class Enemy {
         }
     }
 
-    getFovRange() {
-        return this.fovRange;
-    }
 }

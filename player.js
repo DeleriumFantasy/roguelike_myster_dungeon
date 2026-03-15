@@ -17,12 +17,11 @@ class Player {
         this.equipment = new Map();
         this.inventory = [];
         this.allies = [];
-        this.lastKnownPlayerPos = { x, y };
-
         // EXP / level
         this.exp = 0;
         this.level = 1;
         this.expToNextLevel = this.getExpToNextLevel();
+        this.money = 0;
         this.updateStats();
     }
 
@@ -82,15 +81,114 @@ class Player {
         }
     }
 
-    takeDamage(amount) {
-        return applyDamageToActor(this, amount, this.armor);
+    takeDamage(amount, attacker = null) {
+        const incomingDamage = Math.max(0, Number(amount) || 0);
+        if (incomingDamage <= 0) {
+            return 0;
+        }
+
+        const mitigationMultiplier = this.getIncomingDamageMultiplierAgainst(attacker);
+        const adjustedIncomingDamage = Math.max(1, Math.round(incomingDamage * mitigationMultiplier));
+        return applyDamageToActor(this, adjustedIncomingDamage, this.armor);
     }
 
     attackEnemy(enemy) {
         if (!enemy || !enemy.isAlive()) {
-            return 0;
+            return { damage: 0, critical: false, inflictedConditions: [] };
         }
-        return applyStandardAttackToTarget(enemy, this.power);
+
+        if (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc()) {
+            return { damage: 0, critical: false, inflictedConditions: [] };
+        }
+
+        let attackPower = this.getAttackPowerAgainst(enemy);
+        const critical = this.hasEquippedEnchantment('critical') && Math.random() < 0.25;
+        if (critical) {
+            attackPower = Math.max(1, Math.round(attackPower * 1.5));
+        }
+
+        const damage = applyStandardAttackToTarget(enemy, attackPower, Math.random, this);
+        const inflictedConditions = [];
+        if (damage > 0 && enemy.isAlive() && typeof enemy.addCondition === 'function') {
+            for (const condition of this.getWeaponInflictedConditions()) {
+                const applied = enemy.addCondition(condition, getConditionDuration(condition, 10));
+                if (applied !== false) {
+                    inflictedConditions.push(condition);
+                }
+            }
+        }
+
+        return { damage, critical, inflictedConditions };
+    }
+
+    getIncomingDamageMultiplierAgainst(attacker) {
+        let multiplier = 1;
+        for (const item of this.equipment.values()) {
+            if (typeof item.getIncomingDamageMultiplierFrom === 'function') {
+                multiplier *= item.getIncomingDamageMultiplierFrom(attacker);
+            }
+        }
+
+        return Math.max(0.1, multiplier);
+    }
+
+    getAttackPowerAgainst(target) {
+        let attackPower = this.power;
+        let multiplier = 1;
+
+        for (const item of this.equipment.values()) {
+            if (typeof item.getDamageMultiplierAgainst === 'function') {
+                multiplier *= item.getDamageMultiplierAgainst(target);
+            }
+            if (typeof item.getDamageMultiplierForAttacker === 'function') {
+                multiplier *= item.getDamageMultiplierForAttacker(this);
+            }
+        }
+
+        attackPower = Math.max(1, Math.round(attackPower * multiplier));
+
+        return attackPower;
+    }
+
+    hasEquippedEnchantment(enchantmentKey) {
+        if (!enchantmentKey) {
+            return false;
+        }
+
+        for (const item of this.equipment.values()) {
+            if (!item || typeof item.getEnchantments !== 'function') {
+                continue;
+            }
+
+            if (item.getEnchantments().includes(enchantmentKey)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    getWeaponInflictedConditions() {
+        const weapon = this.equipment.get(EQUIPMENT_SLOTS.WEAPON);
+        if (!weapon || typeof weapon.getOnHitInflictedConditions !== 'function') {
+            return [];
+        }
+
+        return weapon.getOnHitInflictedConditions(Math.random);
+    }
+
+    shouldPreventConditionFromEquipment(condition) {
+        if (!condition) {
+            return false;
+        }
+
+        const armor = this.equipment.get(EQUIPMENT_SLOTS.ARMOR);
+        if (!armor || typeof armor.getConditionPreventionChance !== 'function') {
+            return false;
+        }
+
+        const preventionChance = armor.getConditionPreventionChance(condition);
+        return preventionChance > 0 && Math.random() < preventionChance;
     }
 
     heal(amount) {
@@ -102,15 +200,16 @@ class Player {
     }
 
     addCondition(condition, duration = getConditionDuration(condition, 1)) {
-        this.conditions.set(condition, duration);
+        if (this.shouldPreventConditionFromEquipment(condition)) {
+            return false;
+        }
+
+        actorAddCondition(this, condition, duration);
+        return true;
     }
 
     onAttacked() {
-        for (const condition of [...this.conditions.keys()]) {
-            if (shouldRemoveConditionOnAttacked(condition)) {
-                this.removeCondition(condition);
-            }
-        }
+        actorResolveOnAttackedConditions(this);
     }
 
     removeCondition(condition) {
@@ -122,7 +221,7 @@ class Player {
     }
 
     hasCondition(condition) {
-        return this.conditions.has(condition);
+        return actorHasCondition(this, condition);
     }
 
     tickConditions() {
@@ -229,6 +328,8 @@ class Player {
         for (const item of this.equipment.values()) {
             if (item.properties.power) this.power += item.properties.power;
             if (item.properties.armor) this.armor += item.properties.armor;
+            if (typeof item.getEnchantmentPowerBonus === 'function') this.power += item.getEnchantmentPowerBonus();
+            if (typeof item.getEnchantmentArmorBonus === 'function') this.armor += item.getEnchantmentArmorBonus();
         }
     }
 

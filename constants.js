@@ -64,7 +64,8 @@ const ENEMY_TYPES = {
     THIEF: 'thief',
     FUSER: 'fuser',
     PARIAH: 'pariah',
-    CRAFTER: 'Crafter'
+    CRAFTER: 'Crafter',
+    NPC: 'npc'
 };
 
 const ENEMY_SPEEDS = {
@@ -337,17 +338,10 @@ const AREA_TYPES = {
     CATACOMBS: 'catacombs'
 };
 
-// Planned save system metadata.
-const SAVE_CONFIG = {
-    VERSION: 1,
-    STORAGE_KEY: 'roguelike-save-v1'
-};
-
 // Runtime flags for systems that are scaffolded but not fully implemented.
 const FEATURE_FLAGS = {
     ADVANCED_AI: false,
     AREA_GENERATION_VARIANTS: false,
-    SAVE_LOAD: false,
     ITEM_IDENTIFICATION: true,
     CURSED_EQUIPMENT: true,
     TAMING_ALLIES: false,
@@ -424,6 +418,7 @@ const COLORS = {
     STAIRS: '#0ff',
     PLAYER: '#fff',
     ENEMY: '#f00',
+    NPC: '#22c55e',
     ITEM: '#ff0',
     VISIBLE: 1.0,
     EXPLORED: 0.5,
@@ -456,8 +451,6 @@ const INPUT_DIRECTION_BINDINGS = {
 const INPUT_ACTION_BINDINGS = {
     i: 'open-inventory',
     m: 'toggle-map',
-    k: 'quick-save',
-    l: 'quick-load',
     t: 'tame-nearest',
     v: 'debug-reveal-fov',
     b: 'debug-toggle-monsters'
@@ -666,6 +659,12 @@ const ENEMY_FAMILY_DEFINITIONS = {
             3: { key: 'crafterTier3', displayName: 'Schemer', health: 100, power: 38, armor: 30, exp: 620, tameThreshold: 5, spawnWeight: 4, minFloor: 6 },
             4: { key: 'crafterTier4', displayName: 'Illaqueator', health: 175, power: 54, armor: 44, exp: 2100, tameThreshold: 6, spawnWeight: 2, minFloor: 8 },
         }
+    },
+    npc: {
+        defaults: { types: [ENEMY_TYPES.NPC], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 8 },
+        tiers: {
+            1: { key: 'npcTier1', displayName: 'Wandering merchant', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 2, minFloor: 0 }
+        }
     }
 };
 
@@ -848,7 +847,7 @@ function applyDamageToActor(actor, incomingDamage, defenseValue = 0) {
     return Math.min(mitigatedDamage, actor.health + mitigatedDamage);
 }
 
-function applyStandardAttackToTarget(target, attackPower, randomFn = Math.random) {
+function applyStandardAttackToTarget(target, attackPower, randomFn = Math.random, attacker = null) {
     if (!target) {
         return 0;
     }
@@ -856,7 +855,7 @@ function applyStandardAttackToTarget(target, attackPower, randomFn = Math.random
     const rolledDamage = calculateStandardAttackDamage(attackPower, randomFn);
 
     const damage = typeof target.takeDamage === 'function'
-        ? target.takeDamage(rolledDamage)
+        ? target.takeDamage(rolledDamage, attacker)
         : applyDamageToActor(target, rolledDamage);
 
     if (damage > 0 && typeof target.onAttacked === 'function') {

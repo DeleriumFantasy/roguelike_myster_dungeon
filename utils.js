@@ -85,6 +85,36 @@ function isSafeTile(x, y, grid) {
     return tile !== TILE_TYPES.PIT && tile !== TILE_TYPES.WATER && tile !== TILE_TYPES.SPIKE && tile !== TILE_TYPES.LAVA;
 }
 
+function actorAddCondition(actor, condition, duration = getConditionDuration(condition, 1)) {
+    if (!actor || !(actor.conditions instanceof Map)) {
+        return;
+    }
+
+    actor.conditions.set(condition, duration);
+}
+
+function actorHasCondition(actor, condition) {
+    return Boolean(actor && actor.conditions instanceof Map && actor.conditions.has(condition));
+}
+
+function actorResolveOnAttackedConditions(actor) {
+    if (!actor || !(actor.conditions instanceof Map)) {
+        return;
+    }
+
+    for (const condition of [...actor.conditions.keys()]) {
+        if (!shouldRemoveConditionOnAttacked(condition)) {
+            continue;
+        }
+
+        if (typeof actor.removeCondition === 'function') {
+            actor.removeCondition(condition);
+        } else {
+            actor.conditions.delete(condition);
+        }
+    }
+}
+
 // Shared A* pathfinding. canTraverseFn(x, y, isGoal) returns true if the tile can be entered.
 function findPathAStar(startX, startY, goalX, goalY, canTraverseFn) {
     const start = { x: startX, y: startY };

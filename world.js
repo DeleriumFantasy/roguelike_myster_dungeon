@@ -697,6 +697,12 @@ class World {
         }
     }
 
+    removeTrap(x, y) {
+        const key = this.tileKey(x, y);
+        this.getCurrentFloor().traps.delete(key);
+        this.getCurrentFloor().revealedTraps.delete(key);
+    }
+
     setHazard(x, y, hazardType) {
         if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
             return;

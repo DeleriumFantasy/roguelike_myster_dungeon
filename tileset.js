@@ -81,10 +81,9 @@ class Tileset {
     }
 
     getSourceRect(tileType) {
-        const pos = this.tiles[tileType];
-        if (!pos) {
+        const pos = this.tiles[tileType] || this.tiles[TILE_TYPES.FLOOR];
+        if (!this.tiles[tileType]) {
             console.warn(`Unknown tile type: ${tileType}, defaulting to floor`);
-            return this.tiles[TILE_TYPES.FLOOR];
         }
         return {
             x: pos.x * this.tileSize,

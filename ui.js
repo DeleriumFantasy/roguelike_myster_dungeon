@@ -195,7 +195,9 @@ class UI {
 
     renderEnemy(enemy) {
         const screenPos = this.worldToTopDownScreen(enemy.x, enemy.y);
-        this.ctx.fillStyle = COLORS.ENEMY;
+        this.ctx.fillStyle = (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc())
+            ? COLORS.NPC
+            : COLORS.ENEMY;
         this.ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
     }
 
@@ -312,6 +314,26 @@ class UI {
         };
     }
 
+    getFuserFusionSummary(enemy) {
+        if (!enemy || typeof enemy.hasEnemyType !== 'function' || !enemy.hasEnemyType(ENEMY_TYPES.FUSER)) {
+            return '';
+        }
+
+        if (!(enemy.swallowedItems instanceof Map) || enemy.swallowedItems.size === 0) {
+            return ' | fused: none';
+        }
+
+        const entries = [];
+        for (const [itemType, item] of enemy.swallowedItems.entries()) {
+            const itemLabel = typeof item?.getDisplayName === 'function'
+                ? item.getDisplayName()
+                : (item?.name || String(itemType));
+            entries.push(`${itemType}=${itemLabel}`);
+        }
+
+        return ` | fused: ${entries.join('; ')}`;
+    }
+
     updateInfoPanel(player, world, fov) {
         const areaType = world.getAreaType(world.currentFloor);
         const playerBlind = this.isActorBlind(player);
@@ -326,7 +348,8 @@ class UI {
             const isVisible = this.game.debugShowAllMonsters || (fov && fov.isVisible(enemy.x, enemy.y));
             if (!isVisible) continue;
             const aiState = enemy.lastResolvedAi || enemy.baseAiType || enemy.aiType || AI_TYPES.WANDER;
-            visibleEnemyLines.push(`${enemy.name} (${enemy.x},${enemy.y}) - ${aiState}`);
+            const fuserSummary = this.getFuserFusionSummary(enemy);
+            visibleEnemyLines.push(`${enemy.name} (${enemy.x},${enemy.y}) - ${aiState}${fuserSummary}`);
         }
 
         const enemyDebugHtml = visibleEnemyLines.length > 0
@@ -338,6 +361,7 @@ class UI {
             <h3>Player Stats</h3>
             <p>Level: ${player.level}</p>
             <p>EXP: ${player.exp}/${player.expToNextLevel}</p>
+            <p>Money: ${player.money || 0}</p>
             <p>Health: ${player.health}/${player.maxHealth}</p>
             <p>Hunger: ${player.hunger}/${player.maxHunger}</p>
             <p>Power: ${player.power}</p>
@@ -465,19 +489,6 @@ class UI {
         }
     }
 
-    getItemQuantity(item) {
-        if (!item) {
-            return 0;
-        }
-
-        if (typeof item.getQuantity === 'function') {
-            return item.getQuantity();
-        }
-
-        const quantity = Number(item.properties?.quantity);
-        return Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
-    }
-
     pluralizeItemLabel(label) {
         const name = String(label || '').trim();
         if (!name) {
@@ -499,7 +510,7 @@ class UI {
         const baseLabel = typeof item.getDisplayName === 'function' ? item.getDisplayName() : item.name;
         const identified = typeof item.isIdentified === 'function' ? item.isIdentified() : true;
         const cursed = typeof item.isCursed === 'function' ? item.isCursed() : Boolean(item?.properties?.cursed);
-        const quantity = this.getItemQuantity(item);
+        const quantity = typeof item.getQuantity === 'function' ? item.getQuantity() : 1;
 
         let label = baseLabel;
         if (item?.type === ITEM_TYPES.THROWABLE && quantity > 1) {
@@ -507,8 +518,9 @@ class UI {
         }
 
         if (identified && cursed) {
-            return `${label} *cursed`;
+            label = `${label} *cursed`;
         }
+
         return label;
     }
 

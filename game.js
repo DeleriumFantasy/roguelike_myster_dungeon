@@ -20,7 +20,6 @@ class Game {
         this.lastFailedMove = null;
         this.inventoryOpen = false;
         this.debugShowAllMonsters = false;
-        this.lastSaveTimestamp = null;
         this.pressedMoveKeys = new Set();
         this.pendingMoveTimer = null;
 
@@ -89,7 +88,6 @@ class Game {
             }
 
             const enemyTypeKey = chosenEntry.key;
-            const template = ENEMY_TEMPLATES[enemyTypeKey];
             const enemy = this.createEnemyForType(0, 0, enemyTypeKey, floorIndex);
             const spawn = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
             if (!spawn) {
@@ -99,7 +97,7 @@ class Game {
             enemy.x = spawn.x;
             enemy.y = spawn.y;
             this.world.addEnemy(enemy);
-            console.log(`Created ${template.displayName} (${enemyTypeKey}) at (${spawn.x}, ${spawn.y}) with AI type: ${enemy.aiType}`);
+            console.log(`Created ${enemy.name} (${enemyTypeKey}) at (${spawn.x}, ${spawn.y}) with AI type: ${enemy.aiType}`);
         }
     }
 
@@ -181,7 +179,44 @@ class Game {
         }
 
         const item = chosenEntry.create();
+        if (item && item.type === ITEM_TYPES.MONEY) {
+            item.properties = item.properties || {};
+            item.properties.value = this.computeMoneyValueForFloor(item, floorIndex, rng);
+        }
+        applyWorldEnchantmentRoll(item, rng);
         return applyWorldCurseRoll(item, rng);
+    }
+
+    getMoneyValueRange(item) {
+        const minValue = Number(item?.properties?.valueMin);
+        const maxValue = Number(item?.properties?.valueMax);
+
+        if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+            return { min: 1, max: 1 };
+        }
+
+        const safeMin = Math.max(1, Math.floor(Math.min(minValue, maxValue)));
+        const safeMax = Math.max(safeMin, Math.floor(Math.max(minValue, maxValue)));
+        return { min: safeMin, max: safeMax };
+    }
+
+    computeMoneyValueForFloor(item, floorIndex = this.world.currentFloor, rng = null) {
+        const floorMultiplier = Math.max(1, Math.floor(Number(floorIndex) + 1));
+        const range = this.getMoneyValueRange(item);
+        const rolledValue = rng && typeof rng.randomInt === 'function'
+            ? rng.randomInt(range.min, range.max)
+            : randomInt(range.min, range.max);
+
+        return Math.max(1, Math.floor(rolledValue) * floorMultiplier);
+    }
+
+    getValidMoneyValue(item) {
+        const configuredValue = Number(item?.properties?.value);
+        if (Number.isFinite(configuredValue) && configuredValue > 0) {
+            return Math.max(1, Math.floor(configuredValue));
+        }
+
+        return this.computeMoneyValueForFloor(item, this.world.currentFloor, null);
     }
 
     rollItemTierForFloor(floorIndex, rng) {
@@ -237,7 +272,7 @@ class Game {
                 return;
             }
 
-            const lookDirection = this.getDirectionFromKey(key, lowerKey);
+            const lookDirection = getDirectionForInputKey(key, lowerKey);
             if (e.shiftKey && lookDirection) {
                 this.lookTowards(lookDirection.dx, lookDirection.dy);
                 e.preventDefault();
@@ -322,6 +357,10 @@ class Game {
             ? this.player.getFacingDirection()
             : (this.player.facing || { dx: 0, dy: -1 });
 
+        if (this.tryTalkToFacingNpc(facing)) {
+            return;
+        }
+
         this.performTurn({
             type: 'attack',
             dx: facing.dx,
@@ -329,8 +368,181 @@ class Game {
         });
     }
 
-    getDirectionFromKey(key, lowerKey) {
-        return getDirectionForInputKey(key, lowerKey);
+    tryTalkToFacingNpc(facing) {
+        const targetX = this.player.x + (Number(facing?.dx) || 0);
+        const targetY = this.player.y + (Number(facing?.dy) || 0);
+        const enemy = this.world.getEnemyAt(targetX, targetY);
+        if (!enemy || typeof enemy.isNeutralNpc !== 'function' || !enemy.isNeutralNpc()) {
+            return false;
+        }
+
+        if (enemy.shopSoldOut) {
+            this.ui.addMessage(`${enemy.name}: Thanks.`);
+            return true;
+        }
+
+        if (!enemy.shopOfferItem) {
+            this.generateNpcOffer(enemy);
+        }
+
+        if (!enemy.shopOfferItem || !Number.isFinite(enemy.shopOfferPrice)) {
+            this.ui.addMessage(`${enemy.name}: I have nothing to sell right now.`);
+            return true;
+        }
+
+        const itemLabel = typeof enemy.shopOfferItem.getDisplayName === 'function'
+            ? enemy.shopOfferItem.getDisplayName()
+            : enemy.shopOfferItem.name;
+        const price = enemy.shopOfferPrice;
+        const confirmed = window.confirm(`${enemy.name} offers ${itemLabel} for ${price} money. Buy it?`);
+        if (!confirmed) {
+            this.ui.addMessage(`${enemy.name}: Maybe next time.`);
+            return true;
+        }
+
+        if ((this.player.money || 0) < price) {
+            this.ui.addMessage(`${enemy.name}: You don't have enough money.`);
+            return true;
+        }
+
+        this.player.money -= price;
+        this.player.addItem(enemy.shopOfferItem);
+        this.ui.addMessage(`You buy ${itemLabel} for ${price} money.`);
+        enemy.shopOfferItem = null;
+        enemy.shopOfferPrice = null;
+        enemy.shopSoldOut = true;
+        return true;
+    }
+
+    generateNpcOffer(enemy) {
+        if (!enemy) {
+            return;
+        }
+
+        const rng = {
+            next: () => Math.random(),
+            randomInt: (min, max) => randomInt(min, max)
+        };
+
+        let offeredItem = null;
+        for (let attempt = 0; attempt < 8; attempt++) {
+            const candidate = this.createRandomItemForFloor(rng, this.world.currentFloor);
+            if (!candidate) {
+                continue;
+            }
+
+            if (candidate.type === ITEM_TYPES.MONEY) {
+                continue;
+            }
+
+            offeredItem = candidate;
+            break;
+        }
+
+        if (!offeredItem) {
+            return;
+        }
+
+        enemy.shopOfferItem = offeredItem;
+        enemy.shopOfferPrice = randomInt(10, 100) * (this.world.currentFloor + 1);
+    }
+
+    playerHasEnchantment(enchantmentKey) {
+        if (!enchantmentKey || !(this.player?.equipment instanceof Map)) {
+            return false;
+        }
+
+        for (const item of this.player.equipment.values()) {
+            if (!item || typeof item.getEnchantments !== 'function') {
+                continue;
+            }
+
+            if (item.getEnchantments().includes(enchantmentKey)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    tryKnockbackEnemy(enemy, fromX, fromY) {
+        if (!enemy) {
+            return false;
+        }
+
+        const pushDx = Math.sign(enemy.x - fromX);
+        const pushDy = Math.sign(enemy.y - fromY);
+        if (pushDx === 0 && pushDy === 0) {
+            return false;
+        }
+
+        const targetX = enemy.x + pushDx;
+        const targetY = enemy.y + pushDy;
+
+        if (this.player.x === targetX && this.player.y === targetY) {
+            return false;
+        }
+
+        const occupyingEnemy = this.world.getEnemyAt(targetX, targetY, enemy);
+        if (occupyingEnemy) {
+            return false;
+        }
+
+        if (typeof enemy.canOccupyTile === 'function' && !enemy.canOccupyTile(this.world, targetX, targetY, this.player)) {
+            return false;
+        }
+
+        enemy.x = targetX;
+        enemy.y = targetY;
+        return true;
+    }
+
+    getAttackOffsetsForFacing(dx, dy) {
+        const normalizedDx = Math.sign(Number(dx) || 0);
+        const normalizedDy = Math.sign(Number(dy) || 0);
+        if (normalizedDx === 0 && normalizedDy === 0) {
+            return [];
+        }
+
+        const offsets = [{ dx: normalizedDx, dy: normalizedDy }];
+        const hasSweepingAttack = this.playerHasEnchantment('sweepingAttack');
+        const hasSideAttack = this.playerHasEnchantment('sideAttack');
+        const hasBackAttack = this.playerHasEnchantment('backAttack');
+
+        if (hasSweepingAttack) {
+            if (normalizedDx === 0) {
+                offsets.push({ dx: -1, dy: normalizedDy });
+                offsets.push({ dx: 1, dy: normalizedDy });
+            } else if (normalizedDy === 0) {
+                offsets.push({ dx: normalizedDx, dy: -1 });
+                offsets.push({ dx: normalizedDx, dy: 1 });
+            } else {
+                offsets.push({ dx: normalizedDx, dy: 0 });
+                offsets.push({ dx: 0, dy: normalizedDy });
+            }
+        }
+
+        if (hasSideAttack) {
+            offsets.push({ dx: -normalizedDy, dy: normalizedDx });
+            offsets.push({ dx: normalizedDy, dy: -normalizedDx });
+        }
+
+        if (hasBackAttack) {
+            offsets.push({ dx: -normalizedDx, dy: -normalizedDy });
+        }
+
+        const uniqueOffsets = [];
+        const seenKeys = new Set();
+        for (const offset of offsets) {
+            const key = `${offset.dx},${offset.dy}`;
+            if (seenKeys.has(key)) {
+                continue;
+            }
+            seenKeys.add(key);
+            uniqueOffsets.push(offset);
+        }
+
+        return uniqueOffsets;
     }
 
     getDirectionFromPressedKeys() {
@@ -379,12 +591,6 @@ class Game {
                 return true;
             case 'toggle-map':
                 this.ui.toggleMap(this.world, this.player);
-                return true;
-            case 'quick-save':
-                this.quickSave();
-                return true;
-            case 'quick-load':
-                this.quickLoad();
                 return true;
             case 'tame-nearest':
                 this.tryTameNearestEnemy();
@@ -584,34 +790,104 @@ class Game {
             // Pre-turn status tick
             this.player.tickConditions();
 
-            const targetX = this.player.x + attackDx;
-            const targetY = this.player.y + attackDy;
+            const offsets = this.getAttackOffsetsForFacing(attackDx, attackDy);
+            const hasKnockback = this.playerHasEnchantment('knockback');
+            const hasRuinTraps = this.playerHasEnchantment('ruinTraps');
+            const executeAttackPass = () => {
+                const attackedEnemyKeys = new Set();
+                let attackedAnyEnemyInPass = false;
+                let revealedAnyTrapInPass = false;
+                let ruinedAnyTrapInPass = false;
 
-            if (typeof this.world.getTrap === 'function') {
-                const trapType = this.world.getTrap(targetX, targetY);
-                if (trapType && typeof this.world.revealTrap === 'function') {
-                    const alreadyRevealed = typeof this.world.isTrapRevealed === 'function'
-                        ? this.world.isTrapRevealed(targetX, targetY)
-                        : false;
-                    this.world.revealTrap(targetX, targetY);
-                    if (!alreadyRevealed) {
-                        this.ui.addMessage('You reveal a hidden trap.');
+                for (const offset of offsets) {
+                    const targetX = this.player.x + offset.dx;
+                    const targetY = this.player.y + offset.dy;
+
+                    if (typeof this.world.getTrap === 'function') {
+                        const trapType = this.world.getTrap(targetX, targetY);
+                        if (trapType) {
+                            if (hasRuinTraps && typeof this.world.removeTrap === 'function') {
+                                this.world.removeTrap(targetX, targetY);
+                                ruinedAnyTrapInPass = true;
+                            } else if (typeof this.world.revealTrap === 'function') {
+                                const alreadyRevealed = typeof this.world.isTrapRevealed === 'function'
+                                    ? this.world.isTrapRevealed(targetX, targetY)
+                                    : false;
+                                this.world.revealTrap(targetX, targetY);
+                                if (!alreadyRevealed) {
+                                    revealedAnyTrapInPass = true;
+                                }
+                            }
+                        }
+                    }
+
+                    const enemyOnTarget = this.world.getEnemyAt(targetX, targetY);
+                    if (!enemyOnTarget) {
+                        continue;
+                    }
+
+                    const enemyKey = `${enemyOnTarget.x},${enemyOnTarget.y},${enemyOnTarget.name}`;
+                    if (attackedEnemyKeys.has(enemyKey)) {
+                        continue;
+                    }
+                    attackedEnemyKeys.add(enemyKey);
+
+                    attackedAnyEnemyInPass = true;
+                    const attackResult = this.player.attackEnemy(enemyOnTarget);
+                    const damage = attackResult?.damage || 0;
+                    const critical = Boolean(attackResult?.critical);
+                    const inflictedConditions = Array.isArray(attackResult?.inflictedConditions)
+                        ? attackResult.inflictedConditions
+                        : [];
+                    const criticalPrefix = critical ? 'Critical! ' : '';
+                    this.ui.addMessage(`${criticalPrefix}You attack ${enemyOnTarget.name} for ${damage}.`);
+
+                    for (const condition of inflictedConditions) {
+                        this.ui.addMessage(`${enemyOnTarget.name} is ${condition}.`);
+                    }
+
+                    if (hasKnockback && damage > 0 && enemyOnTarget.isAlive() && Math.random() < 0.25) {
+                        const knockedBack = this.tryKnockbackEnemy(enemyOnTarget, this.player.x, this.player.y);
+                        if (knockedBack) {
+                            this.ui.addMessage(`${enemyOnTarget.name} is knocked back.`);
+                        }
+                    }
+
+                    if (!enemyOnTarget.isAlive()) {
+                        this.handleEnemyDefeat(enemyOnTarget, { announceDefeat: true });
                     }
                 }
+
+                return {
+                    attackedAnyEnemyInPass,
+                    revealedAnyTrapInPass,
+                    ruinedAnyTrapInPass
+                };
+            };
+
+            const primaryPass = executeAttackPass();
+            let attackedAnyEnemy = primaryPass.attackedAnyEnemyInPass;
+            let revealedAnyTrap = primaryPass.revealedAnyTrapInPass;
+            let ruinedAnyTrap = primaryPass.ruinedAnyTrapInPass;
+
+            const rapidStrikeTriggered = this.playerHasEnchantment('rapidStrike') && Math.random() < 0.25;
+            if (rapidStrikeTriggered) {
+                this.ui.addMessage('Rapid strike triggers!');
+                const extraPass = executeAttackPass();
+                attackedAnyEnemy = attackedAnyEnemy || extraPass.attackedAnyEnemyInPass;
+                revealedAnyTrap = revealedAnyTrap || extraPass.revealedAnyTrapInPass;
+                ruinedAnyTrap = ruinedAnyTrap || extraPass.ruinedAnyTrapInPass;
             }
 
-            const enemyOnTarget = this.world.getEnemyAt(targetX, targetY);
+            if (revealedAnyTrap) {
+                this.ui.addMessage('You reveal a hidden trap.');
+            }
 
-            if (enemyOnTarget) {
-                if (typeof enemyOnTarget.onAttacked === 'function') {
-                    enemyOnTarget.onAttacked();
-                }
-                const damage = this.player.attackEnemy(enemyOnTarget);
-                this.ui.addMessage(`You attack ${enemyOnTarget.name} for ${damage}.`);
-                if (!enemyOnTarget.isAlive()) {
-                    this.handleEnemyDefeat(enemyOnTarget, { announceDefeat: true });
-                }
-            } else {
+            if (ruinedAnyTrap) {
+                this.ui.addMessage('You destroy a trap with Ruin traps.');
+            }
+
+            if (!attackedAnyEnemy) {
                 this.ui.addMessage('You swing at empty space.');
             }
 
@@ -622,8 +898,6 @@ class Game {
         // Pre-turn status tick
         this.player.tickConditions();
 
-        // Post-turn resolution
-        // Placeholder
         return true;
     }
 
@@ -656,8 +930,16 @@ class Game {
         this.lookTowards(dx, dy);
 
         if (distance(this.player.x, this.player.y, target.x, target.y) <= 1.5) {
-            const damage = this.player.attackEnemy(target);
-            this.ui.addMessage(`You berserk attack ${target.name} for ${damage}.`);
+            const attackResult = this.player.attackEnemy(target);
+            const damage = attackResult?.damage || 0;
+            const inflictedConditions = Array.isArray(attackResult?.inflictedConditions)
+                ? attackResult.inflictedConditions
+                : [];
+            const criticalPrefix = attackResult?.critical ? 'Critical! ' : '';
+            this.ui.addMessage(`${criticalPrefix}You berserk attack ${target.name} for ${damage}.`);
+            for (const condition of inflictedConditions) {
+                this.ui.addMessage(`${target.name} is ${condition}.`);
+            }
             if (!target.isAlive()) {
                 this.handleEnemyDefeat(target, { announceDefeat: true });
             }
@@ -693,6 +975,76 @@ class Game {
         });
     }
 
+    getNearbyDropPositions(x, y, maxRadius = 3) {
+        const positions = [];
+        const seen = new Set();
+
+        for (let radius = 1; radius <= maxRadius; radius++) {
+            for (let offsetY = -radius; offsetY <= radius; offsetY++) {
+                for (let offsetX = -radius; offsetX <= radius; offsetX++) {
+                    if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) !== radius) {
+                        continue;
+                    }
+
+                    const px = x + offsetX;
+                    const py = y + offsetY;
+                    if (px < 0 || px >= GRID_SIZE || py < 0 || py >= GRID_SIZE) {
+                        continue;
+                    }
+
+                    const key = `${px},${py}`;
+                    if (seen.has(key)) {
+                        continue;
+                    }
+
+                    seen.add(key);
+                    positions.push({ x: px, y: py });
+                }
+            }
+        }
+
+        return positions;
+    }
+
+    dropItemsNearEnemy(enemy, items) {
+        if (!enemy || !Array.isArray(items) || items.length === 0) {
+            return [];
+        }
+
+        const dropped = [];
+        const candidates = this.getNearbyDropPositions(enemy.x, enemy.y, 3);
+
+        for (const item of items) {
+            let placed = false;
+
+            for (const candidate of candidates) {
+                if (!this.world.canSpawnItemAt(candidate.x, candidate.y, this.player)) {
+                    continue;
+                }
+
+                const dropResult = this.world.addItem(candidate.x, candidate.y, item);
+                if (dropResult?.placed) {
+                    dropped.push({ item, x: candidate.x, y: candidate.y, burned: false });
+                    placed = true;
+                    break;
+                }
+            }
+
+            if (placed) {
+                continue;
+            }
+
+            const fallbackResult = this.world.addItem(this.player.x, this.player.y, item);
+            if (fallbackResult?.burned) {
+                dropped.push({ item, x: this.player.x, y: this.player.y, burned: true });
+            } else if (fallbackResult?.placed) {
+                dropped.push({ item, x: this.player.x, y: this.player.y, burned: false });
+            }
+        }
+
+        return dropped;
+    }
+
     resolveThrow(item, dx, dy) {
         const grid = this.world.getCurrentFloor().grid;
         let x = this.player.x + dx;
@@ -714,6 +1066,45 @@ class Game {
 
             const enemy = this.world.getEnemyAt(x, y);
             if (enemy && !enemy.isAlly) {
+                const isFuser = typeof enemy.hasEnemyType === 'function' && enemy.hasEnemyType(ENEMY_TYPES.FUSER);
+                if (isFuser) {
+                    if (typeof enemy.canSwallowThrownItems === 'function' && enemy.canSwallowThrownItems()) {
+                        const swallowResult = typeof enemy.swallowThrownItem === 'function'
+                            ? enemy.swallowThrownItem(item)
+                            : null;
+
+                        if (swallowResult) {
+                            const ejectedItems = Array.isArray(swallowResult.ejectedItems)
+                                ? swallowResult.ejectedItems
+                                : [];
+                            const ejectedDrops = ejectedItems.length > 0
+                                ? this.dropItemsNearEnemy(enemy, ejectedItems)
+                                : [];
+
+                            return {
+                                type: 'swallowed',
+                                enemy,
+                                combined: Boolean(swallowResult.combined),
+                                mergedEnchantmentCount: Number(swallowResult.mergedEnchantmentCount || 0),
+                                storedItem: swallowResult.storedItem || null,
+                                ejectedBecauseDifferentTypes: Boolean(swallowResult.ejectedBecauseDifferentTypes),
+                                ejectedDrops,
+                                x,
+                                y
+                            };
+                        }
+                    }
+
+                    const droppedByFuser = this.dropItemsNearEnemy(enemy, [item]);
+                    return {
+                        type: 'fuser-reject',
+                        enemy,
+                        drops: droppedByFuser,
+                        x,
+                        y
+                    };
+                }
+
                 const throwImpact = item.throw(this.player, enemy) || { damage: 0, healing: 0 };
                 const enemyDefeated = !enemy.isAlive();
                 if (enemyDefeated) {
@@ -755,7 +1146,43 @@ class Game {
 
     announceThrowResult(item, result) {
         const label = typeof item.getDisplayName === 'function' ? item.getDisplayName() : item.name;
-        if (result.type === 'hit') {
+        if (result.type === 'swallowed') {
+            this.ui.addMessage(`${result.enemy.name} swallows ${label}.`);
+            if (result.ejectedBecauseDifferentTypes) {
+                this.ui.addMessage(`${result.enemy.name} cannot fuse different item types and spits both items out.`);
+                for (const drop of result.ejectedDrops || []) {
+                    const dropName = typeof drop.item?.getDisplayName === 'function'
+                        ? drop.item.getDisplayName()
+                        : (drop.item?.name || 'item');
+                    if (drop.burned) {
+                        this.ui.addMessage(`${dropName} burns up in lava.`);
+                    } else {
+                        this.ui.addMessage(`${dropName} drops at ${drop.x}, ${drop.y}.`);
+                    }
+                }
+                return;
+            }
+
+            if (result.combined) {
+                if ((result.mergedEnchantmentCount || 0) > 0) {
+                    this.ui.addMessage(`${result.enemy.name} fuses the item and gains ${result.mergedEnchantmentCount} enchantment(s).`);
+                } else {
+                    this.ui.addMessage(`${result.enemy.name} fuses the item, but no new enchantments are gained.`);
+                }
+            }
+        } else if (result.type === 'fuser-reject') {
+            this.ui.addMessage(`${result.enemy.name} refuses to swallow more items.`);
+            for (const drop of result.drops || []) {
+                const dropName = typeof drop.item?.getDisplayName === 'function'
+                    ? drop.item.getDisplayName()
+                    : (drop.item?.name || label);
+                if (drop.burned) {
+                    this.ui.addMessage(`${dropName} burns up in lava.`);
+                } else {
+                    this.ui.addMessage(`${dropName} drops at ${drop.x}, ${drop.y}.`);
+                }
+            }
+        } else if (result.type === 'hit') {
             this.ui.addMessage(`${label} hits ${result.enemy.name}.`);
             if ((result.damage || 0) > 0) {
                 this.ui.addMessage(`${result.enemy.name} takes ${result.damage} throw damage.`);
@@ -794,6 +1221,48 @@ class Game {
                         this.handleEnemyDefeat(result.target, { announceDefeat: true, grantExp: false });
                     }
                 }
+                if (result?.type === 'vandal-pickup-item' && result.pickedUpItem) {
+                    const pickedLabel = typeof result.pickedUpItem.getDisplayName === 'function'
+                        ? result.pickedUpItem.getDisplayName()
+                        : result.pickedUpItem.name;
+                    this.ui.addMessage(`${enemy.name} picks up ${pickedLabel}.`);
+
+                    const pickupEffect = result.pickupEffect;
+                    if (pickupEffect?.type === 'vandal-downgrade' && pickupEffect.item) {
+                        const downgradedLabel = typeof pickupEffect.item.getDisplayName === 'function'
+                            ? pickupEffect.item.getDisplayName()
+                            : pickupEffect.item.name;
+                        this.ui.addMessage(`${enemy.name} degrades it into ${downgradedLabel}.`);
+                    } else if (pickupEffect?.type === 'vandal-transform-food' && pickupEffect.item) {
+                        const foodLabel = typeof pickupEffect.item.getDisplayName === 'function'
+                            ? pickupEffect.item.getDisplayName()
+                            : pickupEffect.item.name;
+                        this.ui.addMessage(`${enemy.name} turns it into ${foodLabel}.`);
+                    } else if (pickupEffect?.type === 'vandal-destroy-item') {
+                        this.ui.addMessage(`${enemy.name} destroys the item.`);
+                    }
+                }
+                if (result?.type === 'vandal-dispose-item' && result.item) {
+                    const itemLabel = typeof result.item.getDisplayName === 'function'
+                        ? result.item.getDisplayName()
+                        : result.item.name;
+                    const disposalResult = this.world.addItem(result.tile.x, result.tile.y, result.item);
+                    if (disposalResult?.burned) {
+                        this.ui.addMessage(`${enemy.name} throws ${itemLabel} into lava and it burns up.`);
+                    } else if (disposalResult?.placed) {
+                        this.ui.addMessage(`${enemy.name} throws ${itemLabel} onto ${result.tile.tile}.`);
+                    } else {
+                        const fallbackDrop = this.dropItemsNearEnemy(enemy, [result.item]);
+                        if (fallbackDrop.length > 0) {
+                            const drop = fallbackDrop[0];
+                            if (drop.burned) {
+                                this.ui.addMessage(`${enemy.name} drops ${itemLabel}, but it burns up in lava.`);
+                            } else {
+                                this.ui.addMessage(`${enemy.name} drops ${itemLabel} at ${drop.x}, ${drop.y}.`);
+                            }
+                        }
+                    }
+                }
                 if (!this.player.isAlive()) {
                     return;
                 }
@@ -810,6 +1279,40 @@ class Game {
         const floorEnemies = this.world.getEnemies();
         if (floorEnemies.includes(enemy)) {
             this.world.removeEnemy(enemy);
+        }
+
+        if (enemy.heldItem) {
+            const heldDropResult = this.dropItemsNearEnemy(enemy, [enemy.heldItem]);
+            enemy.heldItem = null;
+            for (const drop of heldDropResult) {
+                const dropName = typeof drop.item?.getDisplayName === 'function'
+                    ? drop.item.getDisplayName()
+                    : (drop.item?.name || 'item');
+                if (drop.burned) {
+                    this.ui.addMessage(`${enemy.name} drops ${dropName}, but it burns up in lava.`);
+                } else {
+                    this.ui.addMessage(`${enemy.name} drops ${dropName}.`);
+                }
+            }
+        }
+
+        const swallowedItems = enemy.swallowedItems instanceof Map
+            ? Array.from(enemy.swallowedItems.values())
+            : [];
+        if (swallowedItems.length > 0) {
+            const droppedSwallowedItems = this.dropItemsNearEnemy(enemy, swallowedItems);
+            enemy.swallowedItems.clear();
+
+            for (const drop of droppedSwallowedItems) {
+                const dropName = typeof drop.item?.getDisplayName === 'function'
+                    ? drop.item.getDisplayName()
+                    : (drop.item?.name || 'item');
+                if (drop.burned) {
+                    this.ui.addMessage(`${enemy.name} releases ${dropName}, but it burns up in lava.`);
+                } else {
+                    this.ui.addMessage(`${enemy.name} releases ${dropName}.`);
+                }
+            }
         }
 
         const droppedItem = this.rollEnemyDrop(enemy);
@@ -896,6 +1399,13 @@ class Game {
 
         const pickedNames = [];
         for (const item of [...items]) {
+            if (item.type === ITEM_TYPES.MONEY) {
+                const value = this.getValidMoneyValue(item);
+                this.player.money = (this.player.money || 0) + value;
+                this.world.removeItem(x, y, item);
+                pickedNames.push(`${value} money`);
+                continue;
+            }
             this.player.addItem(item);
             this.world.removeItem(x, y, item);
             const itemName = typeof item.getDisplayName === 'function' ? item.getDisplayName() : item.name;
@@ -982,233 +1492,6 @@ class Game {
             this.ui.addMessage(`${target.name} is now your ally.`);
         } else {
             this.ui.addMessage(`Taming progress on ${target.name}: ${target.tamingProgress}/${target.getTameThreshold()}`);
-        }
-    }
-
-    quickSave() {
-        if (!FEATURE_FLAGS.SAVE_LOAD) {
-            this.ui.addMessage('Save/load is placeholder; writing compatibility snapshot.');
-        }
-
-        const payload = this.serializeGameState();
-        localStorage.setItem(SAVE_CONFIG.STORAGE_KEY, JSON.stringify(payload));
-        this.lastSaveTimestamp = Date.now();
-        this.ui.addMessage('Game snapshot saved.');
-    }
-
-    quickLoad() {
-        const raw = localStorage.getItem(SAVE_CONFIG.STORAGE_KEY);
-        if (!raw) {
-            this.ui.addMessage('No saved snapshot found.');
-            return;
-        }
-
-        try {
-            const parsed = JSON.parse(raw);
-            this.loadGameState(parsed);
-            this.ui.addMessage('Game snapshot loaded.');
-        } catch (error) {
-            console.error(error);
-            this.ui.addMessage('Failed to load snapshot.');
-        }
-    }
-
-    serializeGameState() {
-        return {
-            version: SAVE_CONFIG.VERSION,
-            seed: this.seed,
-            world: {
-                baseSeed: this.world.baseSeed,
-                currentFloor: this.world.currentFloor,
-                floors: this.world.floors.map((floor) => this.serializeFloor(floor))
-            },
-            player: {
-                x: this.player.x,
-                y: this.player.y,
-                facing: this.player.getFacingDirection(),
-                level: this.player.level,
-                exp: this.player.exp,
-                expToNextLevel: this.player.expToNextLevel,
-                health: this.player.health,
-                hunger: this.player.hunger,
-                conditions: Array.from(this.player.conditions.entries()),
-                equipment: this.serializeEquipmentMap(this.player.equipment),
-                inventory: this.serializeItemList(this.player.inventory)
-            }
-        };
-    }
-
-    serializeFloor(floor) {
-        return {
-            grid: floor.grid,
-            hazards: Array.from(floor.hazards.entries()),
-            traps: Array.from(floor.traps.entries()),
-            revealedTraps: Array.from(floor.revealedTraps.values()),
-            meta: floor.meta,
-            explored: Array.from(floor.fov.explored),
-            items: this.serializeItemMap(floor.items),
-            enemies: floor.enemies.map((enemy) => this.serializeEnemy(enemy))
-        };
-    }
-
-    serializeEnemy(enemy) {
-        return {
-            x: enemy.x,
-            y: enemy.y,
-            name: enemy.name,
-            aiType: enemy.aiType,
-            baseAiType: enemy.baseAiType,
-            health: enemy.health,
-            stats: {
-                health: enemy.maxHealth,
-                power: enemy.power,
-                armor: enemy.armor,
-                exp: enemy.exp,
-                fovRange: enemy.fovRange,
-                tameThreshold: enemy.tameThreshold,
-                monsterType: enemy.monsterType,
-                creatureTypes: enemy.creatureTypes,
-                speed: enemy.speed,
-                actionCharge: enemy.actionCharge
-            },
-            isAlly: enemy.isAlly,
-            tamingProgress: enemy.tamingProgress,
-            conditions: Array.from(enemy.conditions.entries()),
-            equipment: this.serializeEquipmentMap(enemy.equipment)
-        };
-    }
-
-    serializeItem(item) {
-        return {
-            name: item.name,
-            type: item.type,
-            properties: item.properties,
-            knowledgeState: item.knowledgeState
-        };
-    }
-
-    serializeItemMap(itemMap) {
-        return Array.from(itemMap.entries()).map(([key, items]) => [key, this.serializeItemList(items)]);
-    }
-
-    serializeItemList(items) {
-        return (items || []).map((item) => this.serializeItem(item));
-    }
-
-    serializeEquipmentMap(equipment) {
-        return Array.from(equipment.entries()).map(([slot, item]) => [slot, this.serializeItem(item)]);
-    }
-
-    deserializeItemList(itemList) {
-        return (itemList || []).map((itemData) => this.deserializeItem(itemData));
-    }
-
-    deserializeItemMap(itemMapData) {
-        return new Map((itemMapData || []).map(([key, items]) => [key, this.deserializeItemList(items)]));
-    }
-
-    deserializeEquipmentMap(equipmentData) {
-        return new Map((equipmentData || []).map(([slot, itemData]) => [slot, this.deserializeItem(itemData)]));
-    }
-
-    loadGameState(data) {
-        if (!data || typeof data !== 'object') {
-            throw new Error('Invalid save format');
-        }
-
-        this.seed = data.seed;
-        this.world.baseSeed = data.world.baseSeed;
-        this.world.currentFloor = data.world.currentFloor;
-        this.world.floors = data.world.floors.map((floorData) => this.deserializeFloor(floorData));
-
-        this.player.x = data.player.x;
-        this.player.y = data.player.y;
-        if (data.player.facing) {
-            this.player.setFacingDirection(data.player.facing.dx, data.player.facing.dy);
-        }
-        this.player.level = Number.isFinite(data.player.level) ? data.player.level : this.player.level;
-        this.player.exp = Number.isFinite(data.player.exp) ? data.player.exp : this.player.exp;
-        this.player.expToNextLevel = Number.isFinite(data.player.expToNextLevel)
-            ? data.player.expToNextLevel
-            : this.player.getExpToNextLevel();
-        this.player.health = data.player.health;
-        this.player.hunger = data.player.hunger;
-        this.player.conditions = new Map(data.player.conditions || []);
-        this.player.equipment = this.deserializeEquipmentMap(data.player.equipment);
-        this.player.inventory = this.deserializeItemList(data.player.inventory);
-        this.player.allies = [];
-        this.isGameOver = false;
-        this.lastFailedMove = null;
-
-        this.bindLoadedAllies();
-        this.populateCurrentFloorIfNeeded();
-        this.player.updateStats();
-        this.updateFOV();
-        this.ui.render(this.world, this.player, this.fov);
-    }
-
-    deserializeFloor(floorData) {
-        const grid = floorData.grid;
-        const fov = new FOV(grid);
-        fov.explored = new Set(floorData.explored || []);
-
-        const hasAnyItems = Array.isArray(floorData.items) && floorData.items.length > 0;
-        const hasAnyEnemies = Array.isArray(floorData.enemies) && floorData.enemies.length > 0;
-        const meta = floorData.meta || {
-            areaType: AREA_TYPES.DUNGEON,
-            generatorType: 'generator:dungeon',
-            mapRevealed: false
-        };
-        if (typeof meta.contentSpawned !== 'boolean') {
-            meta.contentSpawned = hasAnyItems || hasAnyEnemies;
-        }
-
-        return {
-            grid,
-            hazards: new Map(floorData.hazards || []),
-            traps: new Map(floorData.traps || []),
-            revealedTraps: new Set(floorData.revealedTraps || []),
-            items: this.deserializeItemMap(floorData.items),
-            enemies: (floorData.enemies || []).map((enemyData) => this.deserializeEnemy(enemyData)),
-            fov,
-            meta
-        };
-    }
-
-    deserializeEnemy(enemyData) {
-        const enemy = new Enemy(
-            enemyData.x,
-            enemyData.y,
-            enemyData.name,
-            enemyData.baseAiType || enemyData.aiType,
-            enemyData.stats || {}
-        );
-        enemy.aiType = enemyData.aiType ?? enemy.aiType;
-        enemy.baseAiType = enemyData.baseAiType || enemy.baseAiType;
-        enemy.health = enemyData.health ?? enemy.health;
-        enemy.isAlly = Boolean(enemyData.isAlly);
-        enemy.tamingProgress = enemyData.tamingProgress || 0;
-        enemy.conditions = new Map(enemyData.conditions || []);
-        enemy.equipment = this.deserializeEquipmentMap(enemyData.equipment);
-        return enemy;
-    }
-
-    deserializeItem(itemData) {
-        const item = new Item(itemData.name, itemData.type, itemData.properties || {});
-        if (itemData.knowledgeState) {
-            item.knowledgeState = itemData.knowledgeState;
-        }
-        return item;
-    }
-
-    bindLoadedAllies() {
-        for (const floor of this.world.floors) {
-            for (const enemy of floor.enemies) {
-                if (enemy.isAlly) {
-                    enemy.tamedBy = this.player;
-                    this.player.addAlly(enemy);
-                }
-            }
         }
     }
 
