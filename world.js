@@ -1,5 +1,4 @@
 // World generation and management
-console.log('world.js loaded');
 
 class World {
     constructor(seed) {

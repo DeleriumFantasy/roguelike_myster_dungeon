@@ -1,5 +1,4 @@
 // Enemy class
-console.log('enemy.js loaded');
 
 class Enemy {
     constructor(x, y, name, aiType, stats = {}) {
@@ -381,6 +380,103 @@ class Enemy {
         return null;
     }
 
+    isMonsterFactionAlly(candidateEnemy) {
+        if (!candidateEnemy || candidateEnemy === this) {
+            return false;
+        }
+
+        if (typeof candidateEnemy.isAlive !== 'function' || !candidateEnemy.isAlive()) {
+            return false;
+        }
+
+        if (typeof candidateEnemy.isNeutralNpc === 'function' && candidateEnemy.isNeutralNpc()) {
+            return false;
+        }
+
+        // Monsters are allied to each other (non-player-allied enemies).
+        return !candidateEnemy.isAlly;
+    }
+
+    getNearestNearbyMonsterAlly(world, maxDistance = 6) {
+        if (!world || typeof world.getEnemies !== 'function') {
+            return null;
+        }
+
+        let nearest = null;
+        let nearestDistance = Infinity;
+        for (const enemy of world.getEnemies()) {
+            if (!this.isMonsterFactionAlly(enemy)) {
+                continue;
+            }
+
+            const enemyDistance = distance(this.x, this.y, enemy.x, enemy.y);
+            if (enemyDistance > maxDistance) {
+                continue;
+            }
+
+            if (enemyDistance < nearestDistance) {
+                nearest = enemy;
+                nearestDistance = enemyDistance;
+            }
+        }
+
+        return nearest;
+    }
+
+    getEnemyActorNearAlly(world, player, ally, engageRange = 2) {
+        if (!ally) {
+            return null;
+        }
+
+        const candidates = [];
+        if (player && typeof player.isAlive === 'function' && player.isAlive()) {
+            candidates.push({ kind: 'player', target: player, x: player.x, y: player.y });
+        }
+
+        if (world && typeof world.getEnemies === 'function') {
+            for (const enemy of world.getEnemies()) {
+                if (!enemy || enemy === this || enemy === ally) {
+                    continue;
+                }
+
+                if (typeof enemy.isAlive !== 'function' || !enemy.isAlive()) {
+                    continue;
+                }
+
+                if (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc()) {
+                    continue;
+                }
+
+                // Player-allied monsters are enemy actors for monster guards.
+                if (!enemy.isAlly) {
+                    continue;
+                }
+
+                candidates.push({ kind: 'enemy', target: enemy, x: enemy.x, y: enemy.y });
+            }
+        }
+
+        let nearest = null;
+        let nearestDistance = Infinity;
+        for (const candidate of candidates) {
+            const candidateDistance = distance(ally.x, ally.y, candidate.x, candidate.y);
+            if (candidateDistance > engageRange) {
+                continue;
+            }
+
+            if (!this.canSeeActor(world, candidate.target)) {
+                continue;
+            }
+
+            if (candidateDistance < nearestDistance) {
+                nearest = candidate;
+                nearestDistance = candidateDistance;
+            }
+        }
+
+        return nearest;
+    }
+
     getNearestBerserkTarget(world, player) {
         let nearest = null;
         let nearestDistance = Infinity;
@@ -514,7 +610,15 @@ class Enemy {
     }
 
     getAiTypeForTurn(world, player, fov) {
+            const statusAiOverride = this.getStatusAiOverride();
+
         if (this.isAlly) {
+            if (this.baseAiType === AI_TYPES.GUARD) {
+                    if (statusAiOverride) {
+                        return statusAiOverride;
+                }
+                return AI_TYPES.GUARD;
+            }
             return AI_TYPES.SUPPORT;
         }
 
@@ -522,10 +626,8 @@ class Enemy {
             return AI_TYPES.FLEE;
         }
 
-        for (const [condition, overrideAi] of this.aiByStatus) {
-            if (this.conditions.has(condition)) {
-                return overrideAi;
-            }
+        if (statusAiOverride) {
+            return statusAiOverride;
         }
 
         const visibleHostile = this.getVisibleHostileTarget(world, player);
@@ -555,6 +657,16 @@ class Enemy {
 
         return this.baseAiType;
     }
+
+        getStatusAiOverride() {
+            for (const [condition, overrideAi] of this.aiByStatus) {
+                if (this.conditions.has(condition)) {
+                    return overrideAi;
+                }
+            }
+
+            return null;
+        }
 
     canLookThroughWalls() {
         return this.hasEnemyType(ENEMY_TYPES.GHOST);
@@ -745,11 +857,16 @@ class Enemy {
         const hazardDamage = getEnvironmentalDamageForHazard(hazard, 0);
 
         if (tileDamage > 0 && !isEnemyTypeImmuneToTileEffect(tile, this.creatureTypes)) {
-            this.takeDamage(tileDamage);
+            const armorEffectiveness =
+                tile === TILE_TYPES.WATER || tile === TILE_TYPES.LAVA ? 0
+                    : tile === TILE_TYPES.SPIKE ? 0.5
+                        : 1;
+            this.takeDamage(tileDamage, null, { armorEffectiveness });
         }
 
         if (hazardDamage > 0) {
-            this.takeDamage(hazardDamage);
+            const armorEffectiveness = hazard === HAZARD_TYPES.STEAM ? 0.5 : 1;
+            this.takeDamage(hazardDamage, null, { armorEffectiveness });
         }
     }
 
@@ -872,10 +989,85 @@ class Enemy {
     }
 
     performGuardAction(world, player) {
-        // Placeholder: guard AI will react to nearby threats once combat exists.
-        const distanceToPlayer = distance(this.x, this.y, player.x, player.y);
-        if (distanceToPlayer <= 1.5 && this.hasLineOfSight(world, player.x, player.y)) {
-            return this.performChaseAction(world, player);
+        if (this.isAlly) {
+            return this.performAllyGuardAction(world, player);
+        }
+
+        const guardedAlly = this.getNearestNearbyMonsterAlly(world, 6);
+        if (!guardedAlly) {
+            return { type: 'wait' };
+        }
+
+        const threatenedActor = this.getEnemyActorNearAlly(world, player, guardedAlly, 2);
+        if (threatenedActor) {
+            const actorDistance = distance(this.x, this.y, threatenedActor.x, threatenedActor.y);
+            if (threatenedActor.kind === 'player' && !this.isAlly && this.isVandal() && actorDistance <= this.getVandalAttackRange()) {
+                return this.performVandalRangedAttack(world, player);
+            }
+
+            if (actorDistance <= 1.5) {
+                if (threatenedActor.kind === 'player') {
+                    return this.performPlayerAttackOrThiefSteal(world, player);
+                }
+
+                const damage = this.attackEnemy(threatenedActor.target);
+                return {
+                    type: 'attack-enemy',
+                    damage,
+                    target: threatenedActor.target
+                };
+            }
+
+            return this.tryMoveTowardTarget(world, threatenedActor.x, threatenedActor.y, player);
+        }
+
+        const distanceToAlly = distance(this.x, this.y, guardedAlly.x, guardedAlly.y);
+        if (distanceToAlly > 1.5) {
+            return this.tryMoveTowardTarget(world, guardedAlly.x, guardedAlly.y, player);
+        }
+
+        return { type: 'wait' };
+    }
+
+    performAllyGuardAction(world, player) {
+        if (!player || typeof player.isAlive !== 'function' || !player.isAlive()) {
+            return { type: 'wait' };
+        }
+
+        const engageRange = 2;
+        let nearestThreat = null;
+        let nearestThreatDist = Infinity;
+
+        if (world && typeof world.getEnemies === 'function') {
+            for (const enemy of world.getEnemies()) {
+                if (!enemy || enemy === this || !enemy.isAlive()) continue;
+                if (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc()) continue;
+                if (enemy.isAlly) continue;
+
+                const distToPlayer = distance(player.x, player.y, enemy.x, enemy.y);
+                if (distToPlayer > engageRange) continue;
+
+                if (!this.canSeeActor(world, enemy)) continue;
+
+                const distToSelf = distance(this.x, this.y, enemy.x, enemy.y);
+                if (distToSelf < nearestThreatDist) {
+                    nearestThreat = enemy;
+                    nearestThreatDist = distToSelf;
+                }
+            }
+        }
+
+        if (nearestThreat) {
+            if (nearestThreatDist <= 1.5) {
+                const damage = this.attackEnemy(nearestThreat);
+                return { type: 'attack-enemy', damage, target: nearestThreat };
+            }
+            return this.tryMoveTowardTarget(world, nearestThreat.x, nearestThreat.y, player);
+        }
+
+        const distToPlayer = distance(this.x, this.y, player.x, player.y);
+        if (distToPlayer > 1.5) {
+            return this.tryMoveTowardTarget(world, player.x, player.y, player);
         }
 
         return { type: 'wait' };
@@ -963,6 +1155,49 @@ class Enemy {
         return { x: this.x, y: this.y };
     }
 
+    getPreferredMoveSteps(targetX, targetY) {
+        const dx = Math.sign(targetX - this.x);
+        const dy = Math.sign(targetY - this.y);
+        const steps = [];
+
+        if (dx !== 0 || dy !== 0) {
+            steps.push({ x: this.x + dx, y: this.y + dy });
+        }
+        if (dx !== 0) {
+            steps.push({ x: this.x + dx, y: this.y });
+        }
+        if (dy !== 0) {
+            steps.push({ x: this.x, y: this.y + dy });
+        }
+
+        return steps.filter((step, index, allSteps) => allSteps.findIndex((candidate) => candidate.x === step.x && candidate.y === step.y) === index);
+    }
+
+    tryDirectMoveTowardTarget(world, targetX, targetY, player = null) {
+        const candidateSteps = this.getPreferredMoveSteps(targetX, targetY);
+
+        for (const avoidDamagingTiles of [true, false]) {
+            for (const step of candidateSteps) {
+                if (player && step.x === player.x && step.y === player.y) {
+                    if (!this.isAlly) {
+                        return this.performPlayerAttackOrThiefSteal(world, player);
+                    }
+                    continue;
+                }
+
+                if (!this.canOccupyTile(world, step.x, step.y, player, { avoidDamagingTiles })) {
+                    continue;
+                }
+
+                this.x = step.x;
+                this.y = step.y;
+                return { type: 'move' };
+            }
+        }
+
+        return null;
+    }
+
     tryMoveTowardTarget(world, targetX, targetY, player = null) {
         if (targetX === null || targetY === null) {
             return false;
@@ -971,6 +1206,11 @@ class Enemy {
         if (this.conditions.has(CONDITIONS.BOUND)) {
             return { type: 'wait' };
         }
+
+            const directMove = this.tryDirectMoveTowardTarget(world, targetX, targetY, player);
+            if (directMove) {
+                return directMove;
+            }
 
         let path = this.findPath(world, targetX, targetY, { avoidDamagingTiles: true });
         if (!path) {
@@ -1012,7 +1252,8 @@ class Enemy {
     tame(tamer) {
         this.isAlly = true;
         this.tamedBy = tamer || null;
-        this.aiType = AI_TYPES.SUPPORT;
+        this.baseAiType = AI_TYPES.GUARD;
+        this.aiType = AI_TYPES.GUARD;
         this.conditions.delete(CONDITIONS.FRIGHTENED);
         if (tamer && typeof tamer.addAlly === 'function') {
             tamer.addAlly(this);
@@ -1100,15 +1341,18 @@ class Enemy {
         });
     }
 
-    takeDamage(amount, attacker = null) {
+    takeDamage(amount, attacker = null, options = {}) {
         const incomingDamage = Math.max(0, Number(amount) || 0);
         if (incomingDamage <= 0) {
             return 0;
         }
 
+        const armorEffectiveness = clamp(Number(options?.armorEffectiveness ?? 1), 0, 1);
+
         const mitigationMultiplier = this.getIncomingDamageMultiplierAgainst(attacker);
         const adjustedIncomingDamage = Math.max(1, Math.round(incomingDamage * mitigationMultiplier));
-        const damageDealt = applyDamageToActor(this, adjustedIncomingDamage, this.getEffectiveArmor());
+        const effectiveArmor = this.getEffectiveArmor() * armorEffectiveness;
+        const damageDealt = applyDamageToActor(this, adjustedIncomingDamage, effectiveArmor);
         if (this.health <= 0) {
             // Drop items
             // Placeholder

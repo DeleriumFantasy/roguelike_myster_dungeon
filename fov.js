@@ -1,5 +1,4 @@
 // Field of View using raycasting
-console.log('fov.js loaded');
 
 class FOV {
     constructor(grid) {
@@ -58,7 +57,6 @@ class FOV {
                 this.explored.add(`${x},${y}`);
             }
         }
-        console.log('All tiles revealed for debugging');
     }
 
     showAll() {

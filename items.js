@@ -1,5 +1,4 @@
 // Item system
-console.log('items.js loaded');
 
 class Item {
     constructor(name, type, properties = {}) {
@@ -691,29 +690,29 @@ const TIERED_ITEM_DEFINITIONS = {
         4: { name: 'Javelin', type: ITEM_TYPES.THROWABLE, properties: { power: 20, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
     },
     weapon: {
-        1: { name: 'Rusted sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 1, enchantments: ['slayer'], hiddenName: hiddenSword, burnable: false } },
-        2: { name: 'Bronze sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 1, hiddenName: hiddenSword, burnable: false } },
-        3: { name: 'Iron sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 2, hiddenName: hiddenSword, burnable: false } },
-        4: { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 3, hiddenName: hiddenSword, burnable: false } }
+        1: { name: 'Rusted sword', type: ITEM_TYPES.WEAPON, properties: { power: 3, slots: 7, enchantments: ['slayer'], hiddenName: hiddenSword, burnable: false } },
+        2: { name: 'Bronze sword', type: ITEM_TYPES.WEAPON, properties: { power: 4, slots: 6, hiddenName: hiddenSword, burnable: false } },
+        3: { name: 'Iron sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 5, hiddenName: hiddenSword, burnable: false } },
+        4: { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 8, slots: 4, hiddenName: hiddenSword, burnable: false } }
     },
     armor: {
-        1: { name: 'Rags', type: ITEM_TYPES.ARMOR, properties: { armor: 1, slots: 1, hiddenName: hiddenArmor, burnable: true } },
-        2: { name: 'Leather armor', type: ITEM_TYPES.ARMOR, properties: { armor: 3, slots: 1, hiddenName: hiddenArmor, burnable: true } },
-        3: { name: 'Chainmail armor', type: ITEM_TYPES.ARMOR, properties: { armor: 5, slots: 2, hiddenName: hiddenArmor, burnable: false } },
-        4: { name: 'Plate armor', type: ITEM_TYPES.ARMOR, properties: { armor: 8, slots: 3, hiddenName: hiddenArmor, burnable: false } }
+        1: { name: 'Rags', type: ITEM_TYPES.ARMOR, properties: { armor: 3, slots: 7, hiddenName: hiddenArmor, burnable: true } },
+        2: { name: 'Leather armor', type: ITEM_TYPES.ARMOR, properties: { armor: 4, slots: 6, hiddenName: hiddenArmor, burnable: true } },
+        3: { name: 'Chainmail armor', type: ITEM_TYPES.ARMOR, properties: { armor: 6, slots: 5, hiddenName: hiddenArmor, burnable: false } },
+        4: { name: 'Plate armor', type: ITEM_TYPES.ARMOR, properties: { armor: 8, slots: 4, hiddenName: hiddenArmor, burnable: false } }
     },
     shield: {
-        1: { name: 'Rotten shield', type: ITEM_TYPES.SHIELD, properties: { armor: 1, slots: 3, hiddenName: hiddenShield, burnable: true } },
-        2: { name: 'Wooden shield', type: ITEM_TYPES.SHIELD, properties: { armor: 3, slots: 3, hiddenName: hiddenShield, burnable: true } },
-        3: { name: 'Kite shield', type: ITEM_TYPES.SHIELD, properties: { armor: 5, slots: 3, hiddenName: hiddenShield, burnable: false } },
-        4: { name: 'Tower shield', type: ITEM_TYPES.SHIELD, properties: { armor: 8, slots: 3, hiddenName: hiddenShield, burnable: false } }
+        1: { name: 'Rotten shield', type: ITEM_TYPES.SHIELD, properties: { armor: 3, slots: 7, hiddenName: hiddenShield, burnable: true } },
+        2: { name: 'Wooden shield', type: ITEM_TYPES.SHIELD, properties: { armor: 4, slots: 6, hiddenName: hiddenShield, burnable: true } },
+        3: { name: 'Kite shield', type: ITEM_TYPES.SHIELD, properties: { armor: 6, slots: 5, hiddenName: hiddenShield, burnable: false } },
+        4: { name: 'Tower shield', type: ITEM_TYPES.SHIELD, properties: { armor: 8, slots: 4, hiddenName: hiddenShield, burnable: false } }
     },
     accessory: {
-        1: [{ name: 'Copper ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 1, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Copper bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 1, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+        1: [{ name: 'Copper ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 5, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Copper bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 5, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
         ],
-        2: [{ name: 'Bronze ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 2, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Bronze bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 2, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+        2: [{ name: 'Bronze ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 10, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Bronze bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 10, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
         ]
     },
     statusConsumable: {

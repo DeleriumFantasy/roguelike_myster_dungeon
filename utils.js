@@ -1,5 +1,4 @@
 // Utility functions
-console.log('utils.js loaded');
 
 class SeededRNG {
     constructor(seed) {

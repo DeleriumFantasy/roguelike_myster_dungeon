@@ -1,11 +1,9 @@
 // Main game class
-console.log('game.js loaded');
 
 const ENEMY_TEMPLATES = buildEnemyTemplates();
 
 class Game {
     constructor() {
-        console.log('Game constructor');
         this.seed = 12345; // Change this seed to generate different layouts
         this.canvas = document.getElementById('canvas');
         this.canvas.width = CANVAS_WIDTH;
@@ -31,6 +29,7 @@ class Game {
         this.populateCurrentFloorIfNeeded();
         this.spawnPlayerOnFloor();
         this.seedPlayerInventory();
+        this.spawnStartingAlly();
 
         this.updateFOV();
         this.ui.render(this.world, this.player, this.fov);
@@ -61,6 +60,57 @@ class Game {
                 return;
             }
         }
+    }
+
+    spawnStartingAlly() {
+        const slime = this.createEnemyForType(0, 0, 'slimeTier1', 0);
+        const rng = new SeededRNG(this.seed + 888888);
+        const spawn = this.world.findRandomOpenTile(rng, this.player, 200, slime);
+        if (spawn) {
+            slime.x = spawn.x;
+            slime.y = spawn.y;
+        } else {
+            slime.x = this.player.x;
+            slime.y = this.player.y;
+        }
+        slime.tame(this.player);
+        this.world.addEnemy(slime);
+    }
+
+    spawnAlliesOnCurrentFloor() {
+        const rng = new SeededRNG(this.seed + this.world.currentFloor * 31337);
+        for (const ally of this.player.allies) {
+            if (!ally.isAlive()) continue;
+
+            const spawn = this.findSpawnNearPlayer(ally, rng);
+            ally.x = spawn.x;
+            ally.y = spawn.y;
+
+            if (!this.world.getEnemies().includes(ally)) {
+                this.world.addEnemy(ally);
+            }
+        }
+    }
+
+    findSpawnNearPlayer(enemy, rng) {
+        for (let radius = 1; radius <= 5; radius++) {
+            const candidates = [];
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dy = -radius; dy <= radius; dy++) {
+                    if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+                    const x = this.player.x + dx;
+                    const y = this.player.y + dy;
+                    if (this.world.canEnemyOccupy(x, y, this.player, null, enemy)) {
+                        candidates.push({ x, y });
+                    }
+                }
+            }
+            if (candidates.length > 0) {
+                return candidates[rng.randomInt(0, candidates.length - 1)];
+            }
+        }
+        const fallback = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
+        return fallback || { x: this.player.x, y: this.player.y };
     }
 
     populateCurrentFloorIfNeeded() {
@@ -129,7 +179,6 @@ class Game {
             enemy.x = spawn.x;
             enemy.y = spawn.y;
             this.world.addEnemy(enemy);
-            console.log(`Created ${enemy.name} (${enemyTypeKey}) at (${spawn.x}, ${spawn.y}) with AI type: ${enemy.aiType}`);
         }
     }
 
@@ -218,8 +267,10 @@ class Game {
         enemy.name = promotedEnemy.name;
         enemy.monsterType = promotedEnemy.monsterType;
         enemy.creatureTypes = [...promotedEnemy.creatureTypes];
-        enemy.aiType = promotedEnemy.aiType;
-        enemy.baseAiType = promotedEnemy.baseAiType;
+        if (!enemy.isAlly) {
+            enemy.aiType = promotedEnemy.aiType;
+            enemy.baseAiType = promotedEnemy.baseAiType;
+        }
         enemy.maxHealth = promotedEnemy.maxHealth;
         enemy.power = promotedEnemy.power;
         enemy.armor = promotedEnemy.armor;
@@ -693,7 +744,6 @@ class Game {
                 this.debugShowAllMonsters = !this.debugShowAllMonsters;
                 this.player.debugBonusArmor = this.debugShowAllMonsters ? 999 : 0;
                 this.player.updateStats();
-                console.log(`Show all monsters: ${this.debugShowAllMonsters}`);
                 return true;
             default:
                 return false;
@@ -792,6 +842,7 @@ class Game {
         }
 
         this.populateCurrentFloorIfNeeded();
+        this.spawnAlliesOnCurrentFloor();
         if (this.isOverworldFloor(this.world.currentFloor)) {
             this.ui.addMessage('You return to the overworld.');
         } else if (this.isOverworldFloor(previousFloor)) {
@@ -823,12 +874,30 @@ class Game {
         // Action
         if (input.type === 'move') {
             if (this.player.hasCondition(CONDITIONS.BOUND)) {
+                 this.player.tickConditions();
                 this.ui.addMessage('You are bound and cannot move.');
-                return false;
+                 this.clearFailedMoveRecord();
+                 return true;
             }
 
             const targetX = this.player.x + input.dx;
             const targetY = this.player.y + input.dy;
+
+            const allyAtTarget = this.world.getEnemyAt(targetX, targetY);
+            if (allyAtTarget && allyAtTarget.isAlly) {
+                // Pre-turn status tick
+                this.player.tickConditions();
+
+                const prevPlayerX = this.player.x;
+                const prevPlayerY = this.player.y;
+                allyAtTarget.x = prevPlayerX;
+                allyAtTarget.y = prevPlayerY;
+                this.player.x = targetX;
+                this.player.y = targetY;
+                this.clearFailedMoveRecord();
+                this.pickupItemsAfterMove(targetX, targetY);
+                return true;
+            }
 
             if (!this.world.canPlayerOccupy(targetX, targetY)) {
                 this.recordFailedMove(input);
@@ -1513,11 +1582,13 @@ class Game {
                     this.announceCombatHit(enemy.name, result.target.name, result.damage);
                     if (!result.target.isAlive()) {
                         this.handleEnemyDefeat(result.target, { announceDefeat: true, grantExp: false });
-                        const promotionResult = this.tryPromoteEnemyAfterKill(enemy);
-                        if (promotionResult) {
-                            this.ui.addMessage(`${enemy.name} grows stronger and becomes ${promotionResult.newName}.`);
-                            if (promotionResult.healthGain > 0) {
-                                this.ui.addMessage(`${enemy.name} gains ${promotionResult.healthGain} HP from evolving.`);
+                        if (!enemy.isAlly) {
+                            const promotionResult = this.tryPromoteEnemyAfterKill(enemy);
+                            if (promotionResult) {
+                                this.ui.addMessage(`${enemy.name} grows stronger and becomes ${promotionResult.newName}.`);
+                                if (promotionResult.healthGain > 0) {
+                                    this.ui.addMessage(`${enemy.name} gains ${promotionResult.healthGain} HP from evolving.`);
+                                }
                             }
                         }
                     }
@@ -1695,7 +1766,7 @@ class Game {
         const playerKey = `${this.player.x},${this.player.y}`;
         const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
         if (activatedSteam.includes(playerKey)) {
-            this.player.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0));
+            this.player.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0), null, { armorEffectiveness: 0.5 });
             if (steamRule?.message) {
                 this.ui.addMessage(steamRule.message);
             }
@@ -1707,7 +1778,7 @@ class Game {
                 continue;
             }
 
-            enemy.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0));
+            enemy.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0), null, { armorEffectiveness: 0.5 });
             if (!enemy.isAlive()) {
                 this.handleEnemyDefeat(enemy, { announceDefeat: true, grantExp: false });
             }

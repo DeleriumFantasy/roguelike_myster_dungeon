@@ -1,5 +1,4 @@
 // Player class
-console.log('player.js loaded');
 
 class Player {
     constructor(x, y) {
@@ -54,7 +53,8 @@ class Player {
     checkHazards(world) {
         const tile = world.getTile(this.x, this.y);
         if (tile === TILE_TYPES.PIT || tile === TILE_TYPES.WATER) {
-            this.takeDamage(getEnvironmentalDamageForTile(tile, 5));
+            const armorEffectiveness = tile === TILE_TYPES.WATER ? 0 : 1;
+            this.takeDamage(getEnvironmentalDamageForTile(tile, 5), null, { armorEffectiveness });
         }
 
         world.resolvePlayerHazardTransition(this, tile);
@@ -68,23 +68,31 @@ class Player {
         const hazardDamage = getEnvironmentalDamageForHazard(hazard, 0);
 
         if (tileDamage > 0 && tile !== TILE_TYPES.PIT && tile !== TILE_TYPES.WATER) {
-            this.takeDamage(tileDamage);
+            const armorEffectiveness =
+                tile === TILE_TYPES.LAVA ? 0
+                    : tile === TILE_TYPES.SPIKE ? 0.5
+                        : 1;
+            this.takeDamage(tileDamage, null, { armorEffectiveness });
         }
 
         if (hazardDamage > 0) {
-            this.takeDamage(hazardDamage);
+            const armorEffectiveness = hazard === HAZARD_TYPES.STEAM ? 0.5 : 1;
+            this.takeDamage(hazardDamage, null, { armorEffectiveness });
         }
     }
 
-    takeDamage(amount, attacker = null) {
+    takeDamage(amount, attacker = null, options = {}) {
         const incomingDamage = Math.max(0, Number(amount) || 0);
         if (incomingDamage <= 0) {
             return 0;
         }
 
+        const armorEffectiveness = clamp(Number(options?.armorEffectiveness ?? 1), 0, 1);
+
         const mitigationMultiplier = this.getIncomingDamageMultiplierAgainst(attacker);
         const adjustedIncomingDamage = Math.max(1, Math.round(incomingDamage * mitigationMultiplier));
-        return applyDamageToActor(this, adjustedIncomingDamage, this.armor);
+        const effectiveArmor = this.armor * armorEffectiveness;
+        return applyDamageToActor(this, adjustedIncomingDamage, effectiveArmor);
     }
 
     attackEnemy(enemy) {

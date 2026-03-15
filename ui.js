@@ -1,5 +1,4 @@
 // UI and rendering
-console.log('ui.js loaded');
 
 class UI {
     constructor(canvas, infoPanel, inventoryModal, game) {
@@ -229,7 +228,9 @@ class UI {
     renderEnemy(enemy) {
         const screenPos = this.worldToTopDownScreen(enemy.x, enemy.y);
         this.ctx.fillStyle = getEntityVisual('enemy', enemy).color;
-        this.ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
+        this.ctx.beginPath();
+        this.ctx.arc(screenPos.x + TILE_SIZE / 2, screenPos.y + TILE_SIZE / 2, TILE_SIZE * 0.42, 0, Math.PI * 2);
+        this.ctx.fill();
     }
 
     renderItem(x, y) {

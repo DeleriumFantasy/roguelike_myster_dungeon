@@ -1,5 +1,4 @@
 // Constants for the game
-console.log('constants.js loaded');
 
 // Directions
 const DIRECTIONS = {
@@ -459,7 +458,8 @@ const TERRAIN_SPRITESHEET_TILE_HEIGHT = 19;
 const ENTITY_VISUALS = {
     player: { color: '#fff', miniMapInset: 0 },
     enemy: { color: '#f00', miniMapInset: 0 },
-    npc: { color: '#22c55e', miniMapInset: 0 },
+    ally: { color: '#22c55e', miniMapInset: 0 },
+    npc: { color: '#3b82f6', miniMapInset: 0 },
     item: { color: '#ff0', miniMapInset: 4, miniMapInsetMap: 2 }
 };
 
@@ -713,8 +713,13 @@ function getTileVisual(tileType) {
 }
 
 function getEntityVisual(entityKind, entity = null) {
-    if (entityKind === 'enemy' && entity && typeof entity.isNeutralNpc === 'function' && entity.isNeutralNpc()) {
-        return ENTITY_VISUALS.npc;
+    if (entityKind === 'enemy' && entity) {
+        if (entity.isAlly) {
+            return ENTITY_VISUALS.ally;
+        }
+        if (typeof entity.isNeutralNpc === 'function' && entity.isNeutralNpc()) {
+            return ENTITY_VISUALS.npc;
+        }
     }
 
     return ENTITY_VISUALS[entityKind] || ENTITY_VISUALS.enemy;
@@ -876,7 +881,9 @@ function applyDamageToActor(actor, incomingDamage, defenseValue = 0) {
         return 0;
     }
 
-    const mitigatedDamage = Math.max(1, normalizedIncomingDamage - normalizedDefense);
+    // Diminishing-returns armor mitigation: defense reduces incoming damage by a percentage.
+    const mitigationMultiplier = 100 / (100 + normalizedDefense);
+    const mitigatedDamage = Math.max(1, Math.round(normalizedIncomingDamage * mitigationMultiplier));
     const nextHealth = actor.health - mitigatedDamage;
     const fatalProtectionCondition = activeConditions.find((condition) => conditionSurvivesFatalDamage(condition));
 

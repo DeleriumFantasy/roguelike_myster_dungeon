@@ -1,7 +1,5 @@
 // Tileset management
 
-console.log('tileset.js loaded');
-
 class Tileset {
     constructor() {
         this.sourceTileWidth = TERRAIN_SPRITESHEET_TILE_SIZE;
@@ -19,7 +17,6 @@ class Tileset {
         const versionedPath = `${TERRAIN_SPRITESHEET_PATH}?v=${encodeURIComponent(TERRAIN_SPRITESHEET_VERSION)}`;
         image.onload = () => {
             this.spriteSheet = image;
-            console.log(`Terrain spritesheet loaded: ${versionedPath}`);
             if (onLoad) onLoad();
         };
         image.onerror = () => {
