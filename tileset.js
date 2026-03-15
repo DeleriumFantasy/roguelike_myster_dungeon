@@ -4,15 +4,32 @@ console.log('tileset.js loaded');
 
 class Tileset {
     constructor(tileSize = 16) {
-        this.tileSize = tileSize;
+        this.sourceTileWidth = TERRAIN_SPRITESHEET_TILE_SIZE;
+        this.sourceTileHeight = TERRAIN_SPRITESHEET_TILE_HEIGHT;
         this.tiles = Object.fromEntries(Object.entries(TILE_VISUALS).map(([tileType, visual]) => [tileType, visual.sprite]));
         this.spriteSheet = this.generateSpriteSheet();
+        // External spritesheet is loaded by the caller via tryLoadExternalSpriteSheet(onLoad).
+    }
+
+    tryLoadExternalSpriteSheet(onLoad = null) {
+        const image = new Image();
+        const spriteVersion = typeof TERRAIN_SPRITESHEET_VERSION === 'string' ? TERRAIN_SPRITESHEET_VERSION : '1';
+        const versionedPath = `${TERRAIN_SPRITESHEET_PATH}?v=${encodeURIComponent(spriteVersion)}`;
+        image.onload = () => {
+            this.spriteSheet = image;
+            console.log(`Terrain spritesheet loaded: ${versionedPath}`);
+            if (onLoad) onLoad();
+        };
+        image.onerror = () => {
+            console.warn(`Failed to load terrain spritesheet at ${TERRAIN_SPRITESHEET_PATH}. Using generated fallback.`);
+        };
+        image.src = versionedPath;
     }
 
     generateSpriteSheet() {
         const canvas = document.createElement('canvas');
-        canvas.width = this.tileSize * 8;
-        canvas.height = this.tileSize;
+        canvas.width = this.sourceTileWidth * 8;
+        canvas.height = this.sourceTileHeight;
         const ctx = canvas.getContext('2d');
 
         // Draw each tile
@@ -29,67 +46,68 @@ class Tileset {
     }
 
     drawTile(ctx, tileType, gridX, gridY) {
-        const x = gridX * this.tileSize;
-        const y = gridY * this.tileSize;
-        const cx = x + this.tileSize / 2;
-        const cy = y + this.tileSize / 2;
+        const x = gridX * this.sourceTileWidth;
+        const y = gridY * this.sourceTileHeight;
+        const visual = getTileVisual(tileType);
+        const localY = visual.overdrawTop || 0;
+        const cx = x + this.sourceTileWidth / 2;
+        const cy = y + localY + this.sourceTileWidth / 2;
 
-        ctx.fillStyle = getTileVisual(tileType).color;
-        ctx.fillRect(x, y, this.tileSize, this.tileSize);
+        ctx.fillStyle = visual.color;
+        ctx.fillRect(x, y + localY, this.sourceTileWidth, this.sourceTileWidth);
 
         // Draw icons
-        if (tileType === TILE_TYPES.PIT) {
-            ctx.fillStyle = '#000';
+        if (visual.icon === 'pit') {
+            ctx.fillStyle = visual.foregroundColor;
             ctx.beginPath();
-            ctx.arc(cx, cy, this.tileSize / 3, 0, Math.PI * 2);
+            ctx.arc(cx, cy, this.sourceTileWidth / 3, 0, Math.PI * 2);
             ctx.fill();
-        } else if (tileType === TILE_TYPES.SPIKE) {
-            ctx.fillStyle = '#999';
-            const dotRadius = 2;
-            const dotOffsets = [
-                { x: -3, y: -3 },
-                { x: 3, y: -3 },
-                { x: -3, y: 3 },
-                { x: 3, y: 3 },
-                { x: 0, y: 0 }
+        } else if (visual.icon === 'spike') {
+            ctx.fillStyle = visual.foregroundColor;
+            const prongs = [
+                { x: -5, topY: -13, baseY: -4, halfWidth: 2 },
+                { x: 0, topY: -15, baseY: -3, halfWidth: 2 },
+                { x: 5, topY: -13, baseY: -4, halfWidth: 2 },
+                { x: -3, topY: -8, baseY: 1, halfWidth: 2 },
+                { x: 3, topY: -8, baseY: 1, halfWidth: 2 }
             ];
-            for (const offset of dotOffsets) {
+
+            for (const prong of prongs) {
                 ctx.beginPath();
-                ctx.arc(cx + offset.x, cy + offset.y, dotRadius, 0, Math.PI * 2);
+                ctx.moveTo(cx + prong.x, cy + prong.topY);
+                ctx.lineTo(cx + prong.x - prong.halfWidth, cy + prong.baseY);
+                ctx.lineTo(cx + prong.x + prong.halfWidth, cy + prong.baseY);
+                ctx.closePath();
                 ctx.fill();
             }
-        } else if (tileType === TILE_TYPES.LAVA) {
-            ctx.fillStyle = '#ffb347';
+        } else if (visual.icon === 'lava') {
+            ctx.fillStyle = visual.foregroundColor;
             ctx.beginPath();
-            ctx.arc(cx - 3, cy, this.tileSize / 6, 0, Math.PI * 2);
-            ctx.arc(cx + 2, cy - 2, this.tileSize / 7, 0, Math.PI * 2);
-            ctx.arc(cx + 4, cy + 3, this.tileSize / 8, 0, Math.PI * 2);
+            ctx.arc(cx - 3, cy, this.sourceTileWidth / 6, 0, Math.PI * 2);
+            ctx.arc(cx + 2, cy - 2, this.sourceTileWidth / 7, 0, Math.PI * 2);
+            ctx.arc(cx + 4, cy + 3, this.sourceTileWidth / 8, 0, Math.PI * 2);
             ctx.fill();
-        } else if (tileType === TILE_TYPES.STAIRS_DOWN) {
-            ctx.fillStyle = '#fff';
+        } else if (visual.glyph) {
+            ctx.fillStyle = visual.foregroundColor;
             ctx.font = 'bold 12px monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('>', cx, cy);
-        } else if (tileType === TILE_TYPES.STAIRS_UP) {
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 12px monospace';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('<', cx, cy);
+            ctx.fillText(visual.glyph, cx, cy);
         }
     }
 
     getSourceRect(tileType) {
         const pos = this.tiles[tileType] || this.tiles[TILE_TYPES.FLOOR];
+        const visual = getTileVisual(tileType);
+        const sourceHeight = visual.sourceHeight || TERRAIN_SPRITESHEET_TILE_SIZE;
         if (!this.tiles[tileType]) {
             console.warn(`Unknown tile type: ${tileType}, defaulting to floor`);
         }
         return {
-            x: pos.x * this.tileSize,
-            y: pos.y * this.tileSize,
-            width: this.tileSize,
-            height: this.tileSize
+            x: pos.x * this.sourceTileWidth,
+            y: pos.y * this.sourceTileHeight,
+            width: this.sourceTileWidth,
+            height: sourceHeight
         };
     }
 }

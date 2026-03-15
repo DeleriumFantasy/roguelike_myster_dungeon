@@ -332,6 +332,7 @@ const AI_TYPES = {
 
 // Region and generation styles for floor content.
 const AREA_TYPES = {
+    OVERWORLD: 'overworld',
     DUNGEON: 'dungeon',
     SWAMP: 'swamp',
     FLOATING: 'floating',
@@ -408,33 +409,40 @@ const FOV_RANGE = 10;
 
 // Colors
 const COLORS = {
-    FLOOR: '#333',
-    WALL: '#0e0e0e',
-    PIT: '#8B4513',    
-    WATER: '#0000FF',    
-    SPIKE: '#666',    
-    LAVA: '#d9480f',
     STEAM: 'rgba(220, 220, 220, 0.6)',
-    STAIRS: '#0ff',
-    PLAYER: '#fff',
-    ENEMY: '#f00',
-    NPC: '#22c55e',
-    ITEM: '#ff0',
     VISIBLE: 1.0,
     EXPLORED: 0.5,
-    UNEXPLORED: 0.0,
     FOG_OVERLAY: 'rgba(100,100,100,0.5)'
 };
 
 const TILE_VISUALS = {
-    [TILE_TYPES.FLOOR]: { color: COLORS.FLOOR, sprite: { x: 0, y: 0 } },
-    [TILE_TYPES.WALL]: { color: COLORS.WALL, sprite: { x: 1, y: 0 } },
-    [TILE_TYPES.PIT]: { color: COLORS.PIT, sprite: { x: 2, y: 0 }, icon: 'pit' },
-    [TILE_TYPES.WATER]: { color: COLORS.WATER, sprite: { x: 3, y: 0 } },
-    [TILE_TYPES.SPIKE]: { color: COLORS.SPIKE, sprite: { x: 4, y: 0 }, icon: 'spike' },
-    [TILE_TYPES.STAIRS_DOWN]: { color: COLORS.STAIRS, sprite: { x: 5, y: 0 }, glyph: '<' },
-    [TILE_TYPES.STAIRS_UP]: { color: COLORS.STAIRS, sprite: { x: 6, y: 0 }, glyph: '>' },
-    [TILE_TYPES.LAVA]: { color: COLORS.LAVA, sprite: { x: 7, y: 0 }, icon: 'lava' }
+    [TILE_TYPES.FLOOR]: { color: '#333', sprite: { x: 0, y: 0 } },
+    [TILE_TYPES.WALL]: { color: '#0e0e0e', sprite: { x: 1, y: 0 } },
+    [TILE_TYPES.PIT]: { color: '#8B4513', sprite: { x: 2, y: 0 }, icon: 'pit', foregroundColor: '#000' },
+    [TILE_TYPES.WATER]: { color: '#0000FF', sprite: { x: 3, y: 0 } },
+    [TILE_TYPES.SPIKE]: { color: '#666', sprite: { x: 4, y: 0 }, icon: 'spike', foregroundColor: '#d9d9d9', sourceHeight: 24, overdrawTop: 12 },
+    [TILE_TYPES.STAIRS_DOWN]: { color: '#0ff', sprite: { x: 5, y: 0 }, glyph: '<', foregroundColor: '#fff' },
+    [TILE_TYPES.STAIRS_UP]: { color: '#0ff', sprite: { x: 6, y: 0 }, glyph: '>', foregroundColor: '#fff' },
+    [TILE_TYPES.LAVA]: { color: '#d9480f', sprite: { x: 7, y: 0 }, icon: 'lava', foregroundColor: '#ffb347' }
+};
+
+const TERRAIN_SPRITESHEET_PATH = 'terrain-spritesheet.png';
+const TERRAIN_SPRITESHEET_VERSION = '3';
+const TERRAIN_SPRITESHEET_TILE_SIZE = 16;
+const TERRAIN_SPRITESHEET_TILE_HEIGHT = 24;
+
+const ENTITY_VISUALS = {
+    player: { color: '#fff', miniMapInset: 0 },
+    enemy: { color: '#f00', miniMapInset: 0 },
+    npc: { color: '#22c55e', miniMapInset: 0 },
+    item: { color: '#ff0', miniMapInset: 4, miniMapInsetMap: 2 }
+};
+
+const UI_VISUALS = {
+    playerFacingArrow: '#111',
+    mapPlayerOutline: '#000',
+    trapBackdrop: 'rgba(0, 0, 0, 0.35)',
+    trapIcon: '#ffd166'
 };
 
 const INPUT_DIRECTION_BINDINGS = {
@@ -466,6 +474,11 @@ const INVENTORY_ACTIONS_BY_TYPE = {
 };
 
 const AREA_GENERATION_RULES = {
+    [AREA_TYPES.OVERWORLD]: {
+        boundaryTile: TILE_TYPES.WALL,
+        baseTile: TILE_TYPES.FLOOR,
+        replacementRules: []
+    },
     [AREA_TYPES.DUNGEON]: {
         boundaryTile: TILE_TYPES.WALL,
         baseTile: TILE_TYPES.FLOOR,
@@ -537,6 +550,7 @@ const PREMADE_TERRAIN_SHAPES = {
 };
 
 const PREMADE_TERRAIN_PLACEMENT_RULES = {
+    [AREA_TYPES.OVERWORLD]: [],
     [AREA_TYPES.DUNGEON]: [
         { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.45 },
         { shapeId: 'lava_pool_3x2', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.35 },
@@ -661,7 +675,7 @@ const ENEMY_FAMILY_DEFINITIONS = {
         }
     },
     npc: {
-        defaults: { types: [ENEMY_TYPES.NPC], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 8 },
+        defaults: { types: [ENEMY_TYPES.NPC], speed: ENEMY_SPEEDS.SLOW, aiType: AI_TYPES.WANDER, fovRange: 8 },
         tiers: {
             1: { key: 'npcTier1', displayName: 'Wandering merchant', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 2, minFloor: 0 }
         }
@@ -670,6 +684,14 @@ const ENEMY_FAMILY_DEFINITIONS = {
 
 function getTileVisual(tileType) {
     return TILE_VISUALS[tileType] || TILE_VISUALS[TILE_TYPES.FLOOR];
+}
+
+function getEntityVisual(entityKind, entity = null) {
+    if (entityKind === 'enemy' && entity && typeof entity.isNeutralNpc === 'function' && entity.isNeutralNpc()) {
+        return ENTITY_VISUALS.npc;
+    }
+
+    return ENTITY_VISUALS[entityKind] || ENTITY_VISUALS.enemy;
 }
 
 function normalizeMoveInputKey(key, lowerKey = String(key).toLowerCase()) {

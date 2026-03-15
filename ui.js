@@ -15,6 +15,11 @@ class UI {
         this.game = game;
         this.messages = [];
         this.tileset = new Tileset(TILE_SIZE);
+        this.tileset.tryLoadExternalSpriteSheet(() => {
+            if (this.game) {
+                this.game.ui.render(this.game.world, this.game.player, this.game.fov);
+            }
+        });
         this.mapOpen = false;
         this.mapTileSize = 8;
         this.cameraRadius = CAMERA_RADIUS;
@@ -61,10 +66,12 @@ class UI {
         }
 
         const { minX, maxX, minY, maxY } = this.cameraBounds;
+        const overdrawQueue = [];
 
         for (let y = minY; y <= maxY; y++) {
             for (let x = minX; x <= maxX; x++) {
-                this.renderTile(x, y, world, fov);
+                const od = this.renderTile(x, y, world, fov);
+                if (od) overdrawQueue.push(od);
             }
         }
 
@@ -92,6 +99,16 @@ class UI {
 
         // Render player
         this.renderPlayer(player);
+
+        // Re-draw just the prong-tip overdraw portion on top of player/enemies
+        // so spikes on the row below appear to protrude in front of actors.
+        for (const od of overdrawQueue) {
+            this.ctx.drawImage(
+                this.tileset.spriteSheet,
+                od.srcRect.x, od.srcRect.y, od.srcRect.width, od.overdrawTop,
+                od.screenX, od.screenY - od.drawOffsetY, TILE_SIZE, od.drawOffsetY
+            );
+        }
 
         // Debug: show lines to wander targets and chase destinations when debug mode is on
         if (this.game.debugShowAllMonsters) {
@@ -131,6 +148,7 @@ class UI {
 
     renderTile(x, y, world, fov) {
         const tile = world.getTile(x, y);
+        const tileVisual = getTileVisual(tile);
         const overlays = this.getTileOverlayData(world, x, y);
 
         if (!fov.isVisible(x, y) && !fov.isExplored(x, y)) {
@@ -141,24 +159,38 @@ class UI {
         // Draw tile from sprite sheet
         const screenPos = this.worldToTopDownScreen(x, y);
         const srcRect = this.tileset.getSourceRect(tile);
+        const isVisible = fov.isVisible(x, y);
+        const overdrawTop = tileVisual.overdrawTop || 0;
+        const overdrawRatio = overdrawTop / TERRAIN_SPRITESHEET_TILE_SIZE;
+        const drawOffsetY = Math.round(TILE_SIZE * overdrawRatio);
+        const drawHeight = TILE_SIZE + drawOffsetY;
+
         this.ctx.drawImage(
             this.tileset.spriteSheet,
             srcRect.x, srcRect.y, srcRect.width, srcRect.height,
-            screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE
+            screenPos.x, screenPos.y - drawOffsetY, TILE_SIZE, drawHeight
         );
 
         this.renderTileOverlays(this.ctx, overlays.hazard, overlays.trapType, overlays.trapRevealed, screenPos.x, screenPos.y, TILE_SIZE);
 
-        // if fogged (explored but not visible) overlay grey
-        if (!fov.isVisible(x, y) && fov.isExplored(x, y)) {
+        // if fogged (explored but not visible) overlay grey – cover full overdraw height
+        if (!isVisible && fov.isExplored(x, y)) {
             this.ctx.fillStyle = COLORS.FOG_OVERLAY;
-            this.ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
+            this.ctx.fillRect(screenPos.x, screenPos.y - drawOffsetY, TILE_SIZE, drawHeight);
         }
+
+        // Return overdraw descriptor so caller can re-paint prong tips after entities.
+        // Only needed for visible tiles since no entities render on fogged tiles.
+        if (isVisible && drawOffsetY > 0) {
+            return { srcRect, overdrawTop, drawOffsetY, screenX: screenPos.x, screenY: screenPos.y };
+        }
+        return null;
     }
 
     renderPlayer(player) {
         const screenPos = this.worldToTopDownScreen(player.x, player.y);
-        this.ctx.fillStyle = COLORS.PLAYER;
+        const playerVisual = getEntityVisual('player', player);
+        this.ctx.fillStyle = playerVisual.color;
         this.ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
 
         const facing = getActorFacing(player);
@@ -176,7 +208,7 @@ class UI {
         const px = -uy;
         const py = ux;
 
-        this.ctx.fillStyle = '#111';
+        this.ctx.fillStyle = UI_VISUALS.playerFacingArrow;
         this.ctx.beginPath();
 
         this.ctx.moveTo(cx + ux * tip, cy + uy * tip);
@@ -189,16 +221,20 @@ class UI {
 
     renderEnemy(enemy) {
         const screenPos = this.worldToTopDownScreen(enemy.x, enemy.y);
-        this.ctx.fillStyle = (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc())
-            ? COLORS.NPC
-            : COLORS.ENEMY;
+        this.ctx.fillStyle = getEntityVisual('enemy', enemy).color;
         this.ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
     }
 
     renderItem(x, y) {
         const screenPos = this.worldToTopDownScreen(x, y);
-        this.ctx.fillStyle = COLORS.ITEM;
-        this.ctx.fillRect(screenPos.x + 4, screenPos.y + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+        const itemVisual = getEntityVisual('item');
+        this.ctx.fillStyle = itemVisual.color;
+        this.ctx.fillRect(
+            screenPos.x + itemVisual.miniMapInset,
+            screenPos.y + itemVisual.miniMapInset,
+            TILE_SIZE - itemVisual.miniMapInset * 2,
+            TILE_SIZE - itemVisual.miniMapInset * 2
+        );
     }
 
     renderTileOverlays(ctx, hazard, trapType, trapRevealed, x, y, size) {
@@ -232,9 +268,9 @@ class UI {
             return;
         }
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        ctx.fillStyle = UI_VISUALS.trapBackdrop;
         ctx.fillRect(x + 1, y + 1, size - 2, size - 2);
-        ctx.fillStyle = '#ffd166';
+        ctx.fillStyle = UI_VISUALS.trapIcon;
         ctx.font = `bold ${Math.max(8, Math.floor(size * 0.55))}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -348,6 +384,9 @@ class UI {
             ? visibleEnemyLines.map((line) => `<p>${line}</p>`).join('')
             : '<p>(none visible)</p>';
 
+        const floorLabel = typeof this.game?.getDisplayFloorLabel === 'function'
+            ? this.game.getDisplayFloorLabel(world.currentFloor)
+            : String(world.currentFloor + 1);
         const statsDiv = this.infoPanel.querySelector('#stats');
         statsDiv.innerHTML = `
             <h3>Player Stats</h3>
@@ -359,7 +398,7 @@ class UI {
             <p>Power: ${player.power}</p>
             <p>Armor: ${player.armor}</p>
             <p>Conditions: ${conditionText}</p>
-            <p>Floor: ${world.currentFloor + 1}</p>
+            <p>Floor: ${floorLabel}</p>
             <p>Area: ${areaType}</p>
             <p>Allies: ${player.allies.length}</p>
             <p>Position: ${player.x}, ${player.y}</p>
@@ -563,7 +602,7 @@ class UI {
         if (this.isActorBlind(player)) {
             this.mapCtx.clearRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
             const tileSize = this.mapTileSize;
-            this.mapCtx.fillStyle = COLORS.PLAYER;
+            this.mapCtx.fillStyle = getEntityVisual('player', player).color;
             this.mapCtx.fillRect(player.x * tileSize, player.y * tileSize, tileSize, tileSize);
             return;
         }
@@ -607,9 +646,15 @@ class UI {
             if (!explored) continue;
 
             const prevAlpha = mapCtx.globalAlpha;
+            const itemVisual = getEntityVisual('item');
             mapCtx.globalAlpha = mapFov.isVisible(x, y) ? COLORS.VISIBLE : COLORS.EXPLORED;
-            mapCtx.fillStyle = COLORS.ITEM;
-            mapCtx.fillRect(x * tileSize + 2, y * tileSize + 2, Math.max(2, tileSize - 4), Math.max(2, tileSize - 4));
+            mapCtx.fillStyle = itemVisual.color;
+            mapCtx.fillRect(
+                x * tileSize + itemVisual.miniMapInsetMap,
+                y * tileSize + itemVisual.miniMapInsetMap,
+                Math.max(2, tileSize - itemVisual.miniMapInsetMap * 2),
+                Math.max(2, tileSize - itemVisual.miniMapInsetMap * 2)
+            );
             mapCtx.globalAlpha = prevAlpha;
         }
 
@@ -617,15 +662,15 @@ class UI {
             if (!this.shouldRenderEnemy(enemy, (x, y) => mapFov.isVisible(x, y))) {
                 continue;
             }
-            mapCtx.fillStyle = COLORS.ENEMY;
+            mapCtx.fillStyle = getEntityVisual('enemy', enemy).color;
             mapCtx.fillRect(enemy.x * tileSize, enemy.y * tileSize, tileSize, tileSize);
         }
 
-        mapCtx.fillStyle = COLORS.PLAYER;
+        mapCtx.fillStyle = getEntityVisual('player', player).color;
         mapCtx.fillRect(player.x * tileSize, player.y * tileSize, tileSize, tileSize);
 
         // Draw a subtle outline so the player marker remains visible on bright tiles.
-        mapCtx.strokeStyle = '#000';
+        mapCtx.strokeStyle = UI_VISUALS.mapPlayerOutline;
         mapCtx.strokeRect(player.x * tileSize + 0.5, player.y * tileSize + 0.5, tileSize - 1, tileSize - 1);
     }
 }

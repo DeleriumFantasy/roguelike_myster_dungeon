@@ -19,8 +19,12 @@ class World {
             this.decorateCatacombsHallways(grid, rng, layout, stairPositions);
         }
 
-        const hazards = this.generateHazardsForGrid(grid, rng, areaType, layout);
-        const traps = this.generateTrapsForGrid(grid, rng, areaType, layout);
+        const hazards = areaType === AREA_TYPES.OVERWORLD
+            ? new Map()
+            : this.generateHazardsForGrid(grid, rng, areaType, layout);
+        const traps = areaType === AREA_TYPES.OVERWORLD
+            ? new Map()
+            : this.generateTrapsForGrid(grid, rng, areaType, layout);
 
         this.floors[this.currentFloor] = {
             grid,
@@ -40,6 +44,10 @@ class World {
     }
 
     generateGridForArea(areaType, rng) {
+        if (areaType === AREA_TYPES.OVERWORLD) {
+            return this.generateOverworldGrid();
+        }
+
         if (areaType === AREA_TYPES.CATACOMBS) {
             return this.generateCatacombsGrid(rng);
         }
@@ -56,6 +64,22 @@ class World {
 
         this.applyAreaWalkers(grid, rule, rng);
         this.applyPremadeTerrainShapes(grid, areaType, rng, this.currentFloor);
+        return {
+            grid,
+            roomTileKeys: null,
+            hallwayTileKeys: null
+        };
+    }
+
+    generateOverworldGrid() {
+        const grid = Array.from({ length: GRID_SIZE }, (_, y) => Array.from({ length: GRID_SIZE }, (_, x) => {
+            if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
+                return TILE_TYPES.WALL;
+            }
+
+            return TILE_TYPES.FLOOR;
+        }));
+
         return {
             grid,
             roomTileKeys: null,
@@ -555,15 +579,20 @@ class World {
     }
 
     selectAreaTypeForFloor(floorIndex) {
+        if (floorIndex === 0) {
+            return AREA_TYPES.OVERWORLD;
+        }
+
+        const dungeonFloorIndex = Math.max(0, floorIndex - 1);
         const rules = getAreaSelectionRules();
 
-        if (floorIndex % rules.floatingModulo === rules.floatingRemainder) {
+        if (dungeonFloorIndex % rules.floatingModulo === rules.floatingRemainder) {
             return AREA_TYPES.FLOATING;
         }
-        if (floorIndex % rules.swampModulo === rules.swampRemainder) {
+        if (dungeonFloorIndex % rules.swampModulo === rules.swampRemainder) {
             return AREA_TYPES.SWAMP;
         }
-        if (floorIndex % rules.dungeonModulo === rules.dungeonRemainder) {
+        if (dungeonFloorIndex % rules.dungeonModulo === rules.dungeonRemainder) {
             return AREA_TYPES.DUNGEON;
         }
         return AREA_TYPES.CATACOMBS;

@@ -36,6 +36,18 @@ class Game {
         this.ui.render(this.world, this.player, this.fov);
     }
 
+    getDungeonDepthIndex(floorIndex = this.world.currentFloor) {
+        return Math.max(0, Number(floorIndex) - 1);
+    }
+
+    isOverworldFloor(floorIndex = this.world.currentFloor) {
+        return this.world.getAreaType(floorIndex) === AREA_TYPES.OVERWORLD;
+    }
+
+    getDisplayFloorLabel(floorIndex = this.world.currentFloor) {
+        return this.isOverworldFloor(floorIndex) ? 'Overworld' : String(Math.max(1, floorIndex));
+    }
+
     spawnPlayerOnFloor() {
         const grid = this.world.getCurrentFloor().grid;
         const rng = new SeededRNG(this.seed + 999999);
@@ -59,11 +71,31 @@ class Game {
 
         const floorIndex = this.world.currentFloor;
         const rng = this.getFloorContentRng(floorIndex);
-        this.spawnEnemiesForCurrentFloor(rng, floorIndex);
-        this.spawnItemsForCurrentFloor(rng, floorIndex);
+        if (this.isOverworldFloor(floorIndex)) {
+            this.spawnOverworldNpcs(rng);
+        } else {
+            const dungeonDepthIndex = this.getDungeonDepthIndex(floorIndex);
+            this.spawnEnemiesForCurrentFloor(rng, dungeonDepthIndex);
+            this.spawnItemsForCurrentFloor(rng, dungeonDepthIndex);
+        }
 
         floor.meta = floor.meta || {};
         floor.meta.contentSpawned = true;
+    }
+
+    spawnOverworldNpcs(rng) {
+        const npcCount = 3;
+        for (let index = 0; index < npcCount; index++) {
+            const npc = this.createEnemyForType(0, 0, 'npcTier1', 0);
+            const spawn = this.world.findRandomOpenTile(rng, this.player, 200, npc);
+            if (!spawn) {
+                continue;
+            }
+
+            npc.x = spawn.x;
+            npc.y = spawn.y;
+            this.world.addEnemy(npc);
+        }
     }
 
     getFloorContentRng(floorIndex) {
@@ -181,7 +213,7 @@ class Game {
         }
 
         const currentHealth = Math.max(0, Math.floor(Number(enemy.health) || 0));
-        const promotedEnemy = this.createEnemyForType(enemy.x, enemy.y, nextTierTypeKey, this.world.currentFloor);
+        const promotedEnemy = this.createEnemyForType(enemy.x, enemy.y, nextTierTypeKey, this.getDungeonDepthIndex());
 
         enemy.name = promotedEnemy.name;
         enemy.monsterType = promotedEnemy.monsterType;
@@ -287,7 +319,7 @@ class Game {
             return Math.max(1, Math.floor(configuredValue));
         }
 
-        return this.computeMoneyValueForFloor(item, this.world.currentFloor, null);
+        return this.computeMoneyValueForFloor(item, this.getDungeonDepthIndex(), null);
     }
 
     rollItemTierForFloor(floorIndex, rng) {
@@ -490,7 +522,7 @@ class Game {
 
         let offeredItem = null;
         for (let attempt = 0; attempt < 8; attempt++) {
-            const candidate = this.createRandomItemForFloor(rng, this.world.currentFloor);
+            const candidate = this.createRandomItemForFloor(rng, this.getDungeonDepthIndex());
             if (!candidate) {
                 continue;
             }
@@ -508,7 +540,7 @@ class Game {
         }
 
         enemy.shopOfferItem = offeredItem;
-        enemy.shopOfferPrice = randomInt(10, 100) * (this.world.currentFloor + 1);
+        enemy.shopOfferPrice = randomInt(10, 100) * Math.max(1, this.world.currentFloor);
     }
 
     playerHasEnchantment(enchantmentKey) {
@@ -761,7 +793,13 @@ class Game {
         }
 
         this.populateCurrentFloorIfNeeded();
-        this.ui.addMessage(`You arrive on floor ${this.world.currentFloor + 1}.`);
+        if (this.isOverworldFloor(this.world.currentFloor)) {
+            this.ui.addMessage('You return to the overworld.');
+        } else if (this.isOverworldFloor(previousFloor)) {
+            this.ui.addMessage(`You enter the dungeon on floor ${this.getDisplayFloorLabel(this.world.currentFloor)}.`);
+        } else {
+            this.ui.addMessage(`You arrive on floor ${this.getDisplayFloorLabel(this.world.currentFloor)}.`);
+        }
         this.clearFailedMoveRecord();
 
         for (const condition of [...this.player.conditions.keys()]) {
@@ -1309,6 +1347,20 @@ class Game {
         }
     }
 
+    announceVandalRangedAttackEvent(enemyName, result) {
+        const rockLabel = getItemLabel(result?.item, 'Sharp rock');
+        this.ui.addMessage(`${enemyName} throws ${rockLabel} at you.`);
+        this.ui.addMessage(`${enemyName} hits you for ${result?.damage || 0}.`);
+
+        if (result?.burnedOnDrop) {
+            this.ui.addMessage(`${rockLabel} burns up before it can land.`);
+        } else if (result?.droppedOnPlayerTile) {
+            this.ui.addMessage(`${rockLabel} lands on your tile instead of shattering.`);
+        } else {
+            this.ui.addMessage(`${rockLabel} shatters on impact.`);
+        }
+    }
+
     getGuaranteedEnemyDrops(enemy) {
         if (!enemy) {
             return [];
@@ -1378,6 +1430,9 @@ class Game {
 
                 if (result?.type === 'attack-player') {
                     this.announceCombatHit(enemy.name, 'you', result.damage);
+                }
+                if (result?.type === 'vandal-ranged-attack') {
+                    this.announceVandalRangedAttackEvent(enemy.name, result);
                 }
                 if (result?.type === 'thief-steal') {
                     this.announceThiefStealEvent(enemy.name, result.stolenAmount || 0, Boolean(result.teleported));
@@ -1492,14 +1547,14 @@ class Game {
             return null;
         }
 
-        const dropChance = Math.min(0.85, 0.35 + this.world.currentFloor * 0.05);
+        const dropChance = Math.min(0.85, 0.35 + this.getDungeonDepthIndex() * 0.05);
         if (getRngRoll() >= dropChance) {
             return null;
         }
 
         const rng = createMathRng();
 
-        return this.createRandomItemForFloor(rng, this.world.currentFloor, { forEnemyDrop: true, dropEnemy: enemy });
+        return this.createRandomItemForFloor(rng, this.getDungeonDepthIndex(), { forEnemyDrop: true, dropEnemy: enemy });
     }
 
     pickupItemsAtPlayerPosition() {
@@ -1643,6 +1698,9 @@ class Game {
     updateFOV() {
         this.fov = this.world.getCurrentFloor().fov;
         this.fov.compute(this.player.x, this.player.y, FOV_RANGE);
+        if (this.isOverworldFloor() && typeof this.fov.showAll === 'function') {
+            this.fov.showAll();
+        }
     }
 }
 

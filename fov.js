@@ -60,4 +60,15 @@ class FOV {
         }
         console.log('All tiles revealed for debugging');
     }
+
+    showAll() {
+        this.visible.clear();
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                const key = `${x},${y}`;
+                this.visible.add(key);
+                this.explored.add(key);
+            }
+        }
+    }
 }

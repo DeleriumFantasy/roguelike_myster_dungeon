@@ -165,6 +165,36 @@ class Enemy {
         };
     }
 
+    getVandalAttackRange() {
+        return this.isVandal() ? 4 : 1.5;
+    }
+
+    performVandalRangedAttack(world, player) {
+        if (!this.isVandal() || !player) {
+            return null;
+        }
+
+        const thrownRock = createTieredItem('throwable', 2);
+        if (!thrownRock) {
+            return null;
+        }
+
+        const throwImpact = thrownRock.throw(this, player) || { damage: 0, healing: 0 };
+        let dropResult = null;
+        if (getRngRoll() < 0.2) {
+            dropResult = world?.addItem?.(player.x, player.y, thrownRock) || null;
+        }
+
+        return {
+            type: 'vandal-ranged-attack',
+            item: thrownRock,
+            damage: throwImpact.damage || 0,
+            healing: throwImpact.healing || 0,
+            droppedOnPlayerTile: Boolean(dropResult?.placed),
+            burnedOnDrop: Boolean(dropResult?.burned)
+        };
+    }
+
     canSwallowThrownItems() {
         return this.hasEnemyType(ENEMY_TYPES.FUSER) && !this.fuserFusionLocked;
     }
@@ -766,6 +796,10 @@ class Enemy {
             this.lastHostilePos = { x: visibleHostile.x, y: visibleHostile.y };
 
             const meleeRange = distance(this.x, this.y, visibleHostile.x, visibleHostile.y);
+            if (visibleHostile.kind === 'player' && !this.isAlly && this.isVandal() && meleeRange <= this.getVandalAttackRange()) {
+                return this.performVandalRangedAttack(world, player);
+            }
+
             if (meleeRange <= 1.5) {
                 if (visibleHostile.kind === 'player') {
                     if (!this.isAlly) {
@@ -837,6 +871,10 @@ class Enemy {
         }
 
         const targetDistance = distance(this.x, this.y, target.x, target.y);
+        if (target === player && !this.isAlly && this.isVandal() && targetDistance <= this.getVandalAttackRange()) {
+            return this.performVandalRangedAttack(world, player);
+        }
+
         if (targetDistance <= 1.5) {
             if (target === player) {
                 return this.performPlayerAttackOrThiefSteal(world, player);
