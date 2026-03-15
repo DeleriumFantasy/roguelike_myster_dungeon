@@ -39,21 +39,16 @@ class Player {
     }
 
     setFacingDirection(dx, dy) {
-        const normalizedDx = Math.sign(dx);
-        const normalizedDy = Math.sign(dy);
-        if (normalizedDx === 0 && normalizedDy === 0) {
+        const normalizedFacing = normalizeDirection(dx, dy, this.getFacingDirection());
+        if (normalizedFacing.dx === this.facing.dx && normalizedFacing.dy === this.facing.dy) {
             return;
         }
 
-        this.facing = { dx: normalizedDx, dy: normalizedDy };
+        this.facing = normalizedFacing;
     }
 
     getFacingDirection() {
-        if (!this.facing || (this.facing.dx === 0 && this.facing.dy === 0)) {
-            return { dx: 0, dy: -1 };
-        }
-
-        return { dx: this.facing.dx, dy: this.facing.dy };
+        return normalizeDirection(this.facing?.dx, this.facing?.dy, { dx: 0, dy: -1 });
     }
 
     checkHazards(world) {
@@ -102,7 +97,7 @@ class Player {
         }
 
         let attackPower = this.getAttackPowerAgainst(enemy);
-        const critical = this.hasEquippedEnchantment('critical') && Math.random() < 0.25;
+        const critical = this.hasEquippedEnchantment('critical') && getRngRoll() < 0.25;
         if (critical) {
             attackPower = Math.max(1, Math.round(attackPower * 1.5));
         }
@@ -174,7 +169,7 @@ class Player {
             return [];
         }
 
-        return weapon.getOnHitInflictedConditions(Math.random);
+        return weapon.getOnHitInflictedConditions(getRngRoll);
     }
 
     shouldPreventConditionFromEquipment(condition) {
@@ -188,7 +183,7 @@ class Player {
         }
 
         const preventionChance = armor.getConditionPreventionChance(condition);
-        return preventionChance > 0 && Math.random() < preventionChance;
+        return preventionChance > 0 && getRngRoll() < preventionChance;
     }
 
     heal(amount) {

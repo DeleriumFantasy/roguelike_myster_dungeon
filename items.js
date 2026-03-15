@@ -708,13 +708,13 @@ const TIERED_ITEM_DEFINITIONS = {
         3: { name: 'Kite shield', type: ITEM_TYPES.SHIELD, properties: { armor: 5, slots: 3, hiddenName: hiddenShield, burnable: false } },
         4: { name: 'Tower shield', type: ITEM_TYPES.SHIELD, properties: { armor: 8, slots: 3, hiddenName: hiddenShield, burnable: false } }
     },
-    accessoryAttack: {
-        1: { name: 'Copper ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 1, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-        2: { name: 'Bronze ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 2, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
-    },
-    accessoryDefense: {
-        1: { name: 'Copper bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 1, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-        2: { name: 'Bronze bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 2, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+    accessory: {
+        1: [{ name: 'Copper ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 1, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Copper bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 1, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+        ],
+        2: [{ name: 'Bronze ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 2, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Bronze bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 2, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+        ]
     },
     statusConsumable: {
         1: [
@@ -724,7 +724,7 @@ const TIERED_ITEM_DEFINITIONS = {
             { name: 'Spoiled milk', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.HUNGRY, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ],
         2: [
-            { name: 'Viscous slime tincture', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SLOW, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Viscous slime tincture', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SLOW, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false, dropOnlyEnemyTypes: [ENEMY_TYPES.SLIME] } },
             { name: 'Haste potion', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.HASTE, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ],
         3: [
@@ -789,8 +789,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'weapon', tier: 1, weight: 2 },
         { category: 'armor', tier: 1, weight: 2 },
         { category: 'shield', tier: 1, weight: 2 },
-        { category: 'accessoryAttack', tier: 1, weight: 1 },
-        { category: 'accessoryDefense', tier: 1, weight: 1 }
+        { category: 'accessory', tier: 1, weight: 1 },
     ],
     2: [
         { category: 'money', tier: 2, weight: 4 },
@@ -801,8 +800,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'weapon', tier: 2, weight: 2 },
         { category: 'armor', tier: 2, weight: 2 },
         { category: 'shield', tier: 2, weight: 2 },
-        { category: 'accessoryAttack', tier: 2, weight: 1 },
-        { category: 'accessoryDefense', tier: 2, weight: 1 }
+        { category: 'accessory', tier: 2, weight: 1 },
     ],
     3: [
         { category: 'money', tier: 3, weight: 4 },
@@ -813,8 +811,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'weapon', tier: 3, weight: 2 },
         { category: 'armor', tier: 3, weight: 2 },
         { category: 'shield', tier: 3, weight: 2 },
-        { category: 'accessoryAttack', tier: 2, weight: 1 },
-        { category: 'accessoryDefense', tier: 2, weight: 1 }
+        { category: 'accessory', tier: 2, weight: 1 },
     ],
     4: [
         { category: 'money', tier: 4, weight: 4 },
@@ -825,8 +822,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'weapon', tier: 4, weight: 2 },
         { category: 'armor', tier: 4, weight: 2 },
         { category: 'shield', tier: 4, weight: 2 },
-        { category: 'accessoryAttack', tier: 2, weight: 1 },
-        { category: 'accessoryDefense', tier: 2, weight: 1 }
+        { category: 'accessory', tier: 2, weight: 1 },
     ]
 };
 
@@ -947,6 +943,23 @@ function createBitterSeedsItemFrom(sourceItem = null) {
     return bitterSeeds;
 }
 
+function isEnemyDropRestrictedItem(item) {
+    const restrictedTypes = item?.properties?.dropOnlyEnemyTypes;
+    return Array.isArray(restrictedTypes) && restrictedTypes.length > 0;
+}
+
+function canEnemyDropItem(item, enemy) {
+    if (!isEnemyDropRestrictedItem(item)) {
+        return true;
+    }
+
+    if (!enemy || typeof enemy.hasEnemyType !== 'function') {
+        return false;
+    }
+
+    return item.properties.dropOnlyEnemyTypes.some((enemyType) => enemy.hasEnemyType(enemyType));
+}
+
 function createTieredItem(category, tier) {
     const definition = TIERED_ITEM_DEFINITIONS[category]?.[tier] || null;
     return createItemFromDefinition(definition);
@@ -1043,7 +1056,7 @@ function applyWorldEnchantmentRoll(item, rng = null, chance = 0.15) {
         return item;
     }
 
-    const roll = rng && typeof rng.next === 'function' ? rng.next() : Math.random();
+    const roll = getRngRoll(rng);
     if (roll >= chance) {
         return item;
     }
@@ -1055,14 +1068,12 @@ function applyWorldEnchantmentRoll(item, rng = null, chance = 0.15) {
 
     const availableEnchantments = [...pool];
     const maxSelectableEnchantments = Math.min(maxEnchantmentCount, availableEnchantments.length);
-    const desiredCountRoll = rng && typeof rng.next === 'function' ? rng.next() : Math.random();
+    const desiredCountRoll = getRngRoll(rng);
     const desiredCount = Math.max(1, Math.ceil(desiredCountRoll * maxSelectableEnchantments));
 
     const chosenEnchantments = [];
     while (chosenEnchantments.length < desiredCount && availableEnchantments.length > 0) {
-        const index = rng && typeof rng.randomInt === 'function'
-            ? rng.randomInt(0, availableEnchantments.length - 1)
-            : Math.floor(Math.random() * availableEnchantments.length);
+        const index = getRngRandomInt(rng, 0, availableEnchantments.length - 1);
         const [chosen] = availableEnchantments.splice(index, 1);
         if (typeof chosen === 'string') {
             chosenEnchantments.push(chosen);
@@ -1085,7 +1096,7 @@ function applyWorldCurseRoll(item, rng = null, chance = 0.2) {
         item.properties = {};
     }
 
-    const roll = rng && typeof rng.next === 'function' ? rng.next() : Math.random();
+    const roll = getRngRoll(rng);
     item.properties.cursed = roll < chance;
     return item;
 }

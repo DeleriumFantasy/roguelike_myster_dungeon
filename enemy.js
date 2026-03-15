@@ -71,6 +71,14 @@ class Enemy {
         return this.hasEnemyType(ENEMY_TYPES.VANDAL);
     }
 
+    isThief() {
+        return this.hasEnemyType(ENEMY_TYPES.THIEF);
+    }
+
+    isCrafter() {
+        return this.hasEnemyType(ENEMY_TYPES.CRAFTER);
+    }
+
     hasHeldItem() {
         return Boolean(this.heldItem);
     }
@@ -79,6 +87,82 @@ class Enemy {
         const match = String(this.monsterType || '').match(/vandalTier(\d+)/i);
         const parsedTier = match ? Number(match[1]) : NaN;
         return Number.isFinite(parsedTier) ? parsedTier : 1;
+    }
+
+    getThiefTier() {
+        const match = String(this.monsterType || '').match(/thiefTier(\d+)/i);
+        const parsedTier = match ? Number(match[1]) : NaN;
+        return Number.isFinite(parsedTier) ? parsedTier : 1;
+    }
+
+    getThiefStealConfig() {
+        const tier = Math.max(1, this.getThiefTier());
+        return {
+            percent: 10 + (tier - 1) * 5,
+            max: 1000 + (tier - 1) * 500
+        };
+    }
+
+    getThiefStealAmount(player) {
+        const playerMoney = Math.max(0, Math.floor(Number(player?.money) || 0));
+        if (playerMoney <= 0) {
+            return 0;
+        }
+
+        const stealConfig = this.getThiefStealConfig();
+        const scaledAmount = Math.floor(playerMoney * (stealConfig.percent / 100));
+        const plannedAmount = Math.max(1, scaledAmount);
+        return Math.min(playerMoney, stealConfig.max, plannedAmount);
+    }
+
+    tryTeleportAway(world, player = null) {
+        for (let attempt = 0; attempt < 200; attempt++) {
+            const x = randomInt(1, GRID_SIZE - 2);
+            const y = randomInt(1, GRID_SIZE - 2);
+            if (!this.canOccupyTile(world, x, y, player, { avoidDamagingTiles: true })) {
+                continue;
+            }
+
+            this.x = x;
+            this.y = y;
+            return true;
+        }
+
+        for (let attempt = 0; attempt < 200; attempt++) {
+            const x = randomInt(1, GRID_SIZE - 2);
+            const y = randomInt(1, GRID_SIZE - 2);
+            if (!this.canOccupyTile(world, x, y, player, { avoidDamagingTiles: false })) {
+                continue;
+            }
+
+            this.x = x;
+            this.y = y;
+            return true;
+        }
+
+        return false;
+    }
+
+    performPlayerAttackOrThiefSteal(world, player) {
+        if (!this.isThief()) {
+            const damage = this.attackTarget(player);
+            return { type: 'attack-player', damage };
+        }
+
+        const stolenAmount = this.getThiefStealAmount(player);
+        if (stolenAmount > 0) {
+            player.money = Math.max(0, (Number(player.money) || 0) - stolenAmount);
+        }
+
+        this.addCondition(CONDITIONS.FRIGHTENED, getConditionDuration(CONDITIONS.FRIGHTENED, 10));
+        this.speed = ENEMY_SPEEDS.FAST;
+        const teleported = this.tryTeleportAway(world, player);
+
+        return {
+            type: 'thief-steal',
+            stolenAmount,
+            teleported
+        };
     }
 
     canSwallowThrownItems() {
@@ -366,6 +450,11 @@ class Enemy {
             return vandalAction;
         }
 
+        const crafterAction = this.performCrafterAction(world);
+        if (crafterAction) {
+            return crafterAction;
+        }
+
         const resolvedAi = this.getAiTypeForTurn(world, player, fov);
         this.lastResolvedAi = resolvedAi;
 
@@ -567,6 +656,41 @@ class Enemy {
         return null;
     }
 
+    performCrafterAction(world) {
+        if (!this.isCrafter() || !world || typeof world.getTrap !== 'function') {
+            return null;
+        }
+
+        if (world.getTrap(this.x, this.y)) {
+            return null;
+        }
+
+        if (getRngRoll() >= 0.05) {
+            return null;
+        }
+
+        const trapTypes = getTrapTypes();
+        if (!Array.isArray(trapTypes) || trapTypes.length === 0) {
+            return null;
+        }
+
+        const trapType = trapTypes[randomInt(0, trapTypes.length - 1)];
+        const placed = typeof world.setTrap === 'function'
+            ? world.setTrap(this.x, this.y, trapType, true)
+            : false;
+
+        if (!placed) {
+            return null;
+        }
+
+        return {
+            type: 'crafter-create-trap',
+            trapType,
+            x: this.x,
+            y: this.y
+        };
+    }
+
     applyEnvironmentEffects(world) {
         const tile = world.getTile(this.x, this.y);
         const hazard = typeof world.getHazard === 'function' ? world.getHazard(this.x, this.y) : null;
@@ -645,8 +769,7 @@ class Enemy {
             if (meleeRange <= 1.5) {
                 if (visibleHostile.kind === 'player') {
                     if (!this.isAlly) {
-                        const damage = this.attackTarget(player);
-                        return { type: 'attack-player', damage };
+                        return this.performPlayerAttackOrThiefSteal(world, player);
                     }
                     return { type: 'blocked' };
                 }
@@ -716,8 +839,7 @@ class Enemy {
         const targetDistance = distance(this.x, this.y, target.x, target.y);
         if (targetDistance <= 1.5) {
             if (target === player) {
-                const damage = this.attackTarget(player);
-                return { type: 'attack-player', damage };
+                return this.performPlayerAttackOrThiefSteal(world, player);
             }
 
             const damage = this.attackEnemy(target);
@@ -734,8 +856,7 @@ class Enemy {
         if (this.conditions.has(CONDITIONS.BOUND)) {
             for (const neighbor of neighbors) {
                 if (player && !this.isAlly && neighbor.x === player.x && neighbor.y === player.y) {
-                    const damage = this.attackTarget(player);
-                    return { type: 'attack-player', damage };
+                    return this.performPlayerAttackOrThiefSteal(world, player);
                 }
 
                 const blockingEnemy = world.getEnemyAt(neighbor.x, neighbor.y, this);
@@ -750,8 +871,7 @@ class Enemy {
 
         for (const neighbor of neighbors) {
             if (player && !this.isAlly && neighbor.x === player.x && neighbor.y === player.y) {
-                const damage = this.attackTarget(player);
-                return { type: 'attack-player', damage };
+                return this.performPlayerAttackOrThiefSteal(world, player);
             }
 
             const blockingEnemy = world.getEnemyAt(neighbor.x, neighbor.y, this);
@@ -776,8 +896,8 @@ class Enemy {
         }
 
         for (let attempt = 0; attempt < 200; attempt++) {
-            const x = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
-            const y = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
+            const x = randomInt(1, GRID_SIZE - 2);
+            const y = randomInt(1, GRID_SIZE - 2);
             if (world.getTile(x, y) !== TILE_TYPES.FLOOR) {
                 continue;
             }
@@ -806,8 +926,7 @@ class Enemy {
 
             if (player && next.x === player.x && next.y === player.y) {
                 if (!this.isAlly) {
-                    const damage = this.attackTarget(player);
-                    return { type: 'attack-player', damage };
+                    return this.performPlayerAttackOrThiefSteal(world, player);
                 }
                 return { type: 'blocked' };
             }
@@ -1038,7 +1157,7 @@ class Enemy {
             return [];
         }
 
-        return weapon.getOnHitInflictedConditions(Math.random);
+        return weapon.getOnHitInflictedConditions(getRngRoll);
     }
 
     shouldPreventConditionFromEquipment(condition) {
@@ -1052,7 +1171,7 @@ class Enemy {
         }
 
         const preventionChance = armor.getConditionPreventionChance(condition);
-        return preventionChance > 0 && Math.random() < preventionChance;
+        return preventionChance > 0 && getRngRoll() < preventionChance;
     }
 
     attackTarget(target) {

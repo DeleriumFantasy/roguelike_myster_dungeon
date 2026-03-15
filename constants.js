@@ -576,7 +576,7 @@ const ENEMY_FAMILY_DEFINITIONS = {
             1: { key: 'slimeTier1', displayName: 'Green slime', health: 8, power: 3, armor: 4, exp: 2, tameThreshold: 3, spawnWeight: 12, minFloor: 0 },
             2: { key: 'slimeTier2', displayName: 'Blue slime', health: 11, power: 5, armor: 8, exp: 5, tameThreshold: 4, spawnWeight: 10, minFloor: 1 },
             3: { key: 'slimeTier3', displayName: 'Rare slime', health: 5, power: 100, armor: 100, exp: 2000, tameThreshold: 5, aiType: AI_TYPES.SUPPORT, spawnWeight: 1, minFloor: 4 },
-            4: { key: 'slimeTier4', displayName: 'Shiny slime', health: 20, power: 100, armor: 999, exp: 3333, tameThreshold: 6, aiType: AI_TYPES.SUPPORT, speed: ENEMY_SPEEDS.FAST, spawnWeight: 1, minFloor: 6 }
+            4: { key: 'slimeTier4', displayName: 'Shiny slime', health: 20, power: 100, armor: 999, exp: 3333, tameThreshold: 6, aiType: AI_TYPES.SUPPORT, speed: ENEMY_SPEEDS.FAST, spawnWeight: 1, minFloor: 6, guaranteedMoneyDrop: 2500 }
         }
     },
     ghost: {
@@ -607,7 +607,7 @@ const ENEMY_FAMILY_DEFINITIONS = {
         }
     },
     floating: {
-        defaults: { types: [ENEMY_TYPES.FLOATING], speed: ENEMY_SPEEDS.FAST, aiType: AI_TYPES.WANDER, fovRange: 11 },
+        defaults: { types: [ENEMY_TYPES.FLOATING], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 11 },
         tiers: {
             1: { key: 'floatingTier1', displayName: 'Raven', health: 12, power: 9, armor: 2, exp: 16, tameThreshold: 3, spawnWeight: 9, minFloor: 1 },
             2: { key: 'floatingTier2', displayName: 'Hawk', health: 34, power: 22, armor: 8, exp: 78, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
@@ -625,7 +625,7 @@ const ENEMY_FAMILY_DEFINITIONS = {
         }
     },
     thief: {
-        defaults: { types: [ENEMY_TYPES.THIEF], speed: ENEMY_SPEEDS.FAST, aiType: AI_TYPES.CHASE, fovRange: 12 },
+        defaults: { types: [ENEMY_TYPES.THIEF], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.CHASE, fovRange: 12 },
         tiers: {
             1: { key: 'thiefTier1', displayName: 'Pickpocket', health: 12, power: 9, armor: 3, exp: 15, tameThreshold: 3, spawnWeight: 9, minFloor: 1 },
             2: { key: 'thiefTier2', displayName: 'Snatcher', health: 35, power: 21, armor: 9, exp: 80, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },

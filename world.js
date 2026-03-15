@@ -703,6 +703,28 @@ class World {
         this.getCurrentFloor().revealedTraps.delete(key);
     }
 
+    setTrap(x, y, trapType, revealed = false) {
+        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
+            return false;
+        }
+
+        const key = this.tileKey(x, y);
+        if (!trapType) {
+            this.getCurrentFloor().traps.delete(key);
+            this.getCurrentFloor().revealedTraps.delete(key);
+            return true;
+        }
+
+        this.getCurrentFloor().traps.set(key, trapType);
+        if (revealed) {
+            this.getCurrentFloor().revealedTraps.add(key);
+        } else {
+            this.getCurrentFloor().revealedTraps.delete(key);
+        }
+
+        return true;
+    }
+
     setHazard(x, y, hazardType) {
         if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
             return;

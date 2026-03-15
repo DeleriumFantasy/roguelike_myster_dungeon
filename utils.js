@@ -22,6 +22,64 @@ function randomInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+function getRngRoll(rng = null) {
+    if (rng && typeof rng.next === 'function') {
+        return rng.next();
+    }
+
+    return Math.random();
+}
+
+function getRngRandomInt(rng, min, max) {
+    if (rng && typeof rng.randomInt === 'function') {
+        return rng.randomInt(min, max);
+    }
+
+    return randomInt(min, max);
+}
+
+function createMathRng() {
+    return {
+        next: () => Math.random(),
+        randomInt: (min, max) => randomInt(min, max)
+    };
+}
+
+function getItemLabel(item, fallback = 'item') {
+    if (!item) {
+        return fallback;
+    }
+
+    if (typeof item.getDisplayName === 'function') {
+        return item.getDisplayName();
+    }
+
+    if (typeof item.name === 'string' && item.name.length > 0) {
+        return item.name;
+    }
+
+    return fallback;
+}
+
+function normalizeDirection(dx, dy, fallback = { dx: 0, dy: -1 }) {
+    const normalizedDx = Math.sign(Number(dx) || 0);
+    const normalizedDy = Math.sign(Number(dy) || 0);
+    if (normalizedDx === 0 && normalizedDy === 0) {
+        return { dx: fallback.dx, dy: fallback.dy };
+    }
+
+    return { dx: normalizedDx, dy: normalizedDy };
+}
+
+function getActorFacing(actor, fallback = { dx: 0, dy: -1 }) {
+    if (actor && typeof actor.getFacingDirection === 'function') {
+        const facing = actor.getFacingDirection();
+        return normalizeDirection(facing?.dx, facing?.dy, fallback);
+    }
+
+    return normalizeDirection(actor?.facing?.dx, actor?.facing?.dy, fallback);
+}
+
 function distance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }

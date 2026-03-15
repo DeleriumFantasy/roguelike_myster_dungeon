@@ -161,9 +161,7 @@ class UI {
         this.ctx.fillStyle = COLORS.PLAYER;
         this.ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
 
-        const facing = typeof player.getFacingDirection === 'function'
-            ? player.getFacingDirection()
-            : (player.facing || { dx: 0, dy: -1 });
+        const facing = getActorFacing(player);
         this.renderPlayerFacingArrow(screenPos.x, screenPos.y, facing);
     }
 
@@ -172,13 +170,9 @@ class UI {
         const cy = y + TILE_SIZE / 2;
         const tip = TILE_SIZE * 0.38;
         const wing = TILE_SIZE * 0.2;
-        const rawDx = Number(facing?.dx);
-        const rawDy = Number(facing?.dy);
-        const dx = Number.isFinite(rawDx) ? rawDx : 0;
-        const dy = Number.isFinite(rawDy) ? rawDy : -1;
-        const length = Math.hypot(dx, dy) || 1;
-        const ux = dx / length;
-        const uy = dy / length;
+        const direction = normalizeDirection(facing?.dx, facing?.dy, { dx: 0, dy: -1 });
+        const ux = direction.dx;
+        const uy = direction.dy;
         const px = -uy;
         const py = ux;
 
@@ -325,9 +319,7 @@ class UI {
 
         const entries = [];
         for (const [itemType, item] of enemy.swallowedItems.entries()) {
-            const itemLabel = typeof item?.getDisplayName === 'function'
-                ? item.getDisplayName()
-                : (item?.name || String(itemType));
+            const itemLabel = getItemLabel(item, String(itemType));
             entries.push(`${itemType}=${itemLabel}`);
         }
 
@@ -507,7 +499,7 @@ class UI {
     }
 
     formatInventoryItemLabel(item) {
-        const baseLabel = typeof item.getDisplayName === 'function' ? item.getDisplayName() : item.name;
+        const baseLabel = getItemLabel(item);
         const identified = typeof item.isIdentified === 'function' ? item.isIdentified() : true;
         const cursed = typeof item.isCursed === 'function' ? item.isCursed() : Boolean(item?.properties?.cursed);
         const quantity = typeof item.getQuantity === 'function' ? item.getQuantity() : 1;

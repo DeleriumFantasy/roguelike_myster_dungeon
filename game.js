@@ -121,7 +121,7 @@ class Game {
             return entries[0] || null;
         }
 
-        let roll = (typeof rng?.next === 'function' ? rng.next() : Math.random()) * totalWeight;
+        let roll = getRngRoll(rng) * totalWeight;
         for (const entry of entries) {
             roll -= Math.max(0, Number(entry.weight) || 0);
             if (roll <= 0) {
@@ -153,6 +153,59 @@ class Game {
         return new Enemy(x, y, template.displayName, template.aiType, scaledStats);
     }
 
+    getNextEnemyTierTypeKey(monsterType) {
+        const typeKey = String(monsterType || '');
+        const tierMatch = typeKey.match(/^(.*Tier)(\d+)$/i);
+        if (!tierMatch) {
+            return null;
+        }
+
+        const baseKey = tierMatch[1];
+        const currentTier = Number(tierMatch[2]);
+        if (!Number.isFinite(currentTier) || currentTier < 1) {
+            return null;
+        }
+
+        const nextTierKey = `${baseKey}${currentTier + 1}`;
+        return ENEMY_TEMPLATES[nextTierKey] ? nextTierKey : null;
+    }
+
+    tryPromoteEnemyAfterKill(enemy) {
+        if (!enemy || typeof enemy.isAlive !== 'function' || !enemy.isAlive()) {
+            return null;
+        }
+
+        const nextTierTypeKey = this.getNextEnemyTierTypeKey(enemy.monsterType);
+        if (!nextTierTypeKey) {
+            return null;
+        }
+
+        const currentHealth = Math.max(0, Math.floor(Number(enemy.health) || 0));
+        const promotedEnemy = this.createEnemyForType(enemy.x, enemy.y, nextTierTypeKey, this.world.currentFloor);
+
+        enemy.name = promotedEnemy.name;
+        enemy.monsterType = promotedEnemy.monsterType;
+        enemy.creatureTypes = [...promotedEnemy.creatureTypes];
+        enemy.aiType = promotedEnemy.aiType;
+        enemy.baseAiType = promotedEnemy.baseAiType;
+        enemy.maxHealth = promotedEnemy.maxHealth;
+        enemy.power = promotedEnemy.power;
+        enemy.armor = promotedEnemy.armor;
+        enemy.exp = promotedEnemy.exp;
+        enemy.fovRange = promotedEnemy.fovRange;
+        enemy.tameThreshold = promotedEnemy.tameThreshold;
+        enemy.speed = promotedEnemy.speed;
+
+        const healthGain = Math.floor(enemy.maxHealth / 2);
+        enemy.health = Math.min(enemy.maxHealth, currentHealth + healthGain);
+
+        return {
+            newName: enemy.name,
+            newTierTypeKey: nextTierTypeKey,
+            healthGain
+        };
+    }
+
     spawnItemsForCurrentFloor(rng, floorIndex = this.world.currentFloor) {
         const itemCount = this.getItemSpawnCountForFloor(floorIndex);
         for (let i = 0; i < itemCount; i++) {
@@ -170,21 +223,41 @@ class Game {
         }
     }
 
-    createRandomItemForFloor(rng, floorIndex = this.world.currentFloor) {
-        const tier = this.rollItemTierForFloor(floorIndex, rng);
-        const tierEntries = getWeightedItemEntriesForTier(tier);
-        const chosenEntry = this.chooseWeightedEntry(rng, tierEntries);
-        if (!chosenEntry || typeof chosenEntry.create !== 'function') {
-            return null;
+    createRandomItemForFloor(rng, floorIndex = this.world.currentFloor, options = {}) {
+        const { forEnemyDrop = false, dropEnemy = null } = options;
+
+        for (let attempt = 0; attempt < 12; attempt++) {
+            const tier = this.rollItemTierForFloor(floorIndex, rng);
+            const tierEntries = getWeightedItemEntriesForTier(tier);
+            const chosenEntry = this.chooseWeightedEntry(rng, tierEntries);
+            if (!chosenEntry || typeof chosenEntry.create !== 'function') {
+                return null;
+            }
+
+            const item = chosenEntry.create();
+            if (!item) {
+                continue;
+            }
+
+            if (typeof isEnemyDropRestrictedItem === 'function' && isEnemyDropRestrictedItem(item)) {
+                if (!forEnemyDrop) {
+                    continue;
+                }
+
+                if (typeof canEnemyDropItem === 'function' && !canEnemyDropItem(item, dropEnemy)) {
+                    continue;
+                }
+            }
+
+            if (item.type === ITEM_TYPES.MONEY) {
+                item.properties = item.properties || {};
+                item.properties.value = this.computeMoneyValueForFloor(item, floorIndex, rng);
+            }
+            applyWorldEnchantmentRoll(item, rng);
+            return applyWorldCurseRoll(item, rng);
         }
 
-        const item = chosenEntry.create();
-        if (item && item.type === ITEM_TYPES.MONEY) {
-            item.properties = item.properties || {};
-            item.properties.value = this.computeMoneyValueForFloor(item, floorIndex, rng);
-        }
-        applyWorldEnchantmentRoll(item, rng);
-        return applyWorldCurseRoll(item, rng);
+        return null;
     }
 
     getMoneyValueRange(item) {
@@ -203,9 +276,7 @@ class Game {
     computeMoneyValueForFloor(item, floorIndex = this.world.currentFloor, rng = null) {
         const floorMultiplier = Math.max(1, Math.floor(Number(floorIndex) + 1));
         const range = this.getMoneyValueRange(item);
-        const rolledValue = rng && typeof rng.randomInt === 'function'
-            ? rng.randomInt(range.min, range.max)
-            : randomInt(range.min, range.max);
+        const rolledValue = getRngRandomInt(rng, range.min, range.max);
 
         return Math.max(1, Math.floor(rolledValue) * floorMultiplier);
     }
@@ -353,9 +424,7 @@ class Game {
     }
 
     handleFacingAttackInput() {
-        const facing = typeof this.player.getFacingDirection === 'function'
-            ? this.player.getFacingDirection()
-            : (this.player.facing || { dx: 0, dy: -1 });
+        const facing = getActorFacing(this.player);
 
         if (this.tryTalkToFacingNpc(facing)) {
             return;
@@ -390,9 +459,7 @@ class Game {
             return true;
         }
 
-        const itemLabel = typeof enemy.shopOfferItem.getDisplayName === 'function'
-            ? enemy.shopOfferItem.getDisplayName()
-            : enemy.shopOfferItem.name;
+        const itemLabel = getItemLabel(enemy.shopOfferItem);
         const price = enemy.shopOfferPrice;
         const confirmed = window.confirm(`${enemy.name} offers ${itemLabel} for ${price} money. Buy it?`);
         if (!confirmed) {
@@ -419,10 +486,7 @@ class Game {
             return;
         }
 
-        const rng = {
-            next: () => Math.random(),
-            randomInt: (min, max) => randomInt(min, max)
-        };
+        const rng = createMathRng();
 
         let offeredItem = null;
         for (let attempt = 0; attempt < 8; attempt++) {
@@ -570,9 +634,7 @@ class Game {
     beginThrowMode(item) {
         if (!item) return;
 
-        const facing = typeof this.player.getFacingDirection === 'function'
-            ? this.player.getFacingDirection()
-            : (this.player.facing || { dx: 0, dy: -1 });
+        const facing = getActorFacing(this.player);
 
         this.performTurn({
             type: 'throw',
@@ -1144,21 +1206,139 @@ class Game {
         };
     }
 
+    announceCombatHit(attackerName, targetName, damage) {
+        this.ui.addMessage(`${attackerName} hits ${targetName} for ${damage}.`);
+    }
+
+    announceSimpleDropOutcome(drop, itemLabel) {
+        if (!drop) {
+            return;
+        }
+
+        if (drop.burned) {
+            this.ui.addMessage(`${itemLabel} burns up in lava.`);
+            return;
+        }
+
+        this.ui.addMessage(`${itemLabel} drops at ${drop.x}, ${drop.y}.`);
+    }
+
+    announceActorItemDisposition(actorName, action, itemLabel, drop, options = {}) {
+        const { includeCoordinates = false, burnedSuffix = 'it burns up in lava.' } = options;
+        if (!drop) {
+            return;
+        }
+
+        if (drop.burned) {
+            this.ui.addMessage(`${actorName} ${action} ${itemLabel}, but ${burnedSuffix}`);
+            return;
+        }
+
+        if (includeCoordinates) {
+            this.ui.addMessage(`${actorName} ${action} ${itemLabel} at ${drop.x}, ${drop.y}.`);
+            return;
+        }
+
+        this.ui.addMessage(`${actorName} ${action} ${itemLabel}.`);
+    }
+
+    announceThrowHitOutcome(itemLabel, result) {
+        this.ui.addMessage(`${itemLabel} hits ${result.enemy.name}.`);
+        if ((result.damage || 0) > 0) {
+            this.ui.addMessage(`${result.enemy.name} takes ${result.damage} throw damage.`);
+        }
+        if ((result.healing || 0) > 0) {
+            this.ui.addMessage(`${result.enemy.name} recovers ${result.healing} health from the throw.`);
+        }
+        this.ui.addMessage(`${itemLabel} shatters on impact.`);
+        if (result.enemyDefeated) {
+            this.ui.addMessage(`${result.enemy.name} is defeated.`);
+        }
+    }
+
+    getVandalPickupEffectMessage(enemyName, pickupEffect) {
+        if (!pickupEffect || typeof pickupEffect.type !== 'string') {
+            return null;
+        }
+
+        const effectMessageBuilders = {
+            'vandal-downgrade': (effect) => {
+                if (!effect.item) {
+                    return null;
+                }
+
+                const itemLabel = getItemLabel(effect.item);
+                return `${enemyName} degrades it into ${itemLabel}.`;
+            },
+            'vandal-transform-food': (effect) => {
+                if (!effect.item) {
+                    return null;
+                }
+
+                const itemLabel = getItemLabel(effect.item);
+                return `${enemyName} turns it into ${itemLabel}.`;
+            },
+            'vandal-destroy-item': () => `${enemyName} destroys the item.`
+        };
+
+        const messageBuilder = effectMessageBuilders[pickupEffect.type];
+        return typeof messageBuilder === 'function' ? messageBuilder(pickupEffect) : null;
+    }
+
+    announceVandalPickupEvent(enemyName, pickedUpItem, pickupEffect) {
+        const pickedLabel = getItemLabel(pickedUpItem);
+        this.ui.addMessage(`${enemyName} picks up ${pickedLabel}.`);
+
+        const effectMessage = this.getVandalPickupEffectMessage(enemyName, pickupEffect);
+        if (effectMessage) {
+            this.ui.addMessage(effectMessage);
+        }
+    }
+
+    announceThiefStealEvent(enemyName, stolenAmount, teleported) {
+        if (stolenAmount > 0) {
+            this.ui.addMessage(`${enemyName} steals ${stolenAmount} money from you!`);
+        } else {
+            this.ui.addMessage(`${enemyName} tries to steal from you, but you have no money.`);
+        }
+
+        if (teleported) {
+            this.ui.addMessage(`${enemyName} teleports away in panic.`);
+        } else {
+            this.ui.addMessage(`${enemyName} panics and tries to flee.`);
+        }
+    }
+
+    getGuaranteedEnemyDrops(enemy) {
+        if (!enemy) {
+            return [];
+        }
+
+        const enemyTemplate = ENEMY_TEMPLATES[enemy.monsterType] || null;
+        const guaranteedMoneyDrop = Math.max(0, Math.floor(Number(enemyTemplate?.guaranteedMoneyDrop) || 0));
+        if (guaranteedMoneyDrop <= 0) {
+            return [];
+        }
+
+        const moneyItem = createTieredItem('money', 4);
+        if (!moneyItem) {
+            return [];
+        }
+
+        moneyItem.properties = moneyItem.properties || {};
+        moneyItem.properties.value = guaranteedMoneyDrop;
+        return [moneyItem];
+    }
+
     announceThrowResult(item, result) {
-        const label = typeof item.getDisplayName === 'function' ? item.getDisplayName() : item.name;
+        const label = getItemLabel(item);
         if (result.type === 'swallowed') {
             this.ui.addMessage(`${result.enemy.name} swallows ${label}.`);
             if (result.ejectedBecauseDifferentTypes) {
                 this.ui.addMessage(`${result.enemy.name} cannot fuse different item types and spits both items out.`);
                 for (const drop of result.ejectedDrops || []) {
-                    const dropName = typeof drop.item?.getDisplayName === 'function'
-                        ? drop.item.getDisplayName()
-                        : (drop.item?.name || 'item');
-                    if (drop.burned) {
-                        this.ui.addMessage(`${dropName} burns up in lava.`);
-                    } else {
-                        this.ui.addMessage(`${dropName} drops at ${drop.x}, ${drop.y}.`);
-                    }
+                    const dropName = getItemLabel(drop.item, 'item');
+                    this.announceSimpleDropOutcome(drop, dropName);
                 }
                 return;
             }
@@ -1173,27 +1353,11 @@ class Game {
         } else if (result.type === 'fuser-reject') {
             this.ui.addMessage(`${result.enemy.name} refuses to swallow more items.`);
             for (const drop of result.drops || []) {
-                const dropName = typeof drop.item?.getDisplayName === 'function'
-                    ? drop.item.getDisplayName()
-                    : (drop.item?.name || label);
-                if (drop.burned) {
-                    this.ui.addMessage(`${dropName} burns up in lava.`);
-                } else {
-                    this.ui.addMessage(`${dropName} drops at ${drop.x}, ${drop.y}.`);
-                }
+                const dropName = getItemLabel(drop.item, label);
+                this.announceSimpleDropOutcome(drop, dropName);
             }
         } else if (result.type === 'hit') {
-            this.ui.addMessage(`${label} hits ${result.enemy.name}.`);
-            if ((result.damage || 0) > 0) {
-                this.ui.addMessage(`${result.enemy.name} takes ${result.damage} throw damage.`);
-            }
-            if ((result.healing || 0) > 0) {
-                this.ui.addMessage(`${result.enemy.name} recovers ${result.healing} health from the throw.`);
-            }
-            this.ui.addMessage(`${label} shatters on impact.`);
-            if (result.enemyDefeated) {
-                this.ui.addMessage(`${result.enemy.name} is defeated.`);
-            }
+            this.announceThrowHitOutcome(label, result);
         } else if (result.type === 'burned') {
             this.ui.addMessage(`${label} burns up in lava.`);
         } else {
@@ -1213,39 +1377,29 @@ class Game {
                 }
 
                 if (result?.type === 'attack-player') {
-                    this.ui.addMessage(`${enemy.name} hits you for ${result.damage}.`);
+                    this.announceCombatHit(enemy.name, 'you', result.damage);
+                }
+                if (result?.type === 'thief-steal') {
+                    this.announceThiefStealEvent(enemy.name, result.stolenAmount || 0, Boolean(result.teleported));
                 }
                 if (result?.type === 'attack-enemy' && result.target) {
-                    this.ui.addMessage(`${enemy.name} hits ${result.target.name} for ${result.damage}.`);
+                    this.announceCombatHit(enemy.name, result.target.name, result.damage);
                     if (!result.target.isAlive()) {
                         this.handleEnemyDefeat(result.target, { announceDefeat: true, grantExp: false });
+                        const promotionResult = this.tryPromoteEnemyAfterKill(enemy);
+                        if (promotionResult) {
+                            this.ui.addMessage(`${enemy.name} grows stronger and becomes ${promotionResult.newName}.`);
+                            if (promotionResult.healthGain > 0) {
+                                this.ui.addMessage(`${enemy.name} gains ${promotionResult.healthGain} HP from evolving.`);
+                            }
+                        }
                     }
                 }
                 if (result?.type === 'vandal-pickup-item' && result.pickedUpItem) {
-                    const pickedLabel = typeof result.pickedUpItem.getDisplayName === 'function'
-                        ? result.pickedUpItem.getDisplayName()
-                        : result.pickedUpItem.name;
-                    this.ui.addMessage(`${enemy.name} picks up ${pickedLabel}.`);
-
-                    const pickupEffect = result.pickupEffect;
-                    if (pickupEffect?.type === 'vandal-downgrade' && pickupEffect.item) {
-                        const downgradedLabel = typeof pickupEffect.item.getDisplayName === 'function'
-                            ? pickupEffect.item.getDisplayName()
-                            : pickupEffect.item.name;
-                        this.ui.addMessage(`${enemy.name} degrades it into ${downgradedLabel}.`);
-                    } else if (pickupEffect?.type === 'vandal-transform-food' && pickupEffect.item) {
-                        const foodLabel = typeof pickupEffect.item.getDisplayName === 'function'
-                            ? pickupEffect.item.getDisplayName()
-                            : pickupEffect.item.name;
-                        this.ui.addMessage(`${enemy.name} turns it into ${foodLabel}.`);
-                    } else if (pickupEffect?.type === 'vandal-destroy-item') {
-                        this.ui.addMessage(`${enemy.name} destroys the item.`);
-                    }
+                    this.announceVandalPickupEvent(enemy.name, result.pickedUpItem, result.pickupEffect);
                 }
                 if (result?.type === 'vandal-dispose-item' && result.item) {
-                    const itemLabel = typeof result.item.getDisplayName === 'function'
-                        ? result.item.getDisplayName()
-                        : result.item.name;
+                    const itemLabel = getItemLabel(result.item);
                     const disposalResult = this.world.addItem(result.tile.x, result.tile.y, result.item);
                     if (disposalResult?.burned) {
                         this.ui.addMessage(`${enemy.name} throws ${itemLabel} into lava and it burns up.`);
@@ -1255,11 +1409,7 @@ class Game {
                         const fallbackDrop = this.dropItemsNearEnemy(enemy, [result.item]);
                         if (fallbackDrop.length > 0) {
                             const drop = fallbackDrop[0];
-                            if (drop.burned) {
-                                this.ui.addMessage(`${enemy.name} drops ${itemLabel}, but it burns up in lava.`);
-                            } else {
-                                this.ui.addMessage(`${enemy.name} drops ${itemLabel} at ${drop.x}, ${drop.y}.`);
-                            }
+                            this.announceActorItemDisposition(enemy.name, 'drops', itemLabel, drop, { includeCoordinates: true });
                         }
                     }
                 }
@@ -1285,14 +1435,8 @@ class Game {
             const heldDropResult = this.dropItemsNearEnemy(enemy, [enemy.heldItem]);
             enemy.heldItem = null;
             for (const drop of heldDropResult) {
-                const dropName = typeof drop.item?.getDisplayName === 'function'
-                    ? drop.item.getDisplayName()
-                    : (drop.item?.name || 'item');
-                if (drop.burned) {
-                    this.ui.addMessage(`${enemy.name} drops ${dropName}, but it burns up in lava.`);
-                } else {
-                    this.ui.addMessage(`${enemy.name} drops ${dropName}.`);
-                }
+                const dropName = getItemLabel(drop.item, 'item');
+                this.announceActorItemDisposition(enemy.name, 'drops', dropName, drop);
             }
         }
 
@@ -1304,26 +1448,30 @@ class Game {
             enemy.swallowedItems.clear();
 
             for (const drop of droppedSwallowedItems) {
-                const dropName = typeof drop.item?.getDisplayName === 'function'
-                    ? drop.item.getDisplayName()
-                    : (drop.item?.name || 'item');
-                if (drop.burned) {
-                    this.ui.addMessage(`${enemy.name} releases ${dropName}, but it burns up in lava.`);
-                } else {
-                    this.ui.addMessage(`${enemy.name} releases ${dropName}.`);
-                }
+                const dropName = getItemLabel(drop.item, 'item');
+                this.announceActorItemDisposition(enemy.name, 'releases', dropName, drop);
+            }
+        }
+
+        const guaranteedDrops = this.getGuaranteedEnemyDrops(enemy);
+        if (guaranteedDrops.length > 0) {
+            const guaranteedDropResults = this.dropItemsNearEnemy(enemy, guaranteedDrops);
+            for (const drop of guaranteedDropResults) {
+                const dropName = getItemLabel(drop.item, 'item');
+                this.announceActorItemDisposition(enemy.name, 'drops', dropName, drop);
             }
         }
 
         const droppedItem = this.rollEnemyDrop(enemy);
         if (droppedItem) {
-            const dropName = typeof droppedItem.getDisplayName === 'function' ? droppedItem.getDisplayName() : droppedItem.name;
+            const dropName = getItemLabel(droppedItem);
             const dropResult = this.world.addItem(enemy.x, enemy.y, droppedItem);
-            if (dropResult?.burned) {
-                this.ui.addMessage(`${enemy.name} dropped ${dropName}, but it burned in lava.`);
-            } else {
-                this.ui.addMessage(`${enemy.name} dropped ${dropName}.`);
-            }
+            this.announceActorItemDisposition(enemy.name, 'dropped', dropName, {
+                burned: Boolean(dropResult?.burned),
+                x: enemy.x,
+                y: enemy.y,
+                burnedSuffix: 'it burned in lava.'
+            });
         }
 
         if (grantExp && enemy.exp) {
@@ -1345,16 +1493,13 @@ class Game {
         }
 
         const dropChance = Math.min(0.85, 0.35 + this.world.currentFloor * 0.05);
-        if (Math.random() >= dropChance) {
+        if (getRngRoll() >= dropChance) {
             return null;
         }
 
-        const rng = {
-            next: () => Math.random(),
-            randomInt: (min, max) => randomInt(min, max)
-        };
+        const rng = createMathRng();
 
-        return this.createRandomItemForFloor(rng, this.world.currentFloor);
+        return this.createRandomItemForFloor(rng, this.world.currentFloor, { forEnemyDrop: true, dropEnemy: enemy });
     }
 
     pickupItemsAtPlayerPosition() {
@@ -1408,7 +1553,7 @@ class Game {
             }
             this.player.addItem(item);
             this.world.removeItem(x, y, item);
-            const itemName = typeof item.getDisplayName === 'function' ? item.getDisplayName() : item.name;
+            const itemName = getItemLabel(item);
             pickedNames.push(itemName);
         }
 
