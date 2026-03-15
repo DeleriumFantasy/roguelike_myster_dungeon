@@ -686,14 +686,13 @@ class Game {
             case 'toggle-map':
                 this.ui.toggleMap(this.world, this.player);
                 return true;
-            case 'tame-nearest':
-                this.tryTameNearestEnemy();
-                return true;
             case 'debug-reveal-fov':
                 this.fov.revealAll();
                 return true;
             case 'debug-toggle-monsters':
                 this.debugShowAllMonsters = !this.debugShowAllMonsters;
+                this.player.debugBonusArmor = this.debugShowAllMonsters ? 999 : 0;
+                this.player.updateStats();
                 console.log(`Show all monsters: ${this.debugShowAllMonsters}`);
                 return true;
             default:
@@ -754,7 +753,7 @@ class Game {
         }
 
         // Per-turn player effects
-        const hungerChange = this.player.applyPerTurnRegen();
+        this.player.applyPerTurnRegen();
 
         this.handleFloorChange(startFloor);
         if (input.type !== 'move') {
@@ -1145,6 +1144,67 @@ class Game {
         return dropped;
     }
 
+    isFoodItemForTaming(item) {
+        if (!item) {
+            return false;
+        }
+
+        const tierMatch = typeof getTieredItemMatch === 'function'
+            ? getTieredItemMatch(item)
+            : null;
+
+        if (tierMatch?.category === 'food') {
+            return true;
+        }
+
+        // Allow custom food-like items that restore hunger.
+        return Number(item?.properties?.hunger || 0) > 0;
+    }
+
+    getItemTierForTaming(item) {
+        const tierMatch = typeof getTieredItemMatch === 'function'
+            ? getTieredItemMatch(item)
+            : null;
+        const tier = Number(tierMatch?.tier);
+        return Number.isFinite(tier) ? clamp(tier, 1, 4) : 1;
+    }
+
+    calculateThrownFoodTameChance(enemy, item, enemyHealthBeforeThrow) {
+        const rules = THROW_FOOD_TAMING_RULES;
+        const threshold = Math.max(1, Number(enemy?.getTameThreshold?.() ?? enemy?.tameThreshold ?? 1));
+        const maxHealth = Math.max(1, Number(enemy?.maxHealth || 1));
+        const currentHealth = clamp(Number(enemyHealthBeforeThrow) || 0, 0, maxHealth);
+        const missingHealthRatio = 1 - (currentHealth / maxHealth);
+        const itemTier = this.getItemTierForTaming(item);
+        const playerLevel = Math.max(1, Number(this.player?.level || 1));
+
+        const thresholdPenalty = Math.max(0, threshold - rules.thresholdBaseline) * rules.thresholdPenaltyPerPoint;
+        const lowHpBonus = missingHealthRatio * rules.lowHpBonusScale;
+        const itemTierBonus = Math.max(0, itemTier - 1) * rules.itemTierBonusPerTier;
+        const playerLevelBonus = Math.min(rules.playerLevelBonusCap, Math.max(0, playerLevel - 1) * rules.playerLevelBonusPerLevel);
+
+        const chance = rules.baseChance - thresholdPenalty + lowHpBonus + itemTierBonus + playerLevelBonus;
+        return chance;
+    }
+
+    tryTameEnemyWithThrownFood(enemy, item, enemyHealthBeforeThrow) {
+        if (!enemy || !enemy.canBeTamed?.() || !this.isFoodItemForTaming(item)) {
+            return { attempted: false, chance: 0, succeeded: false };
+        }
+
+        const chance = this.calculateThrownFoodTameChance(enemy, item, enemyHealthBeforeThrow);
+        const succeeded = getRngRoll() < chance;
+        if (succeeded) {
+            enemy.tame(this.player);
+        }
+
+        return {
+            attempted: true,
+            chance,
+            succeeded
+        };
+    }
+
     resolveThrow(item, dx, dy) {
         const grid = this.world.getCurrentFloor().grid;
         let x = this.player.x + dx;
@@ -1205,8 +1265,12 @@ class Game {
                     };
                 }
 
+                const enemyHealthBeforeThrow = Number(enemy.health || 0);
                 const throwImpact = item.throw(this.player, enemy) || { damage: 0, healing: 0 };
                 const enemyDefeated = !enemy.isAlive();
+                const tameRoll = enemyDefeated
+                    ? { attempted: false, chance: 0, succeeded: false }
+                    : this.tryTameEnemyWithThrownFood(enemy, item, enemyHealthBeforeThrow);
                 if (enemyDefeated) {
                     this.handleEnemyDefeat(enemy, { announceDefeat: false });
                 }
@@ -1217,6 +1281,9 @@ class Game {
                     enemyDefeated,
                     damage: throwImpact.damage || 0,
                     healing: throwImpact.healing || 0,
+                    tameAttempted: tameRoll.attempted,
+                    tameChance: tameRoll.chance,
+                    tameSucceeded: tameRoll.succeeded,
                     x,
                     y
                 };
@@ -1287,6 +1354,11 @@ class Game {
         }
         if ((result.healing || 0) > 0) {
             this.ui.addMessage(`${result.enemy.name} recovers ${result.healing} health from the throw.`);
+        }
+        if (result.tameSucceeded) {
+            this.ui.addMessage(`${result.enemy.name} has been tamed and is now your ally.`);
+        } else if (result.tameAttempted) {
+            this.ui.addMessage(`${result.enemy.name} resists the taming attempt.`);
         }
         this.ui.addMessage(`${itemLabel} shatters on impact.`);
         if (result.enemyDefeated) {
@@ -1666,32 +1738,6 @@ class Game {
         this.player.addCondition(trapDefinition.condition, getConditionDuration(trapDefinition.condition));
         if (trapDefinition.message) {
             this.ui.addMessage(trapDefinition.message);
-        }
-    }
-
-    tryTameNearestEnemy() {
-        const candidates = this.world.getEnemies().filter((enemy) => {
-            if (!enemy.isAlive()) return false;
-            const enemyDistance = distance(enemy.x, enemy.y, this.player.x, this.player.y);
-            return enemyDistance <= 1.5;
-        });
-
-        if (candidates.length === 0) {
-            this.ui.addMessage('No tameable enemy nearby.');
-            return;
-        }
-
-        const target = candidates[0];
-        const progressed = target.attemptTame(this.player, 1);
-        if (!progressed) {
-            this.ui.addMessage(`${target.name} resists taming.`);
-            return;
-        }
-
-        if (target.isAlly) {
-            this.ui.addMessage(`${target.name} is now your ally.`);
-        } else {
-            this.ui.addMessage(`Taming progress on ${target.name}: ${target.tamingProgress}/${target.getTameThreshold()}`);
         }
     }
 

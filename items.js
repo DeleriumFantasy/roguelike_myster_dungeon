@@ -691,7 +691,7 @@ const TIERED_ITEM_DEFINITIONS = {
         4: { name: 'Javelin', type: ITEM_TYPES.THROWABLE, properties: { power: 20, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
     },
     weapon: {
-        1: { name: 'Rusted sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 1, hiddenName: hiddenSword, burnable: false } },
+        1: { name: 'Rusted sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 1, enchantments: ['slayer'], hiddenName: hiddenSword, burnable: false } },
         2: { name: 'Bronze sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 1, hiddenName: hiddenSword, burnable: false } },
         3: { name: 'Iron sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 2, hiddenName: hiddenSword, burnable: false } },
         4: { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 3, hiddenName: hiddenSword, burnable: false } }
@@ -779,6 +779,16 @@ function getStatusConsumableDefinitions() {
     return definitions;
 }
 
+function normalizeTierDefinitions(tierDefinition) {
+    if (!tierDefinition) {
+        return [];
+    }
+
+    return Array.isArray(tierDefinition)
+        ? tierDefinition
+        : [tierDefinition];
+}
+
 const ITEM_SPAWN_POOL_BY_TIER = {
     1: [
         { category: 'money', tier: 1, weight: 4 },
@@ -841,9 +851,7 @@ function getTieredItemMatch(item) {
 
     for (const [category, tierDefinitions] of Object.entries(TIERED_ITEM_DEFINITIONS)) {
         for (const [tierKey, tierDefinition] of Object.entries(tierDefinitions || {})) {
-            const normalizedDefinitions = Array.isArray(tierDefinition)
-                ? tierDefinition
-                : [tierDefinition];
+            const normalizedDefinitions = normalizeTierDefinitions(tierDefinition);
 
             for (const definition of normalizedDefinitions) {
                 if (!definition) {
@@ -911,9 +919,7 @@ function createLowerTierVersionOfItem(item) {
 
     const targetTier = Math.max(1, match.tier - 1);
     const targetTierDefinition = TIERED_ITEM_DEFINITIONS[match.category]?.[targetTier];
-    const normalizedDefinitions = Array.isArray(targetTierDefinition)
-        ? targetTierDefinition
-        : [targetTierDefinition];
+    const normalizedDefinitions = normalizeTierDefinitions(targetTierDefinition);
 
     let chosenDefinition = normalizedDefinitions.find((definition) => definition?.type === item.type) || normalizedDefinitions[0] || null;
     if (Array.isArray(targetTierDefinition) && match.definition?.properties?.condition) {
@@ -961,7 +967,10 @@ function canEnemyDropItem(item, enemy) {
 }
 
 function createTieredItem(category, tier) {
-    const definition = TIERED_ITEM_DEFINITIONS[category]?.[tier] || null;
+    let definition = TIERED_ITEM_DEFINITIONS[category]?.[tier] || null;
+    if (Array.isArray(definition)) {
+        definition = definition[randomInt(0, definition.length - 1)] || null;
+    }
     return createItemFromDefinition(definition);
 }
 
@@ -1007,6 +1016,10 @@ function createAllStatusConsumables() {
         .filter((item) => Boolean(item));
 }
 
+
+/**
+ * Creates a set of starter items, one for each category, all at tier 1.
+ */
 function createTieredStarterItems() {
     return [
         createTieredItem('healing', 1),
@@ -1015,7 +1028,7 @@ function createTieredStarterItems() {
         createTieredItem('weapon', 1),
         createTieredItem('shield', 1),
         createTieredItem('armor', 1),
-        createTieredItem('accessoryDefense', 1)
+        createTieredItem('accessory', 1)
     ];
 }
 

@@ -254,14 +254,17 @@ class Player {
 
     applyPerTurnRegen() {
         this.turns += 1;
-        const regenAmount = this.level >= 20 ? 3 : (this.level >= 10 ? 2 : 1);
-        this.heal(regenAmount);
         const preventsPassiveHungerLoss = Array.from(this.conditions.keys()).some((condition) => conditionPreventsPassiveHungerLoss(condition));
         if (this.turns % 5 === 0 && !preventsPassiveHungerLoss) {
             this.hunger = Math.max(0, this.hunger - 1);
-            return true;
         }
-        return false;
+
+        if (this.hunger <= 0) {
+            this.takeDamage(1);
+        } else {
+            const regenAmount = this.level >= 20 ? 3 : (this.level >= 10 ? 2 : 1);
+            this.heal(regenAmount);
+        }
     }
 
     equipItem(item) {
@@ -326,6 +329,7 @@ class Player {
             if (typeof item.getEnchantmentPowerBonus === 'function') this.power += item.getEnchantmentPowerBonus();
             if (typeof item.getEnchantmentArmorBonus === 'function') this.armor += item.getEnchantmentArmorBonus();
         }
+        if (this.debugBonusArmor) this.armor += this.debugBonusArmor;
     }
 
     isStackableItem(item) {

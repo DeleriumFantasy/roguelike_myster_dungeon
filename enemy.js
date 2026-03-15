@@ -28,7 +28,6 @@ class Enemy {
         this.targetX = null;
         this.targetY = null;
         this.isAlly = false;
-        this.tamingProgress = 0;
         this.tamedBy = null;
         this.equipment = new Map();
         this.swallowedItems = new Map();
@@ -263,6 +262,11 @@ class Enemy {
             return 0;
         }
 
+        if (!baseItem.properties) {
+            baseItem.properties = {};
+        }
+
+        const maxEnchantmentCount = Math.max(0, Math.floor(Number(baseItem?.properties?.slots || 0)));
         const baseEnchantments = typeof baseItem.getEnchantments === 'function'
             ? baseItem.getEnchantments()
             : [];
@@ -270,9 +274,22 @@ class Enemy {
             ? sourceItem.getEnchantments()
             : [];
 
-        const mergedEnchantments = [...baseEnchantments];
+        const mergedEnchantments = maxEnchantmentCount > 0
+            ? [...baseEnchantments].slice(0, maxEnchantmentCount)
+            : [];
         let mergedCount = 0;
+        if (maxEnchantmentCount <= 0) {
+            if (baseItem.properties && Object.prototype.hasOwnProperty.call(baseItem.properties, 'enchantments')) {
+                delete baseItem.properties.enchantments;
+            }
+            return 0;
+        }
+
         for (const enchantmentKey of sourceEnchantments) {
+            if (mergedEnchantments.length >= maxEnchantmentCount) {
+                break;
+            }
+
             if (mergedEnchantments.includes(enchantmentKey)) {
                 continue;
             }
@@ -988,19 +1005,6 @@ class Enemy {
         return this.isAlive() && !this.isAlly && !this.isNeutralNpc();
     }
 
-    attemptTame(tamer, amount = 1) {
-        if (!this.canBeTamed()) {
-            return false;
-        }
-
-        this.tamingProgress += Math.max(1, amount);
-        if (this.tamingProgress >= this.getTameThreshold()) {
-            this.tame(tamer);
-        }
-
-        return true;
-    }
-
     getTameThreshold() {
         return this.tameThreshold;
     }
@@ -1021,7 +1025,6 @@ class Enemy {
         }
         this.isAlly = false;
         this.tamedBy = null;
-        this.tamingProgress = 0;
     }
 
     equipItem(item) {

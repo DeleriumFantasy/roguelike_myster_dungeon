@@ -350,6 +350,16 @@ const FEATURE_FLAGS = {
     MAP_OVERLAY: false
 };
 
+const THROW_FOOD_TAMING_RULES = {
+    baseChance: 0.06,
+    thresholdBaseline: 3,
+    thresholdPenaltyPerPoint: 0.08,
+    lowHpBonusScale: 0.65,
+    itemTierBonusPerTier: 0.03,
+    playerLevelBonusPerLevel: 0.007,
+    playerLevelBonusCap: 0.1
+};
+
 const CATACOMBS_GENERATION_CONFIG = {
     roomPlacementAttempts: 320,
     minRoomCount: 16,
@@ -474,7 +484,6 @@ const INPUT_DIRECTION_BINDINGS = {
 const INPUT_ACTION_BINDINGS = {
     i: 'open-inventory',
     m: 'toggle-map',
-    t: 'tame-nearest',
     v: 'debug-reveal-fov',
     b: 'debug-toggle-monsters'
 };
@@ -598,6 +607,8 @@ const ENEMY_AI_ACTION_METHODS = {
     [AI_TYPES.WANDER]: 'performWanderAction'
 };
 
+
+/* Extra rare enemies should have taming treshold 10. That's around 34% chance in the best case scenario. That means 3 food items in the best case but probably much more in most cases. */
 const ENEMY_FAMILY_DEFINITIONS = {
     slime: {
         defaults: { types: [ENEMY_TYPES.SLIME], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 9 },
