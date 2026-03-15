@@ -292,29 +292,24 @@ class Player {
         return true;
     }
 
+    _doUnequipSlot(slot, item) {
+        if (!this.canUnequipItem(item)) return false;
+        this.equipment.delete(slot);
+        this.inventory.push(item);
+        this.updateStats();
+        return true;
+    }
+
     unequipSlot(slot) {
         const item = this.equipment.get(slot);
-        if (item) {
-            if (!this.canUnequipItem(item)) {
-                return false;
-            }
-            this.equipment.delete(slot);
-            this.inventory.push(item);
-            this.updateStats();
-        }
+        if (item && !this._doUnequipSlot(slot, item)) return false;
         return true;
     }
 
     unequipItem(item) {
         for (const [slot, equippedItem] of this.equipment) {
             if (equippedItem === item) {
-                if (!this.canUnequipItem(equippedItem)) {
-                    return false;
-                }
-                this.equipment.delete(slot);
-                this.inventory.push(item);
-                this.updateStats();
-                return true;
+                return this._doUnequipSlot(slot, item);
             }
         }
         return false;
@@ -337,7 +332,6 @@ class Player {
             if (typeof item.getEnchantmentPowerBonus === 'function') this.power += item.getEnchantmentPowerBonus();
             if (typeof item.getEnchantmentArmorBonus === 'function') this.armor += item.getEnchantmentArmorBonus();
         }
-        if (this.debugBonusArmor) this.armor += this.debugBonusArmor;
     }
 
     isStackableItem(item) {
@@ -353,8 +347,7 @@ class Player {
             return item.getQuantity();
         }
 
-        const quantity = Number(item.properties?.quantity);
-        return Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+        return getRawItemQuantity(item.properties);
     }
 
     setItemQuantity(item, quantity) {
@@ -371,15 +364,7 @@ class Player {
             item.properties = {};
         }
 
-        const nextQuantity = Number(quantity);
-        if (Number.isFinite(nextQuantity) && nextQuantity > 1) {
-            item.properties.quantity = Math.floor(nextQuantity);
-            return;
-        }
-
-        if (Object.prototype.hasOwnProperty.call(item.properties, 'quantity')) {
-            delete item.properties.quantity;
-        }
+        setRawItemQuantity(item.properties, quantity);
     }
 
     getStackKey(item) {

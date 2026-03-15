@@ -17,9 +17,9 @@ class Game {
         this.isGameOver = false;
         this.lastFailedMove = null;
         this.inventoryOpen = false;
-        this.debugShowAllMonsters = false;
         this.pressedMoveKeys = new Set();
         this.pendingMoveTimer = null;
+        this.fovCache = null;
 
         this.setupEventListeners();
         this.initializeGame();
@@ -47,6 +47,17 @@ class Game {
         return this.isOverworldFloor(floorIndex) ? 'Overworld' : String(Math.max(1, floorIndex));
     }
 
+    assignActorPosition(actor, position) {
+        actor.x = position.x;
+        actor.y = position.y;
+    }
+
+    addEnemyIfMissing(enemy) {
+        if (!this.world.getEnemies().includes(enemy)) {
+            this.world.addEnemy(enemy);
+        }
+    }
+
     spawnPlayerOnFloor() {
         const grid = this.world.getCurrentFloor().grid;
         const rng = new SeededRNG(this.seed + 999999);
@@ -67,14 +78,13 @@ class Game {
         const rng = new SeededRNG(this.seed + 888888);
         const spawn = this.world.findRandomOpenTile(rng, this.player, 200, slime);
         if (spawn) {
-            slime.x = spawn.x;
-            slime.y = spawn.y;
+            this.assignActorPosition(slime, spawn);
         } else {
             slime.x = this.player.x;
             slime.y = this.player.y;
         }
         slime.tame(this.player);
-        this.world.addEnemy(slime);
+        this.addEnemyIfMissing(slime);
     }
 
     spawnAlliesOnCurrentFloor() {
@@ -83,12 +93,8 @@ class Game {
             if (!ally.isAlive()) continue;
 
             const spawn = this.findSpawnNearPlayer(ally, rng);
-            ally.x = spawn.x;
-            ally.y = spawn.y;
-
-            if (!this.world.getEnemies().includes(ally)) {
-                this.world.addEnemy(ally);
-            }
+            this.assignActorPosition(ally, spawn);
+            this.addEnemyIfMissing(ally);
         }
     }
 
@@ -142,9 +148,8 @@ class Game {
                 continue;
             }
 
-            npc.x = spawn.x;
-            npc.y = spawn.y;
-            this.world.addEnemy(npc);
+            this.assignActorPosition(npc, spawn);
+            this.addEnemyIfMissing(npc);
         }
     }
 
@@ -173,12 +178,10 @@ class Game {
             const enemy = this.createEnemyForType(0, 0, enemyTypeKey, floorIndex);
             const spawn = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
             if (!spawn) {
-                console.warn('Could not find open tile for enemy spawn');
                 continue;
             }
-            enemy.x = spawn.x;
-            enemy.y = spawn.y;
-            this.world.addEnemy(enemy);
+            this.assignActorPosition(enemy, spawn);
+            this.addEnemyIfMissing(enemy);
         }
     }
 
@@ -294,7 +297,6 @@ class Game {
         for (let i = 0; i < itemCount; i++) {
             const spawn = this.world.findRandomItemSpawnTile(rng, this.player);
             if (!spawn) {
-                console.warn('Could not find open tile for item spawn');
                 continue;
             }
 
@@ -737,14 +739,6 @@ class Game {
             case 'toggle-map':
                 this.ui.toggleMap(this.world, this.player);
                 return true;
-            case 'debug-reveal-fov':
-                this.fov.revealAll();
-                return true;
-            case 'debug-toggle-monsters':
-                this.debugShowAllMonsters = !this.debugShowAllMonsters;
-                this.player.debugBonusArmor = this.debugShowAllMonsters ? 999 : 0;
-                this.player.updateStats();
-                return true;
             default:
                 return false;
         }
@@ -1002,17 +996,10 @@ class Game {
 
                     attackedAnyEnemyInPass = true;
                     const attackResult = this.player.attackEnemy(enemyOnTarget);
-                    const damage = attackResult?.damage || 0;
-                    const critical = Boolean(attackResult?.critical);
-                    const inflictedConditions = Array.isArray(attackResult?.inflictedConditions)
-                        ? attackResult.inflictedConditions
-                        : [];
+                    const { damage, critical, inflictedConditions } = this.extractAttackResultData(attackResult);
                     const criticalPrefix = critical ? 'Critical! ' : '';
                     this.ui.addMessage(`${criticalPrefix}You attack ${enemyOnTarget.name} for ${damage}.`);
-
-                    for (const condition of inflictedConditions) {
-                        this.ui.addMessage(`${enemyOnTarget.name} is ${condition}.`);
-                    }
+                    this.announceInflictedConditions(enemyOnTarget.name, inflictedConditions);
 
                     if (hasKnockback && damage > 0 && enemyOnTarget.isAlive() && Math.random() < 0.25) {
                         const knockedBack = this.tryKnockbackEnemy(enemyOnTarget, this.player.x, this.player.y);
@@ -1099,15 +1086,10 @@ class Game {
 
         if (distance(this.player.x, this.player.y, target.x, target.y) <= 1.5) {
             const attackResult = this.player.attackEnemy(target);
-            const damage = attackResult?.damage || 0;
-            const inflictedConditions = Array.isArray(attackResult?.inflictedConditions)
-                ? attackResult.inflictedConditions
-                : [];
-            const criticalPrefix = attackResult?.critical ? 'Critical! ' : '';
+            const { damage, critical, inflictedConditions } = this.extractAttackResultData(attackResult);
+            const criticalPrefix = critical ? 'Critical! ' : '';
             this.ui.addMessage(`${criticalPrefix}You berserk attack ${target.name} for ${damage}.`);
-            for (const condition of inflictedConditions) {
-                this.ui.addMessage(`${target.name} is ${condition}.`);
-            }
+            this.announceInflictedConditions(target.name, inflictedConditions);
             if (!target.isAlive()) {
                 this.handleEnemyDefeat(target, { announceDefeat: true });
             }
@@ -1384,6 +1366,22 @@ class Game {
         this.ui.addMessage(`${attackerName} hits ${targetName} for ${damage}.`);
     }
 
+    extractAttackResultData(attackResult) {
+        return {
+            damage: attackResult?.damage || 0,
+            critical: Boolean(attackResult?.critical),
+            inflictedConditions: Array.isArray(attackResult?.inflictedConditions)
+                ? attackResult.inflictedConditions
+                : []
+        };
+    }
+
+    announceInflictedConditions(targetName, inflictedConditions) {
+        for (const condition of inflictedConditions) {
+            this.ui.addMessage(`${targetName} is ${condition}.`);
+        }
+    }
+
     announceSimpleDropOutcome(drop, itemLabel) {
         if (!drop) {
             return;
@@ -1395,6 +1393,13 @@ class Game {
         }
 
         this.ui.addMessage(`${itemLabel} drops at ${drop.x}, ${drop.y}.`);
+    }
+
+    announceSimpleDropList(drops, fallbackLabel = 'item') {
+        for (const drop of drops || []) {
+            const dropName = getItemLabel(drop.item, fallbackLabel);
+            this.announceSimpleDropOutcome(drop, dropName);
+        }
     }
 
     announceActorItemDisposition(actorName, action, itemLabel, drop, options = {}) {
@@ -1414,6 +1419,13 @@ class Game {
         }
 
         this.ui.addMessage(`${actorName} ${action} ${itemLabel}.`);
+    }
+
+    announceActorDropList(actorName, action, drops, options = {}) {
+        for (const drop of drops || []) {
+            const dropName = getItemLabel(drop.item, 'item');
+            this.announceActorItemDisposition(actorName, action, dropName, drop, options);
+        }
     }
 
     announceThrowHitOutcome(itemLabel, result) {
@@ -1529,10 +1541,7 @@ class Game {
             this.ui.addMessage(`${result.enemy.name} swallows ${label}.`);
             if (result.ejectedBecauseDifferentTypes) {
                 this.ui.addMessage(`${result.enemy.name} cannot fuse different item types and spits both items out.`);
-                for (const drop of result.ejectedDrops || []) {
-                    const dropName = getItemLabel(drop.item, 'item');
-                    this.announceSimpleDropOutcome(drop, dropName);
-                }
+                this.announceSimpleDropList(result.ejectedDrops, 'item');
                 return;
             }
 
@@ -1545,10 +1554,7 @@ class Game {
             }
         } else if (result.type === 'fuser-reject') {
             this.ui.addMessage(`${result.enemy.name} refuses to swallow more items.`);
-            for (const drop of result.drops || []) {
-                const dropName = getItemLabel(drop.item, label);
-                this.announceSimpleDropOutcome(drop, dropName);
-            }
+            this.announceSimpleDropList(result.drops, label);
         } else if (result.type === 'hit') {
             this.announceThrowHitOutcome(label, result);
         } else if (result.type === 'burned') {
@@ -1562,60 +1568,74 @@ class Game {
         for (const enemy of [...this.world.getEnemies()]) {
             const actionsToTake = enemy.consumeActionTurns(this.player);
             for (let actionIndex = 0; actionIndex < actionsToTake; actionIndex++) {
-                const result = enemy.takeTurn(this.world, this.player, this.fov);
+                const result = enemy.takeTurn(this.world, this.player);
 
                 if (!enemy.isAlive()) {
                     this.handleEnemyDefeat(enemy, { announceDefeat: true });
                     break;
                 }
 
-                if (result?.type === 'attack-player') {
-                    this.announceCombatHit(enemy.name, 'you', result.damage);
-                }
-                if (result?.type === 'vandal-ranged-attack') {
-                    this.announceVandalRangedAttackEvent(enemy.name, result);
-                }
-                if (result?.type === 'thief-steal') {
-                    this.announceThiefStealEvent(enemy.name, result.stolenAmount || 0, Boolean(result.teleported));
-                }
-                if (result?.type === 'attack-enemy' && result.target) {
-                    this.announceCombatHit(enemy.name, result.target.name, result.damage);
-                    if (!result.target.isAlive()) {
-                        this.handleEnemyDefeat(result.target, { announceDefeat: true, grantExp: false });
-                        if (!enemy.isAlly) {
-                            const promotionResult = this.tryPromoteEnemyAfterKill(enemy);
-                            if (promotionResult) {
-                                this.ui.addMessage(`${enemy.name} grows stronger and becomes ${promotionResult.newName}.`);
-                                if (promotionResult.healthGain > 0) {
-                                    this.ui.addMessage(`${enemy.name} gains ${promotionResult.healthGain} HP from evolving.`);
-                                }
-                            }
-                        }
-                    }
-                }
-                if (result?.type === 'vandal-pickup-item' && result.pickedUpItem) {
-                    this.announceVandalPickupEvent(enemy.name, result.pickedUpItem, result.pickupEffect);
-                }
-                if (result?.type === 'vandal-dispose-item' && result.item) {
-                    const itemLabel = getItemLabel(result.item);
-                    const disposalResult = this.world.addItem(result.tile.x, result.tile.y, result.item);
-                    if (disposalResult?.burned) {
-                        this.ui.addMessage(`${enemy.name} throws ${itemLabel} into lava and it burns up.`);
-                    } else if (disposalResult?.placed) {
-                        this.ui.addMessage(`${enemy.name} throws ${itemLabel} onto ${result.tile.tile}.`);
-                    } else {
-                        const fallbackDrop = this.dropItemsNearEnemy(enemy, [result.item]);
-                        if (fallbackDrop.length > 0) {
-                            const drop = fallbackDrop[0];
-                            this.announceActorItemDisposition(enemy.name, 'drops', itemLabel, drop, { includeCoordinates: true });
-                        }
-                    }
-                }
-                if (!this.player.isAlive()) {
+                if (!this.handleEnemyActionResult(enemy, result)) {
                     return;
                 }
             }
         }
+    }
+
+    handleEnemyActionResult(enemy, result) {
+        if (!result || !result.type) {
+            return this.player.isAlive();
+        }
+
+        if (result.type === 'attack-player') {
+            this.announceCombatHit(enemy.name, 'you', result.damage);
+        }
+
+        if (result.type === 'vandal-ranged-attack') {
+            this.announceVandalRangedAttackEvent(enemy.name, result);
+        }
+
+        if (result.type === 'thief-steal') {
+            this.announceThiefStealEvent(enemy.name, result.stolenAmount || 0, Boolean(result.teleported));
+        }
+
+        if (result.type === 'attack-enemy' && result.target) {
+            this.announceCombatHit(enemy.name, result.target.name, result.damage);
+            if (!result.target.isAlive()) {
+                this.handleEnemyDefeat(result.target, { announceDefeat: true, grantExp: false });
+                if (!enemy.isAlly) {
+                    const promotionResult = this.tryPromoteEnemyAfterKill(enemy);
+                    if (promotionResult) {
+                        this.ui.addMessage(`${enemy.name} grows stronger and becomes ${promotionResult.newName}.`);
+                        if (promotionResult.healthGain > 0) {
+                            this.ui.addMessage(`${enemy.name} gains ${promotionResult.healthGain} HP from evolving.`);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (result.type === 'vandal-pickup-item' && result.pickedUpItem) {
+            this.announceVandalPickupEvent(enemy.name, result.pickedUpItem, result.pickupEffect);
+        }
+
+        if (result.type === 'vandal-dispose-item' && result.item) {
+            const itemLabel = getItemLabel(result.item);
+            const disposalResult = this.world.addItem(result.tile.x, result.tile.y, result.item);
+            if (disposalResult?.burned) {
+                this.ui.addMessage(`${enemy.name} throws ${itemLabel} into lava and it burns up.`);
+            } else if (disposalResult?.placed) {
+                this.ui.addMessage(`${enemy.name} throws ${itemLabel} onto ${result.tile.tile}.`);
+            } else {
+                const fallbackDrop = this.dropItemsNearEnemy(enemy, [result.item]);
+                if (fallbackDrop.length > 0) {
+                    const drop = fallbackDrop[0];
+                    this.announceActorItemDisposition(enemy.name, 'drops', itemLabel, drop, { includeCoordinates: true });
+                }
+            }
+        }
+
+        return this.player.isAlive();
     }
 
     handleEnemyDefeat(enemy, options = {}) {
@@ -1632,10 +1652,7 @@ class Game {
         if (enemy.heldItem) {
             const heldDropResult = this.dropItemsNearEnemy(enemy, [enemy.heldItem]);
             enemy.heldItem = null;
-            for (const drop of heldDropResult) {
-                const dropName = getItemLabel(drop.item, 'item');
-                this.announceActorItemDisposition(enemy.name, 'drops', dropName, drop);
-            }
+            this.announceActorDropList(enemy.name, 'drops', heldDropResult);
         }
 
         const swallowedItems = enemy.swallowedItems instanceof Map
@@ -1644,20 +1661,13 @@ class Game {
         if (swallowedItems.length > 0) {
             const droppedSwallowedItems = this.dropItemsNearEnemy(enemy, swallowedItems);
             enemy.swallowedItems.clear();
-
-            for (const drop of droppedSwallowedItems) {
-                const dropName = getItemLabel(drop.item, 'item');
-                this.announceActorItemDisposition(enemy.name, 'releases', dropName, drop);
-            }
+            this.announceActorDropList(enemy.name, 'releases', droppedSwallowedItems);
         }
 
         const guaranteedDrops = this.getGuaranteedEnemyDrops(enemy);
         if (guaranteedDrops.length > 0) {
             const guaranteedDropResults = this.dropItemsNearEnemy(enemy, guaranteedDrops);
-            for (const drop of guaranteedDropResults) {
-                const dropName = getItemLabel(drop.item, 'item');
-                this.announceActorItemDisposition(enemy.name, 'drops', dropName, drop);
-            }
+            this.announceActorDropList(enemy.name, 'drops', guaranteedDropResults);
         }
 
         const droppedItem = this.rollEnemyDrop(enemy);
@@ -1763,7 +1773,7 @@ class Game {
 
     worldAdvance() {
         const activatedSteam = this.world.advanceHazards();
-        const playerKey = `${this.player.x},${this.player.y}`;
+        const playerKey = toGridKey(this.player.x, this.player.y);
         const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
         if (activatedSteam.includes(playerKey)) {
             this.player.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0), null, { armorEffectiveness: 0.5 });
@@ -1773,7 +1783,7 @@ class Game {
         }
 
         for (const enemy of [...this.world.getEnemies()]) {
-            const enemyKey = `${enemy.x},${enemy.y}`;
+            const enemyKey = toGridKey(enemy.x, enemy.y);
             if (!activatedSteam.includes(enemyKey)) {
                 continue;
             }
@@ -1814,10 +1824,28 @@ class Game {
 
     updateFOV() {
         this.fov = this.world.getCurrentFloor().fov;
+
+        const currentState = {
+            floor: this.world.currentFloor,
+            x: this.player.x,
+            y: this.player.y,
+            overworld: this.isOverworldFloor()
+        };
+
+        if (this.fovCache
+            && this.fovCache.floor === currentState.floor
+            && this.fovCache.x === currentState.x
+            && this.fovCache.y === currentState.y
+            && this.fovCache.overworld === currentState.overworld) {
+            return;
+        }
+
         this.fov.compute(this.player.x, this.player.y, FOV_RANGE);
         if (this.isOverworldFloor() && typeof this.fov.showAll === 'function') {
             this.fov.showAll();
         }
+
+        this.fovCache = currentState;
     }
 }
 

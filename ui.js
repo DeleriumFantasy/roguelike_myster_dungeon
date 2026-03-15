@@ -53,14 +53,6 @@ class UI {
     renderTopDownScene(world, player, fov) {
         if (this.isActorBlind(player)) {
             this.renderPlayer(player);
-
-            if (this.game.debugShowAllMonsters) {
-                for (const enemy of world.getEnemies()) {
-                    if (!this.isInCameraBounds(enemy.x, enemy.y)) continue;
-                    this.renderEnemy(enemy);
-                }
-            }
-
             return;
         }
 
@@ -78,8 +70,9 @@ class UI {
         for (const [key] of world.getCurrentFloor().items) {
             const [x, y] = this.parseGridKey(key);
             if (!this.isInCameraBounds(x, y)) continue;
-            if (fov.isVisible(x, y) || fov.isExplored(x, y)) {
-                this.withTemporaryAlpha(this.ctx, this.getVisibilityAlpha(fov.isVisible(x, y)), () => {
+            const isVisible = fov.isVisible(x, y);
+            if (isVisible || fov.isExplored(x, y)) {
+                this.withTemporaryAlpha(this.ctx, this.getVisibilityAlpha(isVisible), () => {
                     this.renderItem(x, y);
                 });
             }
@@ -88,10 +81,9 @@ class UI {
         // Render enemies
         for (const enemy of world.getEnemies()) {
             if (!this.isInCameraBounds(enemy.x, enemy.y)) continue;
-            if (!this.shouldRenderEnemy(enemy, (x, y) => fov.isVisible(x, y))) continue;
-            if (fov.isVisible(enemy.x, enemy.y) || this.game.debugShowAllMonsters) {
-                this.renderEnemy(enemy);
-            }
+            if (this.isEnemyInvisible(enemy)) continue;
+            if (!fov.isVisible(enemy.x, enemy.y)) continue;
+            this.renderEnemy(enemy);
         }
 
         // Render player
@@ -107,40 +99,6 @@ class UI {
             );
         }
 
-        // Debug: show lines to wander targets and chase destinations when debug mode is on
-        if (this.game.debugShowAllMonsters) {
-            this.renderDebugTargetLines(world);
-        }
-    }
-
-    renderDebugTargetLines(world) {
-        this.ctx.lineWidth = 2;
-        for (const enemy of world.getEnemies()) {
-            let destX = null;
-            let destY = null;
-            let color = 'yellow';
-
-            if (enemy.targetX !== null && enemy.targetY !== null) {
-                destX = enemy.targetX;
-                destY = enemy.targetY;
-                color = enemy.aiType === AI_TYPES.WANDER ? 'cyan' : 'yellow';
-            } else if (enemy.lastHostilePos) {
-                destX = enemy.lastHostilePos.x;
-                destY = enemy.lastHostilePos.y;
-                color = 'red';
-            }
-
-            if (destX === null || destY === null) continue;
-            if (!this.isInCameraBounds(enemy.x, enemy.y) && !this.isInCameraBounds(destX, destY)) continue;
-
-            const from = this.getScreenCenter(enemy.x, enemy.y);
-            const to = this.getScreenCenter(destX, destY);
-            this.ctx.strokeStyle = color;
-            this.ctx.beginPath();
-            this.ctx.moveTo(from.x, from.y);
-            this.ctx.lineTo(to.x, to.y);
-            this.ctx.stroke();
-        }
     }
 
     renderTile(x, y, world, fov) {
@@ -298,13 +256,17 @@ class UI {
     }
 
     shouldRenderEnemy(enemy, isVisibleFn = () => true) {
-        if (this.isEnemyInvisible(enemy) && !this.game.debugShowAllMonsters) {
+        if (this.isEnemyInvisible(enemy)) {
             return false;
         }
-        if (!this.game.debugShowAllMonsters && !isVisibleFn(enemy.x, enemy.y)) {
+        if (!isVisibleFn(enemy.x, enemy.y)) {
             return false;
         }
         return true;
+    }
+
+    isEnemyVisibleInFov(enemy, fov) {
+        return this.shouldRenderEnemy(enemy, (x, y) => Boolean(fov?.isVisible(x, y)));
     }
 
     getTileOverlayData(world, x, y) {
@@ -316,7 +278,7 @@ class UI {
     }
 
     parseGridKey(key) {
-        return key.split(',').map(Number);
+        return fromGridKey(key);
     }
 
     getVisibilityAlpha(isVisible) {
@@ -397,10 +359,8 @@ class UI {
             : 'none';
         const visibleEnemyLines = [];
         for (const enemy of world.getEnemies()) {
-            if (!this.shouldRenderEnemy(enemy, (x, y) => fov && fov.isVisible(x, y))) continue;
-            if (playerBlind && !this.game.debugShowAllMonsters) continue;
-            const isVisible = this.game.debugShowAllMonsters || (fov && fov.isVisible(enemy.x, enemy.y));
-            if (!isVisible) continue;
+            if (!this.isEnemyVisibleInFov(enemy, fov)) continue;
+            if (playerBlind) continue;
             const aiState = enemy.lastResolvedAi || enemy.baseAiType || enemy.aiType || AI_TYPES.WANDER;
             const fuserSummary = this.getFuserFusionSummary(enemy);
             visibleEnemyLines.push(`${enemy.name} (${enemy.x},${enemy.y}) - ${aiState}${fuserSummary}`);
@@ -636,14 +596,13 @@ class UI {
 
         const mapCtx = this.mapCtx;
         const mapFov = world.getCurrentFloor().fov;
-        const floorMeta = world.getCurrentFloorMeta();
         const tileSize = this.mapTileSize;
 
         mapCtx.clearRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
 
         for (let y = 0; y < GRID_SIZE; y++) {
             for (let x = 0; x < GRID_SIZE; x++) {
-                const explored = mapFov.isExplored(x, y) || floorMeta.mapRevealed;
+                const explored = mapFov.isExplored(x, y);
                 const visible = mapFov.isVisible(x, y);
                 if (!explored) {
                     continue;
@@ -669,7 +628,7 @@ class UI {
 
         for (const [key] of world.getCurrentFloor().items) {
             const [x, y] = this.parseGridKey(key);
-            const explored = mapFov.isExplored(x, y) || floorMeta.mapRevealed;
+            const explored = mapFov.isExplored(x, y);
             if (!explored) continue;
 
             const itemVisual = getEntityVisual('item');
@@ -685,7 +644,7 @@ class UI {
         }
 
         for (const enemy of world.getEnemies()) {
-            if (!this.shouldRenderEnemy(enemy, (x, y) => mapFov.isVisible(x, y))) {
+            if (!this.isEnemyVisibleInFov(enemy, mapFov)) {
                 continue;
             }
             mapCtx.fillStyle = getEntityVisual('enemy', enemy).color;

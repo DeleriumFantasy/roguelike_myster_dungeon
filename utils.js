@@ -17,6 +17,74 @@ class SeededRNG {
     }
 }
 
+class MinHeap {
+    constructor(compareFn) {
+        this.compareFn = typeof compareFn === 'function' ? compareFn : ((left, right) => left - right);
+        this.items = [];
+    }
+
+    get size() {
+        return this.items.length;
+    }
+
+    push(value) {
+        this.items.push(value);
+        this.bubbleUp(this.items.length - 1);
+    }
+
+    pop() {
+        if (this.items.length === 0) {
+            return null;
+        }
+
+        const root = this.items[0];
+        const last = this.items.pop();
+        if (this.items.length > 0) {
+            this.items[0] = last;
+            this.bubbleDown(0);
+        }
+
+        return root;
+    }
+
+    bubbleUp(index) {
+        while (index > 0) {
+            const parentIndex = Math.floor((index - 1) / 2);
+            if (this.compareFn(this.items[index], this.items[parentIndex]) >= 0) {
+                break;
+            }
+
+            [this.items[index], this.items[parentIndex]] = [this.items[parentIndex], this.items[index]];
+            index = parentIndex;
+        }
+    }
+
+    bubbleDown(index) {
+        const length = this.items.length;
+
+        while (true) {
+            let smallest = index;
+            const leftIndex = index * 2 + 1;
+            const rightIndex = leftIndex + 1;
+
+            if (leftIndex < length && this.compareFn(this.items[leftIndex], this.items[smallest]) < 0) {
+                smallest = leftIndex;
+            }
+
+            if (rightIndex < length && this.compareFn(this.items[rightIndex], this.items[smallest]) < 0) {
+                smallest = rightIndex;
+            }
+
+            if (smallest === index) {
+                return;
+            }
+
+            [this.items[index], this.items[smallest]] = [this.items[smallest], this.items[index]];
+            index = smallest;
+        }
+    }
+}
+
 function randomInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -79,6 +147,18 @@ function getActorFacing(actor, fallback = { dx: 0, dy: -1 }) {
     return normalizeDirection(actor?.facing?.dx, actor?.facing?.dy, fallback);
 }
 
+function isActorAlive(actor) {
+    return Boolean(actor && typeof actor.isAlive === 'function' && actor.isAlive());
+}
+
+function toGridKey(x, y) {
+    return `${x},${y}`;
+}
+
+function fromGridKey(key) {
+    return String(key).split(',').map(Number);
+}
+
 function distance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
@@ -116,7 +196,7 @@ function findNearestSafeTile(x, y, grid, floor) {
     // Simple BFS to find nearest safe tile
     const queue = [{ x, y, dist: 0 }];
     const visited = new Set();
-    visited.add(`${x},${y}`);
+    visited.add(toGridKey(x, y));
 
     while (queue.length > 0) {
         const current = queue.shift();
@@ -125,7 +205,7 @@ function findNearestSafeTile(x, y, grid, floor) {
         }
 
         for (const neighbor of getNeighbors(current.x, current.y)) {
-            const key = `${neighbor.x},${neighbor.y}`;
+            const key = toGridKey(neighbor.x, neighbor.y);
             if (!visited.has(key) && isValidPosition(neighbor.x, neighbor.y, grid)) {
                 visited.add(key);
                 queue.push({ ...neighbor, dist: current.dist + 1 });
@@ -176,27 +256,37 @@ function actorResolveOnAttackedConditions(actor) {
 function findPathAStar(startX, startY, goalX, goalY, canTraverseFn) {
     const start = { x: startX, y: startY };
     const goal = { x: goalX, y: goalY };
-    const openSet = [start];
+    const openSet = new MinHeap((left, right) => left.fScore - right.fScore);
     const cameFrom = new Map();
     const gScore = new Map();
-    const fScore = new Map();
+    const closedSet = new Set();
 
-    gScore.set(`${start.x},${start.y}`, 0);
-    fScore.set(`${start.x},${start.y}`, distance(start.x, start.y, goal.x, goal.y));
+    const startKey = toGridKey(start.x, start.y);
+    const goalKey = toGridKey(goal.x, goal.y);
 
-    while (openSet.length > 0) {
-        openSet.sort((a, b) => fScore.get(`${a.x},${a.y}`) - fScore.get(`${b.x},${b.y}`));
-        const current = openSet.shift();
+    gScore.set(startKey, 0);
+    openSet.push({ x: start.x, y: start.y, fScore: distance(start.x, start.y, goal.x, goal.y) });
+
+    while (openSet.size > 0) {
+        const current = openSet.pop();
+        const currentKey = toGridKey(current.x, current.y);
+
+        if (closedSet.has(currentKey)) {
+            continue;
+        }
 
         if (current.x === goal.x && current.y === goal.y) {
             const path = [current];
             let node = current;
-            while (cameFrom.has(`${node.x},${node.y}`)) {
-                node = cameFrom.get(`${node.x},${node.y}`);
+            while (cameFrom.has(toGridKey(node.x, node.y))) {
+                node = cameFrom.get(toGridKey(node.x, node.y));
                 path.unshift(node);
             }
             return path;
         }
+
+        closedSet.add(currentKey);
+        const currentGScore = gScore.get(currentKey) ?? Infinity;
 
         for (const neighbor of getNeighbors(current.x, current.y)) {
             const isGoal = neighbor.x === goal.x && neighbor.y === goal.y;
@@ -204,17 +294,21 @@ function findPathAStar(startX, startY, goalX, goalY, canTraverseFn) {
                 continue;
             }
 
-            const tentativeGScore = gScore.get(`${current.x},${current.y}`) + 1;
-            const neighborKey = `${neighbor.x},${neighbor.y}`;
+            const neighborKey = toGridKey(neighbor.x, neighbor.y);
+            if (closedSet.has(neighborKey) && neighborKey !== goalKey) {
+                continue;
+            }
+
+            const tentativeGScore = currentGScore + 1;
 
             if (!gScore.has(neighborKey) || tentativeGScore < gScore.get(neighborKey)) {
                 cameFrom.set(neighborKey, current);
                 gScore.set(neighborKey, tentativeGScore);
-                fScore.set(neighborKey, tentativeGScore + distance(neighbor.x, neighbor.y, goal.x, goal.y));
-
-                if (!openSet.some((n) => n.x === neighbor.x && n.y === neighbor.y)) {
-                    openSet.push(neighbor);
-                }
+                openSet.push({
+                    x: neighbor.x,
+                    y: neighbor.y,
+                    fScore: tentativeGScore + distance(neighbor.x, neighbor.y, goal.x, goal.y)
+                });
             }
         }
     }

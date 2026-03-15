@@ -87,17 +87,11 @@ class Item {
     }
 
     getEnchantmentPowerBonus() {
-        return this.getEnchantments().reduce((sum, enchantmentId) => {
-            const bonus = Number(ENCHANTMENT_DEFINITIONS[enchantmentId]?.powerBonus || 0);
-            return sum + (Number.isFinite(bonus) ? bonus : 0);
-        }, 0);
+        return sumEnchantmentBonus(this.getEnchantments(), 'powerBonus');
     }
 
     getEnchantmentArmorBonus() {
-        return this.getEnchantments().reduce((sum, enchantmentId) => {
-            const bonus = Number(ENCHANTMENT_DEFINITIONS[enchantmentId]?.armorBonus || 0);
-            return sum + (Number.isFinite(bonus) ? bonus : 0);
-        }, 0);
+        return sumEnchantmentBonus(this.getEnchantments(), 'armorBonus');
     }
 
     getDamageMultiplierAgainst(target) {
@@ -125,11 +119,7 @@ class Item {
                     continue;
                 }
 
-                const matchesEnemyType = typeof target.hasEnemyType === 'function'
-                    ? target.hasEnemyType(enemyType)
-                    : Array.isArray(target.creatureTypes) && target.creatureTypes.includes(enemyType);
-
-                if (matchesEnemyType) {
+                if (actorMatchesEnemyType(target, enemyType)) {
                     multiplier *= enemyTypeMultiplier;
                 }
             }
@@ -239,11 +229,7 @@ class Item {
                     continue;
                 }
 
-                const matchesEnemyType = typeof attacker.hasEnemyType === 'function'
-                    ? attacker.hasEnemyType(enemyType)
-                    : Array.isArray(attacker.creatureTypes) && attacker.creatureTypes.includes(enemyType);
-
-                if (matchesEnemyType) {
+                if (actorMatchesEnemyType(attacker, enemyType)) {
                     multiplier /= enemyTypeMultiplier;
                 }
             }
@@ -253,20 +239,11 @@ class Item {
     }
 
     getQuantity() {
-        const quantity = Number(this.properties?.quantity);
-        return Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+        return getRawItemQuantity(this.properties);
     }
 
     setQuantity(quantity) {
-        const nextQuantity = Number(quantity);
-        if (Number.isFinite(nextQuantity) && nextQuantity > 1) {
-            this.properties.quantity = Math.floor(nextQuantity);
-            return;
-        }
-
-        if (this.properties && Object.prototype.hasOwnProperty.call(this.properties, 'quantity')) {
-            delete this.properties.quantity;
-        }
+        setRawItemQuantity(this.properties, quantity);
     }
 
     createSingleUseClone() {
@@ -287,9 +264,7 @@ class Item {
     consume(user) {
         const health = Number(this.properties.health || 0);
         const hunger = Number(this.properties.hunger || 0);
-        const condition = this.properties.condition;
-        const configuredDuration = getConditionDuration(condition, 10);
-        const duration = Number(this.properties.duration ?? configuredDuration);
+        const { condition, duration } = resolveConditionDuration(this.properties);
         if (health > 0) {
             user.heal(health);
         }
@@ -311,9 +286,7 @@ class Item {
 
         const damage = Math.max(0, Number(this.properties.power || 0) + Number(this.properties.armor || 0));
         const healing = Math.max(0, Number(this.properties.health || 0) + Number(this.properties.hunger || 0));
-        const condition = this.properties.condition;
-        const configuredDuration = getConditionDuration(condition, 10);
-        const duration = Number(this.properties.duration ?? configuredDuration);
+        const { condition, duration } = resolveConditionDuration(this.properties);
         let actualDamage = damage;
 
         if (damage > 0 && typeof target.takeDamage === 'function') {
@@ -740,6 +713,42 @@ const TIERED_ITEM_DEFINITIONS = {
     }
 };
 
+function sumEnchantmentBonus(enchantments, bonusKey) {
+    return enchantments.reduce((sum, enchantmentId) => {
+        const bonus = Number(ENCHANTMENT_DEFINITIONS[enchantmentId]?.[bonusKey] || 0);
+        return sum + (Number.isFinite(bonus) ? bonus : 0);
+    }, 0);
+}
+
+function actorMatchesEnemyType(actor, enemyType) {
+    return typeof actor.hasEnemyType === 'function'
+        ? actor.hasEnemyType(enemyType)
+        : Array.isArray(actor.creatureTypes) && actor.creatureTypes.includes(enemyType);
+}
+
+function resolveConditionDuration(properties) {
+    const condition = properties.condition;
+    const configuredDuration = getConditionDuration(condition, 10);
+    const duration = Number(properties.duration ?? configuredDuration);
+    return { condition, duration };
+}
+
+function getRawItemQuantity(properties) {
+    const quantity = Number(properties?.quantity);
+    return Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+}
+
+function setRawItemQuantity(properties, quantity) {
+    const nextQuantity = Number(quantity);
+    if (Number.isFinite(nextQuantity) && nextQuantity > 1) {
+        properties.quantity = Math.floor(nextQuantity);
+        return;
+    }
+    if (Object.prototype.hasOwnProperty.call(properties, 'quantity')) {
+        delete properties.quantity;
+    }
+}
+
 function getStatusConsumableDefinitions() {
     const statusByTier = TIERED_ITEM_DEFINITIONS.statusConsumable || {};
     const definitions = [];
@@ -749,9 +758,7 @@ function getStatusConsumableDefinitions() {
             continue;
         }
 
-        const normalizedDefinitions = Array.isArray(tierDefinition)
-            ? tierDefinition
-            : [tierDefinition];
+        const normalizedDefinitions = normalizeTierDefinitions(tierDefinition);
 
         for (const definition of normalizedDefinitions) {
             if (!definition || typeof definition !== 'object') {

@@ -207,10 +207,6 @@ function getConditionDuration(condition, fallback = 1) {
     return fallback;
 }
 
-function getConditionRule(condition) {
-    return CONDITION_RULES[condition] || null;
-}
-
 function getConditionTickDamage(condition, fallback = 0) {
     const tickDamage = CONDITION_RULES[condition]?.tickDamage;
     return Number.isFinite(tickDamage) ? tickDamage : fallback;
@@ -253,10 +249,6 @@ function getTrapDefinition(trapType) {
 
 function getTrapTypes() {
     return Object.keys(HAZARD_DEFINITIONS).filter((hazardType) => HAZARD_DEFINITIONS[hazardType]?.category === 'trap');
-}
-
-function getTileEffectRule(tileType) {
-    return TILE_EFFECT_RULES[tileType] || null;
 }
 
 function getHazardEffectRule(hazardType) {
@@ -323,10 +315,9 @@ const AI_TYPES = {
     WANDER: 'wander',
     CHASE: 'chase',
     FLEE: 'flee',
-    PATROL: 'patrol',
     AMBUSH: 'ambush',
-    SUPPORT: 'support',
-    GUARD: 'guard'
+    GUARD: 'guard',
+    BERSERK: 'berserk'
 };
 
 // Region and generation styles for floor content.
@@ -336,17 +327,6 @@ const AREA_TYPES = {
     SWAMP: 'swamp',
     FLOATING: 'floating',
     CATACOMBS: 'catacombs'
-};
-
-// Runtime flags for systems that are scaffolded but not fully implemented.
-const FEATURE_FLAGS = {
-    ADVANCED_AI: false,
-    AREA_GENERATION_VARIANTS: false,
-    ITEM_IDENTIFICATION: true,
-    CURSED_EQUIPMENT: true,
-    TAMING_ALLIES: false,
-    ALLY_EQUIPMENT: false,
-    MAP_OVERLAY: false
 };
 
 const THROW_FOOD_TAMING_RULES = {
@@ -483,9 +463,7 @@ const INPUT_DIRECTION_BINDINGS = {
 
 const INPUT_ACTION_BINDINGS = {
     i: 'open-inventory',
-    m: 'toggle-map',
-    v: 'debug-reveal-fov',
-    b: 'debug-toggle-monsters'
+    m: 'toggle-map'
 };
 
 const INVENTORY_ACTIONS_BY_TYPE = {
@@ -600,10 +578,9 @@ const ENEMY_SPEED_MULTIPLIERS = {
 const ENEMY_AI_ACTION_METHODS = {
     [AI_TYPES.CHASE]: 'performChaseAction',
     [AI_TYPES.FLEE]: 'flee',
-    [AI_TYPES.PATROL]: 'performPatrolAction',
     [AI_TYPES.AMBUSH]: 'performAmbushAction',
-    [AI_TYPES.SUPPORT]: 'performSupportAction',
     [AI_TYPES.GUARD]: 'performGuardAction',
+    [AI_TYPES.BERSERK]: 'performBerserkAction',
     [AI_TYPES.WANDER]: 'performWanderAction'
 };
 
@@ -615,8 +592,8 @@ const ENEMY_FAMILY_DEFINITIONS = {
         tiers: {
             1: { key: 'slimeTier1', displayName: 'Green slime', health: 8, power: 3, armor: 4, exp: 2, tameThreshold: 3, spawnWeight: 12, minFloor: 0 },
             2: { key: 'slimeTier2', displayName: 'Blue slime', health: 11, power: 5, armor: 8, exp: 5, tameThreshold: 4, spawnWeight: 10, minFloor: 1 },
-            3: { key: 'slimeTier3', displayName: 'Rare slime', health: 5, power: 100, armor: 100, exp: 2000, tameThreshold: 5, aiType: AI_TYPES.SUPPORT, spawnWeight: 1, minFloor: 4 },
-            4: { key: 'slimeTier4', displayName: 'Shiny slime', health: 20, power: 100, armor: 999, exp: 3333, tameThreshold: 6, aiType: AI_TYPES.SUPPORT, speed: ENEMY_SPEEDS.FAST, spawnWeight: 1, minFloor: 6, guaranteedMoneyDrop: 2500 }
+            3: { key: 'slimeTier3', displayName: 'Rare slime', health: 5, power: 100, armor: 100, exp: 2000, tameThreshold: 5, aiType: AI_TYPES.GUARD, spawnWeight: 1, minFloor: 4 },
+            4: { key: 'slimeTier4', displayName: 'Shiny slime', health: 20, power: 100, armor: 999, exp: 3333, tameThreshold: 6, aiType: AI_TYPES.GUARD, speed: ENEMY_SPEEDS.FAST, spawnWeight: 1, minFloor: 6, guaranteedMoneyDrop: 2500 }
         }
     },
     ghost: {
@@ -674,7 +651,7 @@ const ENEMY_FAMILY_DEFINITIONS = {
         }
     },
     fuser: {
-        defaults: { types: [ENEMY_TYPES.FUSER], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.PATROL, fovRange: 11 },
+        defaults: { types: [ENEMY_TYPES.FUSER], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 11 },
         tiers: {
             1: { key: 'fuserTier1', displayName: 'Pixy', health: 17, power: 10, armor: 4, exp: 20, tameThreshold: 3, spawnWeight: 8, minFloor: 2 },
             2: { key: 'fuserTier2', displayName: 'Boggart', health: 45, power: 25, armor: 11, exp: 105, tameThreshold: 4, spawnWeight: 6, minFloor: 4 },

@@ -32,8 +32,9 @@ class FOV {
 
             if (tileX < 0 || tileX >= GRID_SIZE || tileY < 0 || tileY >= GRID_SIZE) break;
 
-            this.visible.add(`${tileX},${tileY}`);
-            this.explored.add(`${tileX},${tileY}`);
+            const tileKey = toGridKey(tileX, tileY);
+            this.visible.add(tileKey);
+            this.explored.add(tileKey);
 
             if (this.grid[tileY][tileX] === TILE_TYPES.WALL) break;
 
@@ -43,27 +44,18 @@ class FOV {
     }
 
     isVisible(x, y) {
-        return this.visible.has(`${x},${y}`);
+        return this.visible.has(toGridKey(x, y));
     }
 
     isExplored(x, y) {
-        return this.explored.has(`${x},${y}`);
-    }
-
-    revealAll() {
-        // debug: mark all tiles as explored
-        for (let y = 0; y < GRID_SIZE; y++) {
-            for (let x = 0; x < GRID_SIZE; x++) {
-                this.explored.add(`${x},${y}`);
-            }
-        }
+        return this.explored.has(toGridKey(x, y));
     }
 
     showAll() {
         this.visible.clear();
         for (let y = 0; y < GRID_SIZE; y++) {
             for (let x = 0; x < GRID_SIZE; x++) {
-                const key = `${x},${y}`;
+                const key = toGridKey(x, y);
                 this.visible.add(key);
                 this.explored.add(key);
             }

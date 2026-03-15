@@ -24,11 +24,13 @@ class World {
         const traps = areaType === AREA_TYPES.OVERWORLD
             ? new Map()
             : this.generateTrapsForGrid(grid, rng, areaType, layout);
+        const disposalTiles = this.collectTilesByType(grid, [TILE_TYPES.WATER, TILE_TYPES.LAVA]);
 
         this.floors[this.currentFloor] = {
             grid,
             hazards,
             traps,
+            disposalTiles,
             revealedTraps: new Set(),
             items: new Map(),
             enemies: [],
@@ -36,10 +38,25 @@ class World {
             meta: {
                 areaType,
                 generatorType: this.getGeneratorType(areaType),
-                mapRevealed: false,
                 contentSpawned: false
             }
         };
+    }
+
+    collectTilesByType(grid, tileTypes) {
+        const targetTiles = new Set(tileTypes);
+        const matches = [];
+
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                const tile = grid[y][x];
+                if (targetTiles.has(tile)) {
+                    matches.push({ x, y, tile });
+                }
+            }
+        }
+
+        return matches;
     }
 
     generateGridForArea(areaType, rng) {
@@ -239,7 +256,7 @@ class World {
                 continue;
             }
 
-            const [x, y] = key.split(',').map((value) => Number(value));
+            const [x, y] = fromGridKey(key);
             if (!Number.isFinite(x) || !Number.isFinite(y)) {
                 continue;
             }
@@ -373,46 +390,33 @@ class World {
         return false;
     }
 
-    canPlacePremadeTerrainShapeAt(grid, shape, startX, startY) {
+    forEachShapeCell(shape, callback) {
         const legend = getPremadeTerrainLegend();
         for (let rowIndex = 0; rowIndex < shape.rows.length; rowIndex++) {
             const row = shape.rows[rowIndex];
             for (let colIndex = 0; colIndex < row.length; colIndex++) {
                 const symbol = row[colIndex];
                 const replacementTile = legend[symbol];
-                if (!replacementTile) {
-                    continue;
-                }
-
-                const x = startX + colIndex;
-                const y = startY + rowIndex;
-                if (x <= 0 || x >= GRID_SIZE - 1 || y <= 0 || y >= GRID_SIZE - 1) {
-                    return false;
-                }
-
-                if (grid[y][x] === TILE_TYPES.STAIRS_UP || grid[y][x] === TILE_TYPES.STAIRS_DOWN) {
-                    return false;
-                }
+                if (!replacementTile) continue;
+                if (callback(rowIndex, colIndex, replacementTile) === false) return false;
             }
         }
-
         return true;
     }
 
-    applyPremadeTerrainShapeAt(grid, shape, startX, startY) {
-        const legend = getPremadeTerrainLegend();
-        for (let rowIndex = 0; rowIndex < shape.rows.length; rowIndex++) {
-            const row = shape.rows[rowIndex];
-            for (let colIndex = 0; colIndex < row.length; colIndex++) {
-                const symbol = row[colIndex];
-                const replacementTile = legend[symbol];
-                if (!replacementTile) {
-                    continue;
-                }
+    canPlacePremadeTerrainShapeAt(grid, shape, startX, startY) {
+        return this.forEachShapeCell(shape, (rowIndex, colIndex) => {
+            const x = startX + colIndex;
+            const y = startY + rowIndex;
+            if (x <= 0 || x >= GRID_SIZE - 1 || y <= 0 || y >= GRID_SIZE - 1) return false;
+            if (grid[y][x] === TILE_TYPES.STAIRS_UP || grid[y][x] === TILE_TYPES.STAIRS_DOWN) return false;
+        });
+    }
 
-                grid[startY + rowIndex][startX + colIndex] = replacementTile;
-            }
-        }
+    applyPremadeTerrainShapeAt(grid, shape, startX, startY) {
+        this.forEachShapeCell(shape, (rowIndex, colIndex, replacementTile) => {
+            grid[startY + rowIndex][startX + colIndex] = replacementTile;
+        });
     }
 
     generateTileFromAreaRule(rule, rng, x, y) {
@@ -479,7 +483,7 @@ class World {
                         continue;
                     }
 
-                    const [x, y] = key.split(',').map((value) => Number(value));
+                    const [x, y] = fromGridKey(key);
                     if (!Number.isFinite(x) || !Number.isFinite(y)) {
                         continue;
                     }
@@ -526,11 +530,16 @@ class World {
         return { up, down };
     }
 
+    getRoomGenFilter(areaType, layout) {
+        const roomTileKeys = layout?.roomTileKeys;
+        const roomOnly = areaType === AREA_TYPES.CATACOMBS && roomTileKeys instanceof Set;
+        return { roomTileKeys, roomOnly };
+    }
+
     generateHazardsForGrid(grid, rng, areaType, layout = null) {
         const hazards = new Map();
         const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
-        const roomTileKeys = layout?.roomTileKeys;
-        const roomOnly = areaType === AREA_TYPES.CATACOMBS && roomTileKeys instanceof Set;
+        const { roomTileKeys, roomOnly } = this.getRoomGenFilter(areaType, layout);
 
         for (let y = 0; y < GRID_SIZE; y++) {
             for (let x = 0; x < GRID_SIZE; x++) {
@@ -551,8 +560,7 @@ class World {
     generateTrapsForGrid(grid, rng, areaType, layout = null) {
         const traps = new Map();
         const trapTypes = getTrapTypes();
-        const roomTileKeys = layout?.roomTileKeys;
-        const roomOnly = areaType === AREA_TYPES.CATACOMBS && roomTileKeys instanceof Set;
+        const { roomTileKeys, roomOnly } = this.getRoomGenFilter(areaType, layout);
 
         for (let y = 1; y < GRID_SIZE - 1; y++) {
             for (let x = 1; x < GRID_SIZE - 1; x++) {
@@ -605,30 +613,12 @@ class World {
         return this.floors[this.currentFloor];
     }
 
-    getCurrentFloorMeta() {
-        return this.getCurrentFloor().meta;
+    getDisposalTiles() {
+        return this.getCurrentFloor().disposalTiles || [];
     }
 
     getAreaType(floorIndex = this.currentFloor) {
         return this.floors[floorIndex]?.meta?.areaType || AREA_TYPES.DUNGEON;
-    }
-
-    getMapData(floorIndex = this.currentFloor) {
-        const floor = this.floors[floorIndex];
-        if (!floor) return null;
-
-        return {
-            floorIndex,
-            areaType: floor.meta.areaType,
-            explored: Array.from(floor.fov.explored),
-            mapRevealed: floor.meta.mapRevealed
-        };
-    }
-
-    revealCurrentMap() {
-        const floor = this.getCurrentFloor();
-        floor.meta.mapRevealed = true;
-        floor.fov.revealAll();
     }
 
     descendFloor() {
@@ -786,7 +776,6 @@ class World {
         // prevent items on walls; other tile types are allowed
         const tile = this.getTile(x, y);
         if (tile === TILE_TYPES.WALL) {
-            console.warn(`attempted to place item on wall at ${x},${y}`);
             return { placed: false, burned: false, blocked: true };
         }
 
@@ -824,17 +813,14 @@ class World {
     addEnemy(enemy) {
         const tile = this.getTile(enemy.x, enemy.y);
         if (typeof enemy.canTraverseTile === 'function' && !enemy.canTraverseTile(tile)) {
-            console.warn(`enemy ${enemy.name} cannot be placed on ${tile} at ${enemy.x},${enemy.y}`);
             return;
         }
 
         if (typeof enemy.canTraverseTile !== 'function' && tile === TILE_TYPES.WALL) {
-            console.warn(`enemy ${enemy.name} placed on wall at ${enemy.x},${enemy.y}`);
             return;
         }
 
         if (this.getEnemyAt(enemy.x, enemy.y)) {
-            console.warn(`enemy ${enemy.name} overlaps another enemy at ${enemy.x},${enemy.y}`);
             return;
         }
 
