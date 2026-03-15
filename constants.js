@@ -420,16 +420,31 @@ const TILE_VISUALS = {
     [TILE_TYPES.WALL]: { color: '#0e0e0e', sprite: { x: 1, y: 0 } },
     [TILE_TYPES.PIT]: { color: '#8B4513', sprite: { x: 2, y: 0 }, icon: 'pit', foregroundColor: '#000' },
     [TILE_TYPES.WATER]: { color: '#0000FF', sprite: { x: 3, y: 0 } },
-    [TILE_TYPES.SPIKE]: { color: '#666', sprite: { x: 4, y: 0 }, icon: 'spike', foregroundColor: '#d9d9d9', sourceHeight: 24, overdrawTop: 12 },
+    [TILE_TYPES.SPIKE]: {
+        color: '#666',
+        sprite: { x: 4, y: 0 },
+        icon: 'spike',
+        foregroundColor: '#d9d9d9',
+        sourceHeight: 19,
+        overdrawTop: 3,
+        // Each prong: [tipX, tipY, baseY, halfWidth] in local sprite pixels
+        prongs: [
+            [4, 1, 8, 2],
+            [8, 0, 7, 2],
+            [12, 1, 8, 2],
+            [6, 2, 9, 2],
+            [10, 2, 9, 2]
+        ]
+    },
     [TILE_TYPES.STAIRS_DOWN]: { color: '#0ff', sprite: { x: 5, y: 0 }, glyph: '<', foregroundColor: '#fff' },
     [TILE_TYPES.STAIRS_UP]: { color: '#0ff', sprite: { x: 6, y: 0 }, glyph: '>', foregroundColor: '#fff' },
     [TILE_TYPES.LAVA]: { color: '#d9480f', sprite: { x: 7, y: 0 }, icon: 'lava', foregroundColor: '#ffb347' }
 };
 
 const TERRAIN_SPRITESHEET_PATH = 'terrain-spritesheet.png';
-const TERRAIN_SPRITESHEET_VERSION = '3';
+const TERRAIN_SPRITESHEET_VERSION = '4';
 const TERRAIN_SPRITESHEET_TILE_SIZE = 16;
-const TERRAIN_SPRITESHEET_TILE_HEIGHT = 24;
+const TERRAIN_SPRITESHEET_TILE_HEIGHT = 19;
 
 const ENTITY_VISUALS = {
     player: { color: '#fff', miniMapInset: 0 },

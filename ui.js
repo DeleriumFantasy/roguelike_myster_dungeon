@@ -14,10 +14,10 @@ class UI {
         this.mapCtx = this.mapCanvas ? this.mapCanvas.getContext('2d') : null;
         this.game = game;
         this.messages = [];
-        this.tileset = new Tileset(TILE_SIZE);
+        this.tileset = new Tileset();
         this.tileset.tryLoadExternalSpriteSheet(() => {
             if (this.game) {
-                this.game.ui.render(this.game.world, this.game.player, this.game.fov);
+                this.render(this.game.world, this.game.player, this.game.fov);
             }
         });
         this.mapOpen = false;
@@ -76,15 +76,13 @@ class UI {
         }
 
         // Render items (also show in fogged/explored tiles, but not on unseen tiles)
-        for (const [key, items] of world.getCurrentFloor().items) {
-            const [x, y] = key.split(',').map(Number);
+        for (const [key] of world.getCurrentFloor().items) {
+            const [x, y] = this.parseGridKey(key);
             if (!this.isInCameraBounds(x, y)) continue;
             if (fov.isVisible(x, y) || fov.isExplored(x, y)) {
-                // apply appropriate opacity so items themselves fade in fog
-                const prevAlpha = this.ctx.globalAlpha;
-                this.ctx.globalAlpha = fov.isVisible(x, y) ? COLORS.VISIBLE : COLORS.EXPLORED;
-                this.renderItem(x, y);
-                this.ctx.globalAlpha = prevAlpha;
+                this.withTemporaryAlpha(this.ctx, this.getVisibilityAlpha(fov.isVisible(x, y)), () => {
+                    this.renderItem(x, y);
+                });
             }
         }
 
@@ -147,8 +145,11 @@ class UI {
     }
 
     renderTile(x, y, world, fov) {
+        if (!this.tileset.isReady()) {
+            return null;
+        }
+
         const tile = world.getTile(x, y);
-        const tileVisual = getTileVisual(tile);
         const overlays = this.getTileOverlayData(world, x, y);
 
         if (!fov.isVisible(x, y) && !fov.isExplored(x, y)) {
@@ -158,12 +159,12 @@ class UI {
 
         // Draw tile from sprite sheet
         const screenPos = this.worldToTopDownScreen(x, y);
-        const srcRect = this.tileset.getSourceRect(tile);
+        const metrics = this.tileset.getRenderMetrics(tile, TILE_SIZE);
+        const srcRect = metrics.sourceRect;
         const isVisible = fov.isVisible(x, y);
-        const overdrawTop = tileVisual.overdrawTop || 0;
-        const overdrawRatio = overdrawTop / TERRAIN_SPRITESHEET_TILE_SIZE;
-        const drawOffsetY = Math.round(TILE_SIZE * overdrawRatio);
-        const drawHeight = TILE_SIZE + drawOffsetY;
+        const overdrawTop = metrics.overdrawTop;
+        const drawOffsetY = metrics.drawOffsetY;
+        const drawHeight = metrics.drawHeight;
 
         this.ctx.drawImage(
             this.tileset.spriteSheet,
@@ -189,12 +190,18 @@ class UI {
 
     renderPlayer(player) {
         const screenPos = this.worldToTopDownScreen(player.x, player.y);
-        const playerVisual = getEntityVisual('player', player);
-        this.ctx.fillStyle = playerVisual.color;
-        this.ctx.fillRect(screenPos.x, screenPos.y, TILE_SIZE, TILE_SIZE);
+        this.renderPlayerMarker(this.ctx, screenPos.x, screenPos.y, TILE_SIZE, player);
 
         const facing = getActorFacing(player);
         this.renderPlayerFacingArrow(screenPos.x, screenPos.y, facing);
+    }
+
+    renderPlayerMarker(ctx, x, y, size, player) {
+        const playerVisual = getEntityVisual('player', player);
+        ctx.fillStyle = playerVisual.color;
+        ctx.beginPath();
+        ctx.arc(x + size / 2, y + size / 2, size * 0.42, 0, Math.PI * 2);
+        ctx.fill();
     }
 
     renderPlayerFacingArrow(x, y, facing) {
@@ -305,6 +312,24 @@ class UI {
             trapType: typeof world.getTrap === 'function' ? world.getTrap(x, y) : null,
             trapRevealed: typeof world.isTrapRevealed === 'function' ? world.isTrapRevealed(x, y) : false
         };
+    }
+
+    parseGridKey(key) {
+        return key.split(',').map(Number);
+    }
+
+    getVisibilityAlpha(isVisible) {
+        return isVisible ? COLORS.VISIBLE : COLORS.EXPLORED;
+    }
+
+    withTemporaryAlpha(ctx, alpha, drawFn) {
+        const previousAlpha = ctx.globalAlpha;
+        ctx.globalAlpha = alpha;
+        try {
+            drawFn();
+        } finally {
+            ctx.globalAlpha = previousAlpha;
+        }
     }
 
     getScreenCenter(tileX, tileY) {
@@ -599,11 +624,12 @@ class UI {
 
         if (!this.mapCtx || !this.mapCanvas) return;
 
+        if (!this.tileset.isReady()) return;
+
         if (this.isActorBlind(player)) {
             this.mapCtx.clearRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
             const tileSize = this.mapTileSize;
-            this.mapCtx.fillStyle = getEntityVisual('player', player).color;
-            this.mapCtx.fillRect(player.x * tileSize, player.y * tileSize, tileSize, tileSize);
+            this.renderPlayerMarker(this.mapCtx, player.x * tileSize, player.y * tileSize, tileSize, player);
             return;
         }
 
@@ -623,7 +649,7 @@ class UI {
                 }
 
                 const tile = world.getTile(x, y);
-                const srcRect = this.tileset.getSourceRect(tile);
+                const srcRect = this.tileset.getMapSourceRect(tile);
                 mapCtx.drawImage(
                     this.tileset.spriteSheet,
                     srcRect.x, srcRect.y, srcRect.width, srcRect.height,
@@ -640,22 +666,21 @@ class UI {
             }
         }
 
-        for (const [key, items] of world.getCurrentFloor().items) {
-            const [x, y] = key.split(',').map(Number);
+        for (const [key] of world.getCurrentFloor().items) {
+            const [x, y] = this.parseGridKey(key);
             const explored = mapFov.isExplored(x, y) || floorMeta.mapRevealed;
             if (!explored) continue;
 
-            const prevAlpha = mapCtx.globalAlpha;
             const itemVisual = getEntityVisual('item');
-            mapCtx.globalAlpha = mapFov.isVisible(x, y) ? COLORS.VISIBLE : COLORS.EXPLORED;
-            mapCtx.fillStyle = itemVisual.color;
-            mapCtx.fillRect(
-                x * tileSize + itemVisual.miniMapInsetMap,
-                y * tileSize + itemVisual.miniMapInsetMap,
-                Math.max(2, tileSize - itemVisual.miniMapInsetMap * 2),
-                Math.max(2, tileSize - itemVisual.miniMapInsetMap * 2)
-            );
-            mapCtx.globalAlpha = prevAlpha;
+            this.withTemporaryAlpha(mapCtx, this.getVisibilityAlpha(mapFov.isVisible(x, y)), () => {
+                mapCtx.fillStyle = itemVisual.color;
+                mapCtx.fillRect(
+                    x * tileSize + itemVisual.miniMapInsetMap,
+                    y * tileSize + itemVisual.miniMapInsetMap,
+                    Math.max(2, tileSize - itemVisual.miniMapInsetMap * 2),
+                    Math.max(2, tileSize - itemVisual.miniMapInsetMap * 2)
+                );
+            });
         }
 
         for (const enemy of world.getEnemies()) {
@@ -666,11 +691,12 @@ class UI {
             mapCtx.fillRect(enemy.x * tileSize, enemy.y * tileSize, tileSize, tileSize);
         }
 
-        mapCtx.fillStyle = getEntityVisual('player', player).color;
-        mapCtx.fillRect(player.x * tileSize, player.y * tileSize, tileSize, tileSize);
+        this.renderPlayerMarker(mapCtx, player.x * tileSize, player.y * tileSize, tileSize, player);
 
         // Draw a subtle outline so the player marker remains visible on bright tiles.
         mapCtx.strokeStyle = UI_VISUALS.mapPlayerOutline;
-        mapCtx.strokeRect(player.x * tileSize + 0.5, player.y * tileSize + 0.5, tileSize - 1, tileSize - 1);
+        mapCtx.beginPath();
+        mapCtx.arc(player.x * tileSize + tileSize / 2, player.y * tileSize + tileSize / 2, Math.max(1, tileSize / 2 - 0.5), 0, Math.PI * 2);
+        mapCtx.stroke();
     }
 }
