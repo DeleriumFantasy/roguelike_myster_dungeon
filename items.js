@@ -103,26 +103,17 @@ class Item {
         for (const enchantmentId of this.getEnchantments()) {
             const enchantmentDefinition = ENCHANTMENT_DEFINITIONS[enchantmentId] || {};
 
-            const genericDamageMultiplier = Number(enchantmentDefinition.damageMultiplier);
-            if (Number.isFinite(genericDamageMultiplier) && genericDamageMultiplier > 0) {
+            const genericDamageMultiplier = getPositiveFiniteNumber(enchantmentDefinition.damageMultiplier);
+            if (genericDamageMultiplier > 0) {
                 multiplier *= genericDamageMultiplier;
             }
 
-            const typeMultipliers = enchantmentDefinition.damageMultiplierByEnemyType;
-            if (!typeMultipliers) {
-                continue;
-            }
-
-            for (const [enemyType, configuredMultiplier] of Object.entries(typeMultipliers)) {
-                const enemyTypeMultiplier = Number(configuredMultiplier);
-                if (!Number.isFinite(enemyTypeMultiplier) || enemyTypeMultiplier <= 0) {
-                    continue;
-                }
-
-                if (actorMatchesEnemyType(target, enemyType)) {
-                    multiplier *= enemyTypeMultiplier;
-                }
-            }
+            multiplier = applyEnemyTypeMultipliers(
+                multiplier,
+                target,
+                enchantmentDefinition.damageMultiplierByEnemyType,
+                (value, enemyTypeMultiplier) => value * enemyTypeMultiplier
+            );
         }
 
         return multiplier;
@@ -142,13 +133,13 @@ class Item {
         for (const enchantmentId of this.getEnchantments()) {
             const enchantmentDefinition = ENCHANTMENT_DEFINITIONS[enchantmentId] || {};
 
-            const hungerMultiplier = Number(enchantmentDefinition.hungerPowerMultiplier);
-            if (Number.isFinite(hungerMultiplier) && hungerMultiplier > 0 && attackerHunger / attackerMaxHunger <= 0.2) {
+            const hungerMultiplier = getPositiveFiniteNumber(enchantmentDefinition.hungerPowerMultiplier);
+            if (hungerMultiplier > 0 && attackerHunger / attackerMaxHunger <= 0.2) {
                 multiplier *= hungerMultiplier;
             }
 
-            const bloodyMultiplier = Number(enchantmentDefinition.bloodyPowerMultiplier);
-            if (Number.isFinite(bloodyMultiplier) && bloodyMultiplier > 0 && attackerHealth / attackerMaxHealth <= 0.2) {
+            const bloodyMultiplier = getPositiveFiniteNumber(enchantmentDefinition.bloodyPowerMultiplier);
+            if (bloodyMultiplier > 0 && attackerHealth / attackerMaxHealth <= 0.2) {
                 multiplier *= bloodyMultiplier;
             }
         }
@@ -165,13 +156,13 @@ class Item {
         for (const enchantmentId of this.getEnchantments()) {
             const enchantmentDefinition = ENCHANTMENT_DEFINITIONS[enchantmentId] || {};
             const inflictedCondition = enchantmentDefinition.inflictsCondition;
-            const inflictChance = Number(enchantmentDefinition.inflictChance);
+            const inflictChance = getPositiveFiniteNumber(enchantmentDefinition.inflictChance);
 
             if (!inflictedCondition) {
                 continue;
             }
 
-            if (!Number.isFinite(inflictChance) || inflictChance <= 0) {
+            if (inflictChance <= 0) {
                 continue;
             }
 
@@ -195,8 +186,8 @@ class Item {
                 continue;
             }
 
-            const preventionChance = Number(enchantmentDefinition.preventionChance);
-            if (Number.isFinite(preventionChance) && preventionChance > highestChance) {
+            const preventionChance = getPositiveFiniteNumber(enchantmentDefinition.preventionChance);
+            if (preventionChance > highestChance) {
                 highestChance = preventionChance;
             }
         }
@@ -213,26 +204,17 @@ class Item {
         for (const enchantmentId of this.getEnchantments()) {
             const enchantmentDefinition = ENCHANTMENT_DEFINITIONS[enchantmentId] || {};
 
-            const genericShieldMultiplier = Number(enchantmentDefinition.shieldMultiplier);
-            if (Number.isFinite(genericShieldMultiplier) && genericShieldMultiplier > 0) {
+            const genericShieldMultiplier = getPositiveFiniteNumber(enchantmentDefinition.shieldMultiplier);
+            if (genericShieldMultiplier > 0) {
                 multiplier /= genericShieldMultiplier;
             }
 
-            const shieldMultipliersByEnemyType = enchantmentDefinition.shieldMultiplierByEnemyType;
-            if (!shieldMultipliersByEnemyType) {
-                continue;
-            }
-
-            for (const [enemyType, configuredMultiplier] of Object.entries(shieldMultipliersByEnemyType)) {
-                const enemyTypeMultiplier = Number(configuredMultiplier);
-                if (!Number.isFinite(enemyTypeMultiplier) || enemyTypeMultiplier <= 0) {
-                    continue;
-                }
-
-                if (actorMatchesEnemyType(attacker, enemyType)) {
-                    multiplier /= enemyTypeMultiplier;
-                }
-            }
+            multiplier = applyEnemyTypeMultipliers(
+                multiplier,
+                attacker,
+                enchantmentDefinition.shieldMultiplierByEnemyType,
+                (value, enemyTypeMultiplier) => value / enemyTypeMultiplier
+            );
         }
 
         return Math.max(0.1, multiplier);
@@ -726,6 +708,35 @@ function actorMatchesEnemyType(actor, enemyType) {
         : Array.isArray(actor.creatureTypes) && actor.creatureTypes.includes(enemyType);
 }
 
+function getPositiveFiniteNumber(value) {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) && normalized > 0 ? normalized : 0;
+}
+
+function applyEnemyTypeMultipliers(currentValue, actor, multiplierMap, applyMultiplier) {
+    if (!multiplierMap || typeof applyMultiplier !== 'function') {
+        return currentValue;
+    }
+
+    let nextValue = currentValue;
+    for (const [enemyType, configuredMultiplier] of Object.entries(multiplierMap)) {
+        const enemyTypeMultiplier = getPositiveFiniteNumber(configuredMultiplier);
+        if (enemyTypeMultiplier <= 0) {
+            continue;
+        }
+
+        if (actorMatchesEnemyType(actor, enemyType)) {
+            nextValue = applyMultiplier(nextValue, enemyTypeMultiplier);
+        }
+    }
+
+    return nextValue;
+}
+
+function normalizeConditionKey(condition) {
+    return Object.values(CONDITIONS).includes(condition) ? condition : null;
+}
+
 function resolveConditionDuration(properties) {
     const condition = properties.condition;
     const configuredDuration = getConditionDuration(condition, 10);
@@ -758,6 +769,7 @@ function getStatusConsumableDefinitions() {
             continue;
         }
 
+        const normalizedTier = Number(tier);
         const normalizedDefinitions = normalizeTierDefinitions(tierDefinition);
 
         for (const definition of normalizedDefinitions) {
@@ -765,9 +777,8 @@ function getStatusConsumableDefinitions() {
                 continue;
             }
 
-            const normalizedTier = Number(tier);
-            const condition = definition.properties?.condition;
-            if (!Object.values(CONDITIONS).includes(condition)) {
+            const condition = normalizeConditionKey(definition.properties?.condition);
+            if (!condition) {
                 continue;
             }
             definitions.push({
@@ -975,14 +986,14 @@ function canEnemyDropItem(item, enemy) {
 function createTieredItem(category, tier) {
     let definition = TIERED_ITEM_DEFINITIONS[category]?.[tier] || null;
     if (Array.isArray(definition)) {
-        definition = definition[randomInt(0, definition.length - 1)] || null;
+        definition = pickRandom(definition);
     }
     return createItemFromDefinition(definition);
 }
 
 function createStatusConsumable(condition) {
     const definitions = getStatusConsumableDefinitions();
-    const normalizedCondition = Object.values(CONDITIONS).includes(condition) ? condition : null;
+    const normalizedCondition = normalizeConditionKey(condition);
 
     if (!normalizedCondition) {
         return null;
@@ -993,7 +1004,7 @@ function createStatusConsumable(condition) {
         return null;
     }
 
-    const chosenDefinition = matchingDefinitions[randomInt(0, matchingDefinitions.length - 1)];
+    const chosenDefinition = pickRandom(matchingDefinitions);
 
     return createItemFromDefinition({
         name: chosenDefinition.name,
@@ -1046,6 +1057,18 @@ function canItemBeCursed(item) {
         item.type === ITEM_TYPES.ACCESSORY;
 }
 
+function prepareRollableEquipmentItem(item) {
+    if (!item || !canItemBeCursed(item)) {
+        return null;
+    }
+
+    if (!item.properties) {
+        item.properties = {};
+    }
+
+    return item;
+}
+
 function getMaxEnchantmentCountForItem(item) {
     const slotCount = Number(item?.properties?.slots || 0);
     if (!Number.isFinite(slotCount) || slotCount <= 0) {
@@ -1062,27 +1085,24 @@ function getEnchantmentPoolForItem(item) {
 }
 
 function applyWorldEnchantmentRoll(item, rng = null, chance = 0.15) {
-    if (!item || !canItemBeCursed(item)) {
+    const rollableItem = prepareRollableEquipmentItem(item);
+    if (!rollableItem) {
         return item;
     }
 
-    if (!item.properties) {
-        item.properties = {};
-    }
-
-    const maxEnchantmentCount = getMaxEnchantmentCountForItem(item);
+    const maxEnchantmentCount = getMaxEnchantmentCountForItem(rollableItem);
     if (maxEnchantmentCount <= 0) {
-        return item;
+        return rollableItem;
     }
 
     const roll = getRngRoll(rng);
     if (roll >= chance) {
-        return item;
+        return rollableItem;
     }
 
-    const pool = getEnchantmentPoolForItem(item);
+    const pool = getEnchantmentPoolForItem(rollableItem);
     if (pool.length === 0) {
-        return item;
+        return rollableItem;
     }
 
     const availableEnchantments = [...pool];
@@ -1100,22 +1120,19 @@ function applyWorldEnchantmentRoll(item, rng = null, chance = 0.15) {
     }
 
     if (chosenEnchantments.length > 0) {
-        item.properties.enchantments = chosenEnchantments;
+        rollableItem.properties.enchantments = chosenEnchantments;
     }
 
-    return item;
+    return rollableItem;
 }
 
 function applyWorldCurseRoll(item, rng = null, chance = 0.2) {
-    if (!item || !canItemBeCursed(item)) {
+    const rollableItem = prepareRollableEquipmentItem(item);
+    if (!rollableItem) {
         return item;
     }
 
-    if (!item.properties) {
-        item.properties = {};
-    }
-
     const roll = getRngRoll(rng);
-    item.properties.cursed = roll < chance;
-    return item;
+    rollableItem.properties.cursed = roll < chance;
+    return rollableItem;
 }

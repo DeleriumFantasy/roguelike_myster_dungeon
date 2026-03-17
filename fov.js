@@ -1,5 +1,11 @@
 // Field of View using raycasting
 
+// Precomputed direction vectors for all 360 ray angles (computed once at load time)
+const FOV_DIRECTIONS = Array.from({ length: 360 }, (_, i) => {
+    const rad = i * Math.PI / 180;
+    return { dx: Math.cos(rad), dy: Math.sin(rad) };
+});
+
 class FOV {
     constructor(grid) {
         this.grid = grid;
@@ -13,15 +19,13 @@ class FOV {
     }
 
     castRays(x, y, range) {
-        // Cast rays in all directions
-        for (let angle = 0; angle < 360; angle += 1) {
-            this.castRay(x, y, angle * Math.PI / 180, range);
+        // Cast rays in all directions using precomputed direction table
+        for (const { dx, dy } of FOV_DIRECTIONS) {
+            this.castRay(x, y, dx, dy, range);
         }
     }
 
-    castRay(x, y, angle, range) {
-        const dx = Math.cos(angle);
-        const dy = Math.sin(angle);
+    castRay(x, y, dx, dy, range) {
 
         let px = x + 0.5;
         let py = y + 0.5;

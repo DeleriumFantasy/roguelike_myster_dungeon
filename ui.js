@@ -19,6 +19,8 @@ class UI {
                 this.render(this.game.world, this.game.player, this.game.fov);
             }
         });
+        this.statsDiv = this.infoPanel.querySelector('#stats');
+        this.messagesDiv = this.infoPanel.querySelector('#messages');
         this.mapOpen = false;
         this.mapTileSize = 8;
         this.cameraRadius = CAMERA_RADIUS;
@@ -35,6 +37,15 @@ class UI {
             this.mapCanvas.width = GRID_SIZE * this.mapTileSize;
             this.mapCanvas.height = GRID_SIZE * this.mapTileSize;
         }
+
+        // Offscreen canvas for caching explored tile sprites on the map modal.
+        // Rebuilt only when new tiles are explored or the floor changes.
+        this._mapExploredCanvas = document.createElement('canvas');
+        this._mapExploredCanvas.width = GRID_SIZE * this.mapTileSize;
+        this._mapExploredCanvas.height = GRID_SIZE * this.mapTileSize;
+        this._mapExploredCtx = this._mapExploredCanvas.getContext('2d');
+        this._mapExploredCacheFloor = -1;
+        this._mapExploredCacheSize = 0;
     }
 
     render(world, player, fov) {
@@ -81,8 +92,7 @@ class UI {
         // Render enemies
         for (const enemy of world.getEnemies()) {
             if (!this.isInCameraBounds(enemy.x, enemy.y)) continue;
-            if (this.isEnemyInvisible(enemy)) continue;
-            if (!fov.isVisible(enemy.x, enemy.y)) continue;
+            if (!this.isEnemyVisibleInFov(enemy, fov)) continue;
             this.renderEnemy(enemy);
         }
 
@@ -116,7 +126,7 @@ class UI {
 
         // Draw tile from sprite sheet
         const screenPos = this.worldToTopDownScreen(x, y);
-        const metrics = this.tileset.getRenderMetrics(tile, TILE_SIZE);
+        const metrics = this.tileset.getRenderMetrics(tile, TILE_SIZE, world, x, y);
         const srcRect = metrics.sourceRect;
         const isVisible = fov.isVisible(x, y);
         const overdrawTop = metrics.overdrawTop;
@@ -151,6 +161,7 @@ class UI {
 
         const facing = getActorFacing(player);
         this.renderPlayerFacingArrow(screenPos.x, screenPos.y, facing);
+        this.renderHealthBar(player, screenPos.x, screenPos.y, HEALTH_BAR_PALETTES.player);
     }
 
     renderPlayerMarker(ctx, x, y, size, player) {
@@ -183,12 +194,83 @@ class UI {
         this.ctx.fill();
     }
 
+    getHealthBarFillColor(ratio, palette) {
+        if (ratio > 0.66) {
+            return palette.high;
+        }
+        if (ratio > 0.33) {
+            return palette.mid;
+        }
+        return palette.low;
+    }
+
+    renderHealthBar(actor, screenX, screenY, palette) {
+        const maxHealth = Math.max(1, Number(actor?.maxHealth) || 1);
+        const health = clamp(Number(actor?.health) || 0, 0, maxHealth);
+        const ratio = health / maxHealth;
+
+        const barWidth = TILE_SIZE;
+        const barHeight = 3;
+        const barX = screenX;
+        const barY = screenY - 5;
+
+        this.ctx.save();
+        this.ctx.fillStyle = palette.background;
+        this.ctx.fillRect(barX, barY, barWidth, barHeight);
+
+        this.ctx.fillStyle = this.getHealthBarFillColor(ratio, palette);
+        this.ctx.fillRect(barX, barY, Math.round(barWidth * ratio), barHeight);
+
+        this.ctx.strokeStyle = palette.border;
+        this.ctx.lineWidth = 1;
+        this.ctx.strokeRect(barX - 0.5, barY - 0.5, barWidth + 1, barHeight + 1);
+        this.ctx.restore();
+    }
+
     renderEnemy(enemy) {
         const screenPos = this.worldToTopDownScreen(enemy.x, enemy.y);
         this.ctx.fillStyle = getEntityVisual('enemy', enemy).color;
         this.ctx.beginPath();
         this.ctx.arc(screenPos.x + TILE_SIZE / 2, screenPos.y + TILE_SIZE / 2, TILE_SIZE * 0.42, 0, Math.PI * 2);
         this.ctx.fill();
+
+        this.renderEnemyName(enemy, screenPos.x, screenPos.y);
+        this.renderHealthBar(enemy, screenPos.x, screenPos.y, HEALTH_BAR_PALETTES.enemy);
+    }
+
+    getEnemyDisplayName(enemy) {
+        const baseName = String(enemy?.name || '').trim();
+        if (!baseName) {
+            return '';
+        }
+
+        if (enemy?.isAlly) {
+            const allyLevel = Math.max(1, Math.floor(Number(enemy?.allyLevel) || 1));
+            return `Lv${allyLevel} ${baseName}`;
+        }
+
+        return baseName;
+    }
+
+    renderEnemyName(enemy, screenX, screenY) {
+        const label = this.getEnemyDisplayName(enemy);
+        if (!label) {
+            return;
+        }
+
+        this.ctx.save();
+        this.ctx.font = 'bold 8px monospace';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeStyle = UI_VISUALS.enemyNameOutline;
+        this.ctx.fillStyle = UI_VISUALS.enemyNameColor;
+
+        const textX = screenX + TILE_SIZE / 2;
+        const textY = screenY + TILE_SIZE / 2;
+        this.ctx.strokeText(label, textX, textY);
+        this.ctx.fillText(label, textX, textY);
+        this.ctx.restore();
     }
 
     renderItem(x, y) {
@@ -358,12 +440,14 @@ class UI {
             ? conditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
             : 'none';
         const visibleEnemyLines = [];
-        for (const enemy of world.getEnemies()) {
-            if (!this.isEnemyVisibleInFov(enemy, fov)) continue;
-            if (playerBlind) continue;
-            const aiState = enemy.lastResolvedAi || enemy.baseAiType || enemy.aiType || AI_TYPES.WANDER;
-            const fuserSummary = this.getFuserFusionSummary(enemy);
-            visibleEnemyLines.push(`${enemy.name} (${enemy.x},${enemy.y}) - ${aiState}${fuserSummary}`);
+        if (!playerBlind) {
+            for (const enemy of world.getEnemies()) {
+                if (!this.isEnemyVisibleInFov(enemy, fov)) continue;
+                const aiState = enemy.lastResolvedAi || enemy.baseAiType || enemy.aiType || AI_TYPES.WANDER;
+                const fuserSummary = this.getFuserFusionSummary(enemy);
+                const displayName = this.getEnemyDisplayName(enemy);
+                visibleEnemyLines.push(`${displayName} (${enemy.x},${enemy.y}) - ${aiState}${fuserSummary}`);
+            }
         }
 
         const enemyDebugHtml = visibleEnemyLines.length > 0
@@ -373,7 +457,7 @@ class UI {
         const floorLabel = typeof this.game?.getDisplayFloorLabel === 'function'
             ? this.game.getDisplayFloorLabel(world.currentFloor)
             : String(world.currentFloor + 1);
-        const statsDiv = this.infoPanel.querySelector('#stats');
+        const statsDiv = this.statsDiv;
         statsDiv.innerHTML = `
             <h3>Player Stats</h3>
             <p>Level: ${player.level}</p>
@@ -392,13 +476,30 @@ class UI {
             ${enemyDebugHtml}
         `;
 
-        const messagesDiv = this.infoPanel.querySelector('#messages');
-        messagesDiv.innerHTML = '<h3>Messages</h3>' + this.messages.slice(-10).map(msg => `<p>${msg}</p>`).join('');
+        this.renderMessages();
     }
 
     addMessage(message) {
         this.messages.push(message);
-        this.updateInfoPanel(this.game.player, this.game.world, this.game.fov);
+        this.renderMessages();
+    }
+
+    renderMessages() {
+        this.messagesDiv.innerHTML = '<h3>Messages</h3>' + this.messages.slice(-10).map(msg => `<p>${msg}</p>`).join('');
+    }
+
+    createInventoryListItem(text, onClick = null) {
+        const div = document.createElement('div');
+        div.className = 'inventory-item';
+        div.textContent = text;
+        if (typeof onClick === 'function') {
+            div.onclick = onClick;
+        }
+        return div;
+    }
+
+    reopenInventoryForCurrentPlayer() {
+        this.openInventory(this.game.player);
     }
 
     openInventory(player) {
@@ -406,39 +507,23 @@ class UI {
         const list = this.inventoryModal.querySelector('#inventory-list');
         list.innerHTML = '';
 
-        const equippedHeader = document.createElement('div');
-        equippedHeader.className = 'inventory-item';
-        equippedHeader.textContent = 'Equipped';
-        list.appendChild(equippedHeader);
+        list.appendChild(this.createInventoryListItem('Equipped'));
 
         const equippedItems = typeof player.getEquippedItems === 'function' ? player.getEquippedItems() : [];
         if (equippedItems.length === 0) {
-            const none = document.createElement('div');
-            none.className = 'inventory-item';
-            none.textContent = '(none)';
-            list.appendChild(none);
+            list.appendChild(this.createInventoryListItem('(none)'));
         } else {
             for (const [slot, item] of equippedItems) {
-                const div = document.createElement('div');
-                div.className = 'inventory-item';
-                div.textContent = `[${slot}] ${this.formatInventoryItemLabel(item)}`;
-                div.onclick = () => this.handleEquippedItemClick(slot, item);
-                list.appendChild(div);
+                const displayName = `[${slot}] ${this.formatInventoryItemLabel(item)}`;
+                list.appendChild(this.createInventoryListItem(displayName, () => this.handleEquippedItemClick(slot, item)));
             }
         }
 
-        const inventoryHeader = document.createElement('div');
-        inventoryHeader.className = 'inventory-item';
-        inventoryHeader.textContent = 'Backpack';
-        list.appendChild(inventoryHeader);
+        list.appendChild(this.createInventoryListItem('Backpack'));
 
-        player.getInventory().forEach((item, index) => {
-            const div = document.createElement('div');
-            div.className = 'inventory-item';
+        player.getInventory().forEach((item) => {
             const displayName = this.formatInventoryItemLabel(item);
-            div.textContent = displayName;
-            div.onclick = () => this.handleInventoryClick(item, index);
-            list.appendChild(div);
+            list.appendChild(this.createInventoryListItem(displayName, () => this.handleInventoryClick(item)));
         });
         this.inventoryModal.style.display = 'block';
     }
@@ -456,15 +541,15 @@ class UI {
             this.addMessage(`${item.name} is cursed and cannot be unequipped`);
         }
 
-        this.openInventory(this.game.player);
+        this.reopenInventoryForCurrentPlayer();
     }
 
-    handleInventoryClick(item, index) {
+    handleInventoryClick(item) {
         const itemLabel = this.formatInventoryItemLabel(item);
         const actions = this.getAvailableInventoryActions(item);
         const choice = this.promptForInventoryAction(itemLabel, actions);
         if (!choice) {
-            this.openInventory(this.game.player);
+            this.reopenInventoryForCurrentPlayer();
             return;
         }
 
@@ -472,7 +557,7 @@ class UI {
             item.use(this.game.player);
             this.game.player.removeItem(item);
             this.addMessage(`Used ${itemLabel}`);
-            this.openInventory(this.game.player);
+            this.reopenInventoryForCurrentPlayer();
             return;
         }
 
@@ -484,7 +569,7 @@ class UI {
             } else {
                 this.addMessage(`Could not equip ${itemLabel}`);
             }
-            this.openInventory(this.game.player);
+            this.reopenInventoryForCurrentPlayer();
             return;
         }
 
@@ -502,7 +587,7 @@ class UI {
             } else {
                 this.addMessage(`Dropped ${itemLabel}`);
             }
-            this.openInventory(this.game.player);
+            this.reopenInventoryForCurrentPlayer();
         }
     }
 
@@ -598,28 +683,38 @@ class UI {
         const mapFov = world.getCurrentFloor().fov;
         const tileSize = this.mapTileSize;
 
+        // Rebuild the offscreen explored-tile cache when new tiles are discovered or the floor changes.
+        if (this._mapExploredCacheFloor !== world.currentFloor || this._mapExploredCacheSize !== mapFov.explored.size) {
+            const eCtx = this._mapExploredCtx;
+            eCtx.clearRect(0, 0, this._mapExploredCanvas.width, this._mapExploredCanvas.height);
+            for (let y = 0; y < GRID_SIZE; y++) {
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    if (!mapFov.isExplored(x, y)) continue;
+                    const tile = world.getTile(x, y);
+                    const srcRect = this.tileset.getMapSourceRect(tile, world, x, y);
+                    eCtx.drawImage(
+                        this.tileset.spriteSheet,
+                        srcRect.x, srcRect.y, srcRect.width, srcRect.height,
+                        x * tileSize, y * tileSize, tileSize, tileSize
+                    );
+                }
+            }
+            this._mapExploredCacheFloor = world.currentFloor;
+            this._mapExploredCacheSize = mapFov.explored.size;
+        }
+
+        // Blit the cached tile layer in one draw call, then draw dynamic overlays on top.
         mapCtx.clearRect(0, 0, this.mapCanvas.width, this.mapCanvas.height);
+        mapCtx.drawImage(this._mapExploredCanvas, 0, 0);
 
         for (let y = 0; y < GRID_SIZE; y++) {
             for (let x = 0; x < GRID_SIZE; x++) {
-                const explored = mapFov.isExplored(x, y);
-                const visible = mapFov.isVisible(x, y);
-                if (!explored) {
-                    continue;
-                }
-
-                const tile = world.getTile(x, y);
-                const srcRect = this.tileset.getMapSourceRect(tile);
-                mapCtx.drawImage(
-                    this.tileset.spriteSheet,
-                    srcRect.x, srcRect.y, srcRect.width, srcRect.height,
-                    x * tileSize, y * tileSize, tileSize, tileSize
-                );
+                if (!mapFov.isExplored(x, y)) continue;
 
                 const overlays = this.getTileOverlayData(world, x, y);
                 this.renderTileOverlays(mapCtx, overlays.hazard, overlays.trapType, overlays.trapRevealed, x * tileSize, y * tileSize, tileSize);
 
-                if (!visible) {
+                if (!mapFov.isVisible(x, y)) {
                     mapCtx.fillStyle = COLORS.FOG_OVERLAY;
                     mapCtx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
                 }

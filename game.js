@@ -59,17 +59,12 @@ class Game {
     }
 
     spawnPlayerOnFloor() {
-        const grid = this.world.getCurrentFloor().grid;
         const rng = new SeededRNG(this.seed + 999999);
 
-        for (let attempt = 0; attempt < 600; attempt++) {
-            const x = rng.randomInt(1, GRID_SIZE - 2);
-            const y = rng.randomInt(1, GRID_SIZE - 2);
-            if (grid[y][x] === TILE_TYPES.FLOOR) {
-                this.player.x = x;
-                this.player.y = y;
-                return;
-            }
+        const spawn = this.world.findRandomFloorTile(rng, 600);
+        if (spawn) {
+            this.player.x = spawn.x;
+            this.player.y = spawn.y;
         }
     }
 
@@ -112,7 +107,7 @@ class Game {
                 }
             }
             if (candidates.length > 0) {
-                return candidates[rng.randomInt(0, candidates.length - 1)];
+                return pickRandom(candidates, rng);
             }
         }
         const fallback = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
@@ -470,13 +465,18 @@ class Game {
         document.addEventListener('keydown', handleKey);
         document.addEventListener('keyup', handleKeyUp);
 
-        document.getElementById('close-inventory').addEventListener('click', () => {
-            this.ui.closeInventory();
-            this.ui.canvas.focus();
-        });
+        this.bindCloseButton('close-inventory', () => this.ui.closeInventory());
+        this.bindCloseButton('close-map', () => this.ui.closeMap());
+    }
 
-        document.getElementById('close-map').addEventListener('click', () => {
-            this.ui.closeMap();
+    bindCloseButton(buttonId, closeAction) {
+        const button = document.getElementById(buttonId);
+        if (!button) {
+            return;
+        }
+
+        button.addEventListener('click', () => {
+            closeAction();
             this.ui.canvas.focus();
         });
     }
@@ -522,11 +522,15 @@ class Game {
         });
     }
 
+    isNeutralNpcEnemy(enemy) {
+        return isNeutralNpcActor(enemy);
+    }
+
     tryTalkToFacingNpc(facing) {
         const targetX = this.player.x + (Number(facing?.dx) || 0);
         const targetY = this.player.y + (Number(facing?.dy) || 0);
         const enemy = this.world.getEnemyAt(targetX, targetY);
-        if (!enemy || typeof enemy.isNeutralNpc !== 'function' || !enemy.isNeutralNpc()) {
+        if (!this.isNeutralNpcEnemy(enemy)) {
             return false;
         }
 
@@ -597,18 +601,12 @@ class Game {
     }
 
     playerHasEnchantment(enchantmentKey) {
-        if (!enchantmentKey || !(this.player?.equipment instanceof Map)) {
+        if (!enchantmentKey || !this.player) {
             return false;
         }
 
-        for (const item of this.player.equipment.values()) {
-            if (!item || typeof item.getEnchantments !== 'function') {
-                continue;
-            }
-
-            if (item.getEnchantments().includes(enchantmentKey)) {
-                return true;
-            }
+        if (typeof this.player.hasEquippedEnchantment === 'function') {
+            return this.player.hasEquippedEnchantment(enchantmentKey);
         }
 
         return false;
@@ -865,219 +863,214 @@ class Game {
             return this.processPlayerBerserkTurn();
         }
 
-        // Action
-        if (input.type === 'move') {
-            if (this.player.hasCondition(CONDITIONS.BOUND)) {
-                 this.player.tickConditions();
-                this.ui.addMessage('You are bound and cannot move.');
-                 this.clearFailedMoveRecord();
-                 return true;
-            }
-
-            const targetX = this.player.x + input.dx;
-            const targetY = this.player.y + input.dy;
-
-            const allyAtTarget = this.world.getEnemyAt(targetX, targetY);
-            if (allyAtTarget && allyAtTarget.isAlly) {
+        switch (input?.type) {
+            case 'move':
+                return this.handlePlayerMoveTurn(input);
+            case 'throw':
+                return this.handlePlayerThrowTurn(input);
+            case 'attack':
+                return this.handlePlayerAttackTurn(input);
+            default:
                 // Pre-turn status tick
                 this.player.tickConditions();
-
-                const prevPlayerX = this.player.x;
-                const prevPlayerY = this.player.y;
-                allyAtTarget.x = prevPlayerX;
-                allyAtTarget.y = prevPlayerY;
-                this.player.x = targetX;
-                this.player.y = targetY;
-                this.clearFailedMoveRecord();
-                this.pickupItemsAfterMove(targetX, targetY);
                 return true;
-            }
+        }
+    }
 
-            if (!this.world.canPlayerOccupy(targetX, targetY)) {
-                this.recordFailedMove(input);
-                return false;
-            }
+    handlePlayerMoveTurn(input) {
+        if (this.player.hasCondition(CONDITIONS.BOUND)) {
+            this.player.tickConditions();
+            this.ui.addMessage('You are bound and cannot move.');
+            this.clearFailedMoveRecord();
+            return true;
+        }
 
+        const targetX = this.player.x + input.dx;
+        const targetY = this.player.y + input.dy;
+
+        const allyAtTarget = this.world.getEnemyAt(targetX, targetY);
+        if (allyAtTarget && allyAtTarget.isAlly) {
             // Pre-turn status tick
             this.player.tickConditions();
 
-            const floorBeforeMove = this.world.currentFloor;
-            const moved = this.player.move(input.dx, input.dy, this.world);
-            if (moved) {
-                this.clearFailedMoveRecord();
+            const prevPlayerX = this.player.x;
+            const prevPlayerY = this.player.y;
+            allyAtTarget.x = prevPlayerX;
+            allyAtTarget.y = prevPlayerY;
+            this.player.x = targetX;
+            this.player.y = targetY;
+            this.clearFailedMoveRecord();
+            this.pickupItemsAfterMove(targetX, targetY);
+            return true;
+        }
 
-                this.applyPlayerTrapAtCurrentPosition();
-
-                if (this.world.currentFloor === floorBeforeMove) {
-                    this.pickupItemsAfterMove(targetX, targetY);
-                }
-
-                return true;
-            }
-
+        if (!this.world.canPlayerOccupy(targetX, targetY)) {
             this.recordFailedMove(input);
             return false;
-        }
-
-        if (input.type === 'throw') {
-            if (!input.item) {
-                return false;
-            }
-
-            this.player.tickConditions();
-
-            const thrownItem = this.player.dequeueThrowItem(input.item);
-            if (!thrownItem) {
-                return false;
-            }
-
-            input.item.identify?.();
-            thrownItem.identify?.();
-
-            const throwResult = this.resolveThrow(thrownItem, input.dx, input.dy);
-            this.announceThrowResult(thrownItem, throwResult);
-            this.clearFailedMoveRecord();
-            return true;
-        }
-
-        if (input.type === 'attack') {
-            const attackDx = Number(input.dx) || 0;
-            const attackDy = Number(input.dy) || 0;
-            if (attackDx === 0 && attackDy === 0) {
-                return false;
-            }
-
-            this.lookTowards(attackDx, attackDy);
-
-            // Pre-turn status tick
-            this.player.tickConditions();
-
-            const offsets = this.getAttackOffsetsForFacing(attackDx, attackDy);
-            const hasKnockback = this.playerHasEnchantment('knockback');
-            const hasRuinTraps = this.playerHasEnchantment('ruinTraps');
-            const executeAttackPass = () => {
-                const attackedEnemyKeys = new Set();
-                let attackedAnyEnemyInPass = false;
-                let revealedAnyTrapInPass = false;
-                let ruinedAnyTrapInPass = false;
-
-                for (const offset of offsets) {
-                    const targetX = this.player.x + offset.dx;
-                    const targetY = this.player.y + offset.dy;
-
-                    if (typeof this.world.getTrap === 'function') {
-                        const trapType = this.world.getTrap(targetX, targetY);
-                        if (trapType) {
-                            if (hasRuinTraps && typeof this.world.removeTrap === 'function') {
-                                this.world.removeTrap(targetX, targetY);
-                                ruinedAnyTrapInPass = true;
-                            } else if (typeof this.world.revealTrap === 'function') {
-                                const alreadyRevealed = typeof this.world.isTrapRevealed === 'function'
-                                    ? this.world.isTrapRevealed(targetX, targetY)
-                                    : false;
-                                this.world.revealTrap(targetX, targetY);
-                                if (!alreadyRevealed) {
-                                    revealedAnyTrapInPass = true;
-                                }
-                            }
-                        }
-                    }
-
-                    const enemyOnTarget = this.world.getEnemyAt(targetX, targetY);
-                    if (!enemyOnTarget) {
-                        continue;
-                    }
-
-                    const enemyKey = `${enemyOnTarget.x},${enemyOnTarget.y},${enemyOnTarget.name}`;
-                    if (attackedEnemyKeys.has(enemyKey)) {
-                        continue;
-                    }
-                    attackedEnemyKeys.add(enemyKey);
-
-                    attackedAnyEnemyInPass = true;
-                    const attackResult = this.player.attackEnemy(enemyOnTarget);
-                    const { damage, critical, inflictedConditions } = this.extractAttackResultData(attackResult);
-                    const criticalPrefix = critical ? 'Critical! ' : '';
-                    this.ui.addMessage(`${criticalPrefix}You attack ${enemyOnTarget.name} for ${damage}.`);
-                    this.announceInflictedConditions(enemyOnTarget.name, inflictedConditions);
-
-                    if (hasKnockback && damage > 0 && enemyOnTarget.isAlive() && Math.random() < 0.25) {
-                        const knockedBack = this.tryKnockbackEnemy(enemyOnTarget, this.player.x, this.player.y);
-                        if (knockedBack) {
-                            this.ui.addMessage(`${enemyOnTarget.name} is knocked back.`);
-                        }
-                    }
-
-                    if (!enemyOnTarget.isAlive()) {
-                        this.handleEnemyDefeat(enemyOnTarget, { announceDefeat: true });
-                    }
-                }
-
-                return {
-                    attackedAnyEnemyInPass,
-                    revealedAnyTrapInPass,
-                    ruinedAnyTrapInPass
-                };
-            };
-
-            const primaryPass = executeAttackPass();
-            let attackedAnyEnemy = primaryPass.attackedAnyEnemyInPass;
-            let revealedAnyTrap = primaryPass.revealedAnyTrapInPass;
-            let ruinedAnyTrap = primaryPass.ruinedAnyTrapInPass;
-
-            const rapidStrikeTriggered = this.playerHasEnchantment('rapidStrike') && Math.random() < 0.25;
-            if (rapidStrikeTriggered) {
-                this.ui.addMessage('Rapid strike triggers!');
-                const extraPass = executeAttackPass();
-                attackedAnyEnemy = attackedAnyEnemy || extraPass.attackedAnyEnemyInPass;
-                revealedAnyTrap = revealedAnyTrap || extraPass.revealedAnyTrapInPass;
-                ruinedAnyTrap = ruinedAnyTrap || extraPass.ruinedAnyTrapInPass;
-            }
-
-            if (revealedAnyTrap) {
-                this.ui.addMessage('You reveal a hidden trap.');
-            }
-
-            if (ruinedAnyTrap) {
-                this.ui.addMessage('You destroy a trap with Ruin traps.');
-            }
-
-            if (!attackedAnyEnemy) {
-                this.ui.addMessage('You swing at empty space.');
-            }
-
-            this.clearFailedMoveRecord();
-            return true;
         }
 
         // Pre-turn status tick
         this.player.tickConditions();
 
+        const floorBeforeMove = this.world.currentFloor;
+        const moved = this.player.move(input.dx, input.dy, this.world);
+        if (moved) {
+            this.clearFailedMoveRecord();
+
+            this.applyPlayerTrapAtCurrentPosition();
+
+            if (this.world.currentFloor === floorBeforeMove) {
+                this.pickupItemsAfterMove(targetX, targetY);
+            }
+
+            return true;
+        }
+
+        this.recordFailedMove(input);
+        return false;
+    }
+
+    handlePlayerThrowTurn(input) {
+        if (!input.item) {
+            return false;
+        }
+
+        this.player.tickConditions();
+
+        const thrownItem = this.player.dequeueThrowItem(input.item);
+        if (!thrownItem) {
+            return false;
+        }
+
+        input.item.identify?.();
+        thrownItem.identify?.();
+
+        const throwResult = this.resolveThrow(thrownItem, input.dx, input.dy);
+        this.announceThrowResult(thrownItem, throwResult);
+        this.clearFailedMoveRecord();
+        return true;
+    }
+
+    executePlayerAttackPass(offsets, options = {}) {
+        const { hasKnockback = false, hasRuinTraps = false } = options;
+        const attackedEnemyKeys = new Set();
+        let attackedAnyEnemyInPass = false;
+        let revealedAnyTrapInPass = false;
+        let ruinedAnyTrapInPass = false;
+
+        for (const offset of offsets) {
+            const targetX = this.player.x + offset.dx;
+            const targetY = this.player.y + offset.dy;
+
+            if (typeof this.world.getTrap === 'function') {
+                const trapType = this.world.getTrap(targetX, targetY);
+                if (trapType) {
+                    if (hasRuinTraps && typeof this.world.removeTrap === 'function') {
+                        this.world.removeTrap(targetX, targetY);
+                        ruinedAnyTrapInPass = true;
+                    } else if (typeof this.world.revealTrap === 'function') {
+                        const alreadyRevealed = typeof this.world.isTrapRevealed === 'function'
+                            ? this.world.isTrapRevealed(targetX, targetY)
+                            : false;
+                        this.world.revealTrap(targetX, targetY);
+                        if (!alreadyRevealed) {
+                            revealedAnyTrapInPass = true;
+                        }
+                    }
+                }
+            }
+
+            const enemyOnTarget = this.world.getEnemyAt(targetX, targetY);
+            if (!enemyOnTarget) {
+                continue;
+            }
+
+            const enemyKey = `${enemyOnTarget.x},${enemyOnTarget.y},${enemyOnTarget.name}`;
+            if (attackedEnemyKeys.has(enemyKey)) {
+                continue;
+            }
+            attackedEnemyKeys.add(enemyKey);
+
+            attackedAnyEnemyInPass = true;
+            const attackResult = this.player.attackEnemy(enemyOnTarget);
+            const { damage, critical, inflictedConditions } = this.extractAttackResultData(attackResult);
+            const criticalPrefix = critical ? 'Critical! ' : '';
+            this.ui.addMessage(`${criticalPrefix}You attack ${enemyOnTarget.name} for ${damage}.`);
+            this.announceInflictedConditions(enemyOnTarget.name, inflictedConditions);
+
+            if (hasKnockback && damage > 0 && enemyOnTarget.isAlive() && Math.random() < 0.25) {
+                const knockedBack = this.tryKnockbackEnemy(enemyOnTarget, this.player.x, this.player.y);
+                if (knockedBack) {
+                    this.ui.addMessage(`${enemyOnTarget.name} is knocked back.`);
+                }
+            }
+
+            if (!enemyOnTarget.isAlive()) {
+                this.handleEnemyDefeat(enemyOnTarget, { announceDefeat: true });
+            }
+        }
+
+        return {
+            attackedAnyEnemyInPass,
+            revealedAnyTrapInPass,
+            ruinedAnyTrapInPass
+        };
+    }
+
+    handlePlayerAttackTurn(input) {
+        const attackDx = Number(input.dx) || 0;
+        const attackDy = Number(input.dy) || 0;
+        if (attackDx === 0 && attackDy === 0) {
+            return false;
+        }
+
+        this.lookTowards(attackDx, attackDy);
+
+        // Pre-turn status tick
+        this.player.tickConditions();
+
+        const offsets = this.getAttackOffsetsForFacing(attackDx, attackDy);
+        const hasKnockback = this.playerHasEnchantment('knockback');
+        const hasRuinTraps = this.playerHasEnchantment('ruinTraps');
+
+        const primaryPass = this.executePlayerAttackPass(offsets, { hasKnockback, hasRuinTraps });
+        let attackedAnyEnemy = primaryPass.attackedAnyEnemyInPass;
+        let revealedAnyTrap = primaryPass.revealedAnyTrapInPass;
+        let ruinedAnyTrap = primaryPass.ruinedAnyTrapInPass;
+
+        const rapidStrikeTriggered = this.playerHasEnchantment('rapidStrike') && Math.random() < 0.25;
+        if (rapidStrikeTriggered) {
+            this.ui.addMessage('Rapid strike triggers!');
+            const extraPass = this.executePlayerAttackPass(offsets, { hasKnockback, hasRuinTraps });
+            attackedAnyEnemy = attackedAnyEnemy || extraPass.attackedAnyEnemyInPass;
+            revealedAnyTrap = revealedAnyTrap || extraPass.revealedAnyTrapInPass;
+            ruinedAnyTrap = ruinedAnyTrap || extraPass.ruinedAnyTrapInPass;
+        }
+
+        if (revealedAnyTrap) {
+            this.ui.addMessage('You reveal a hidden trap.');
+        }
+
+        if (ruinedAnyTrap) {
+            this.ui.addMessage('You destroy a trap with Ruin traps.');
+        }
+
+        if (!attackedAnyEnemy) {
+            this.ui.addMessage('You swing at empty space.');
+        }
+
+        this.clearFailedMoveRecord();
         return true;
     }
 
     processPlayerBerserkTurn() {
-        const actors = this.world.getEnemies().filter((enemy) => {
-            if (!enemy || !enemy.isAlive()) {
-                return false;
-            }
+        const target = this.getNearestPlayerBerserkTarget();
 
-            return !(typeof enemy.hasCondition === 'function' && enemy.hasCondition(CONDITIONS.INVISIBLE));
-        });
-
-        if (actors.length === 0) {
+        if (!target) {
             this.player.tickConditions();
             this.ui.addMessage('You rage, but there is nothing to attack.');
             return true;
         }
-
-        actors.sort((left, right) => {
-            const leftDistance = distance(this.player.x, this.player.y, left.x, left.y);
-            const rightDistance = distance(this.player.x, this.player.y, right.x, right.y);
-            return leftDistance - rightDistance;
-        });
-
-        const target = actors[0];
         const dx = Math.sign(target.x - this.player.x);
         const dy = Math.sign(target.y - this.player.y);
 
@@ -1085,14 +1078,7 @@ class Game {
         this.lookTowards(dx, dy);
 
         if (distance(this.player.x, this.player.y, target.x, target.y) <= 1.5) {
-            const attackResult = this.player.attackEnemy(target);
-            const { damage, critical, inflictedConditions } = this.extractAttackResultData(attackResult);
-            const criticalPrefix = critical ? 'Critical! ' : '';
-            this.ui.addMessage(`${criticalPrefix}You berserk attack ${target.name} for ${damage}.`);
-            this.announceInflictedConditions(target.name, inflictedConditions);
-            if (!target.isAlive()) {
-                this.handleEnemyDefeat(target, { announceDefeat: true });
-            }
+            this.resolvePlayerBerserkMeleeAttack(target);
             return true;
         }
 
@@ -1117,6 +1103,35 @@ class Game {
 
         this.ui.addMessage('You rage, but your path is blocked.');
         return true;
+    }
+
+    isPlayerBerserkTarget(enemy) {
+        if (!enemy || !enemy.isAlive()) {
+            return false;
+        }
+
+        if (this.isNeutralNpcEnemy(enemy)) {
+            return false;
+        }
+
+        return !(typeof enemy.hasCondition === 'function' && enemy.hasCondition(CONDITIONS.INVISIBLE));
+    }
+
+    getNearestPlayerBerserkTarget() {
+        const candidates = this.world.getEnemies().filter((enemy) => this.isPlayerBerserkTarget(enemy));
+
+        return getNearestByDistance(this.player.x, this.player.y, candidates);
+    }
+
+    resolvePlayerBerserkMeleeAttack(target) {
+        const attackResult = this.player.attackEnemy(target);
+        const { damage, critical, inflictedConditions } = this.extractAttackResultData(attackResult);
+        const criticalPrefix = critical ? 'Critical! ' : '';
+        this.ui.addMessage(`${criticalPrefix}You berserk attack ${target.name} for ${damage}.`);
+        this.announceInflictedConditions(target.name, inflictedConditions);
+        if (!target.isAlive()) {
+            this.handleEnemyDefeat(target, { announceDefeat: true });
+        }
     }
 
     findPathForPlayer(targetX, targetY) {
@@ -1428,6 +1443,29 @@ class Game {
         }
     }
 
+    dropAndAnnounceEnemyItems(enemy, items, action, options = {}) {
+        if (!enemy || !Array.isArray(items) || items.length === 0) {
+            return [];
+        }
+
+        const dropResults = this.dropItemsNearEnemy(enemy, items);
+        this.announceActorDropList(enemy.name, action, dropResults, options);
+        return dropResults;
+    }
+
+    announcePickupSummary(pickupResult, singleFormatter, multiFormatter) {
+        if (!pickupResult || pickupResult.count === 0) {
+            return;
+        }
+
+        if (pickupResult.count === 1) {
+            this.ui.addMessage(singleFormatter(pickupResult.names[0]));
+            return;
+        }
+
+        this.ui.addMessage(multiFormatter(pickupResult.count));
+    }
+
     announceThrowHitOutcome(itemLabel, result) {
         this.ui.addMessage(`${itemLabel} hits ${result.enemy.name}.`);
         if ((result.damage || 0) > 0) {
@@ -1602,8 +1640,19 @@ class Game {
         if (result.type === 'attack-enemy' && result.target) {
             this.announceCombatHit(enemy.name, result.target.name, result.damage);
             if (!result.target.isAlive()) {
+                const defeatedExp = Math.max(0, Math.floor(Number(result.target.exp) || 0));
                 this.handleEnemyDefeat(result.target, { announceDefeat: true, grantExp: false });
-                if (!enemy.isAlly) {
+                if (enemy.isAlly) {
+                    const allyLevelUps = typeof enemy.addAllyExp === 'function'
+                        ? enemy.addAllyExp(defeatedExp)
+                        : 0;
+                    if (defeatedExp > 0) {
+                        this.ui.addMessage(`${enemy.name} gains ${defeatedExp} EXP.`);
+                    }
+                    if (allyLevelUps > 0) {
+                        this.ui.addMessage(`${enemy.name} leveled up to Lv ${enemy.allyLevel}!`);
+                    }
+                } else {
                     const promotionResult = this.tryPromoteEnemyAfterKill(enemy);
                     if (promotionResult) {
                         this.ui.addMessage(`${enemy.name} grows stronger and becomes ${promotionResult.newName}.`);
@@ -1650,24 +1699,21 @@ class Game {
         }
 
         if (enemy.heldItem) {
-            const heldDropResult = this.dropItemsNearEnemy(enemy, [enemy.heldItem]);
+            this.dropAndAnnounceEnemyItems(enemy, [enemy.heldItem], 'drops');
             enemy.heldItem = null;
-            this.announceActorDropList(enemy.name, 'drops', heldDropResult);
         }
 
         const swallowedItems = enemy.swallowedItems instanceof Map
             ? Array.from(enemy.swallowedItems.values())
             : [];
         if (swallowedItems.length > 0) {
-            const droppedSwallowedItems = this.dropItemsNearEnemy(enemy, swallowedItems);
+            this.dropAndAnnounceEnemyItems(enemy, swallowedItems, 'releases');
             enemy.swallowedItems.clear();
-            this.announceActorDropList(enemy.name, 'releases', droppedSwallowedItems);
         }
 
         const guaranteedDrops = this.getGuaranteedEnemyDrops(enemy);
         if (guaranteedDrops.length > 0) {
-            const guaranteedDropResults = this.dropItemsNearEnemy(enemy, guaranteedDrops);
-            this.announceActorDropList(enemy.name, 'drops', guaranteedDropResults);
+            this.dropAndAnnounceEnemyItems(enemy, guaranteedDrops, 'drops');
         }
 
         const droppedItem = this.rollEnemyDrop(enemy);
@@ -1710,18 +1756,18 @@ class Game {
         return this.createRandomItemForFloor(rng, this.getDungeonDepthIndex(), { forEnemyDrop: true, dropEnemy: enemy });
     }
 
+    pickupAndAnnounceAtPosition(x, y, singleFormatter, multiFormatter) {
+        const pickupResult = this.pickupItemsAtPosition(x, y);
+        this.announcePickupSummary(pickupResult, singleFormatter, multiFormatter);
+    }
+
     pickupItemsAtPlayerPosition() {
-        const pickupResult = this.pickupItemsAtPosition(this.player.x, this.player.y);
-        if (pickupResult.count === 0) {
-            return;
-        }
-
-        if (pickupResult.count === 1) {
-            this.ui.addMessage(`Picked up ${pickupResult.names[0]}.`);
-            return;
-        }
-
-        this.ui.addMessage(`Picked up ${pickupResult.count} items.`);
+        this.pickupAndAnnounceAtPosition(
+            this.player.x,
+            this.player.y,
+            (name) => `Picked up ${name}.`,
+            (count) => `Picked up ${count} items.`
+        );
     }
 
     pickupItemsAfterMove(targetX, targetY) {
@@ -1731,17 +1777,12 @@ class Game {
             return;
         }
 
-        const pickupResult = this.pickupItemsAtPosition(targetX, targetY);
-        if (pickupResult.count === 0) {
-            return;
-        }
-
-        if (pickupResult.count === 1) {
-            this.ui.addMessage(`You grab ${pickupResult.names[0]} as you are swept away.`);
-            return;
-        }
-
-        this.ui.addMessage(`You grab ${pickupResult.count} items as you are swept away.`);
+        this.pickupAndAnnounceAtPosition(
+            targetX,
+            targetY,
+            (name) => `You grab ${name} as you are swept away.`,
+            (count) => `You grab ${count} items as you are swept away.`
+        );
     }
 
     pickupItemsAtPosition(x, y) {
@@ -1772,11 +1813,16 @@ class Game {
     }
 
     worldAdvance() {
-        const activatedSteam = this.world.advanceHazards();
+        const activatedSteam = new Set(this.world.advanceHazards());
+        const steamDamage = getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0);
+        const applySteamDamage = (actor) => {
+            actor.takeDamage(steamDamage, null, { armorEffectiveness: 0.5 });
+        };
+
         const playerKey = toGridKey(this.player.x, this.player.y);
         const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
-        if (activatedSteam.includes(playerKey)) {
-            this.player.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0), null, { armorEffectiveness: 0.5 });
+        if (activatedSteam.has(playerKey)) {
+            applySteamDamage(this.player);
             if (steamRule?.message) {
                 this.ui.addMessage(steamRule.message);
             }
@@ -1784,11 +1830,11 @@ class Game {
 
         for (const enemy of [...this.world.getEnemies()]) {
             const enemyKey = toGridKey(enemy.x, enemy.y);
-            if (!activatedSteam.includes(enemyKey)) {
+            if (!activatedSteam.has(enemyKey)) {
                 continue;
             }
 
-            enemy.takeDamage(getEnvironmentalDamageForHazard(HAZARD_TYPES.STEAM, 0), null, { armorEffectiveness: 0.5 });
+            applySteamDamage(enemy);
             if (!enemy.isAlive()) {
                 this.handleEnemyDefeat(enemy, { announceDefeat: true, grantExp: false });
             }

@@ -14,6 +14,9 @@ class Enemy {
         this.power = stats.power || 5;
         this.armor = stats.armor || 0;
         this.exp = stats.exp || 0;
+        this.allyExp = Math.max(0, Math.floor(Number(stats.allyExp) || 0));
+        this.allyLevel = Math.max(1, Math.floor(Number(stats.allyLevel) || 1));
+        this.allyExpToNextLevel = this.getAllyExpToNextLevel();
         this.fovRange = stats.fovRange || 10;
         this.tameThreshold = stats.tameThreshold || 4;
         this.speed = this.normalizeSpeed(stats.speed);
@@ -67,7 +70,7 @@ class Enemy {
     }
 
     isNeutralNpcActor(actor) {
-        return Boolean(actor && typeof actor.isNeutralNpc === 'function' && actor.isNeutralNpc());
+        return isNeutralNpcActor(actor);
     }
 
     isVandal() {
@@ -86,16 +89,18 @@ class Enemy {
         return Boolean(this.heldItem);
     }
 
-    getVandalTier() {
-        const match = String(this.monsterType || '').match(/vandalTier(\d+)/i);
+    getTierFromMonsterType(regex, fallbackTier = 1) {
+        const match = String(this.monsterType || '').match(regex);
         const parsedTier = match ? Number(match[1]) : NaN;
-        return Number.isFinite(parsedTier) ? parsedTier : 1;
+        return Number.isFinite(parsedTier) ? Math.max(1, parsedTier) : fallbackTier;
+    }
+
+    getVandalTier() {
+        return this.getTierFromMonsterType(/vandalTier(\d+)/i, 1);
     }
 
     getThiefTier() {
-        const match = String(this.monsterType || '').match(/thiefTier(\d+)/i);
-        const parsedTier = match ? Number(match[1]) : NaN;
-        return Number.isFinite(parsedTier) ? parsedTier : 1;
+        return this.getTierFromMonsterType(/thiefTier(\d+)/i, 1);
     }
 
     getThiefStealConfig() {
@@ -119,16 +124,25 @@ class Enemy {
     }
 
     tryTeleportToRandomOpenTile(world, player, avoidDamagingTiles, maxAttempts = 200) {
+        if (world && typeof world.findRandomTile === 'function') {
+            const rng = createMathRng();
+            const tile = world.findRandomTile(rng, maxAttempts, (x, y) => this.canOccupyTile(world, x, y, player, { avoidDamagingTiles }));
+            if (tile) {
+                this.x = tile.x;
+                this.y = tile.y;
+                return true;
+            }
+            return false;
+        }
+
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             const x = randomInt(1, GRID_SIZE - 2);
             const y = randomInt(1, GRID_SIZE - 2);
-            if (!this.canOccupyTile(world, x, y, player, { avoidDamagingTiles })) {
-                continue;
+            if (this.canOccupyTile(world, x, y, player, { avoidDamagingTiles })) {
+                this.x = x;
+                this.y = y;
+                return true;
             }
-
-            this.x = x;
-            this.y = y;
-            return true;
         }
 
         return false;
@@ -342,22 +356,12 @@ class Enemy {
     }
 
     getNearestTargetFromCandidates(candidates, shouldConsiderTarget) {
-        let nearest = null;
-        let nearestDistance = Infinity;
-
-        for (const candidate of candidates) {
-            if (!shouldConsiderTarget(candidate)) {
-                continue;
-            }
-
-            const candidateDistance = distance(this.x, this.y, candidate.x, candidate.y);
-            if (candidateDistance < nearestDistance) {
-                nearest = candidate;
-                nearestDistance = candidateDistance;
-            }
-        }
-
-        return nearest;
+        return getNearestByDistance(
+            this.x,
+            this.y,
+            candidates,
+            shouldConsiderTarget
+        );
     }
 
     getNearestVisiblePariah(world) {
@@ -377,43 +381,52 @@ class Enemy {
         return nearest;
     }
 
+    getPlayerSideActorAt(world, player, x, y) {
+        if (player && player.x === x && player.y === y) {
+            return { kind: 'player', target: player };
+        }
+        const actorAtPos = world.getEnemyAt(x, y, this);
+        if (actorAtPos && actorAtPos.isAlly) {
+            return { kind: 'ally', target: actorAtPos };
+        }
+        return null;
+    }
+
     getVisibleHostileTarget(world, player) {
         if (this.turnCache?.visibleHostileTarget !== undefined) {
             return this.turnCache.visibleHostileTarget;
         }
 
+        const candidates = [];
+
         const pariah = this.getNearestVisiblePariah(world);
         if (pariah) {
-            const visibleTarget = {
-                kind: 'enemy',
-                target: pariah,
-                x: pariah.x,
-                y: pariah.y
-            };
-            if (this.turnCache) {
-                this.turnCache.visibleHostileTarget = visibleTarget;
-            }
-            return visibleTarget;
+            candidates.push({ kind: 'enemy', target: pariah, x: pariah.x, y: pariah.y });
         }
 
         if (this.canSeeActor(world, player)) {
-            const visibleTarget = {
-                kind: 'player',
-                target: player,
-                x: player.x,
-                y: player.y
-            };
-            if (this.turnCache) {
-                this.turnCache.visibleHostileTarget = visibleTarget;
-            }
-            return visibleTarget;
+            candidates.push({ kind: 'player', target: player, x: player.x, y: player.y });
         }
+
+        if (!this.isAlly && world && typeof world.getEnemies === 'function') {
+            for (const enemy of world.getEnemies()) {
+                if (!enemy || enemy === this || !enemy.isAlly || !isActorAlive(enemy)) {
+                    continue;
+                }
+                if (!this.canSeeActor(world, enemy)) {
+                    continue;
+                }
+                candidates.push({ kind: 'ally', target: enemy, x: enemy.x, y: enemy.y });
+            }
+        }
+
+        const nearest = getNearestByDistance(this.x, this.y, candidates);
 
         if (this.turnCache) {
-            this.turnCache.visibleHostileTarget = null;
+            this.turnCache.visibleHostileTarget = nearest;
         }
 
-        return null;
+        return nearest;
     }
 
     getGuardFollowTarget(world, player) {
@@ -436,10 +449,9 @@ class Enemy {
     }
 
     getNearestVisibleGuardEnemy(world, player) {
-        let nearest = null;
-        let nearestDistance = Infinity;
+        const candidates = [];
 
-        const considerTarget = (kind, target) => {
+        const addCandidateTarget = (kind, target) => {
             if (!target || typeof target.isAlive !== 'function' || !target.isAlive()) {
                 return;
             }
@@ -452,11 +464,7 @@ class Enemy {
                 return;
             }
 
-            const targetDistance = distance(this.x, this.y, target.x, target.y);
-            if (targetDistance < nearestDistance) {
-                nearest = { kind, target, x: target.x, y: target.y };
-                nearestDistance = targetDistance;
-            }
+            candidates.push({ kind, target, x: target.x, y: target.y });
         };
 
         if (this.isAlly) {
@@ -466,26 +474,50 @@ class Enemy {
                         continue;
                     }
 
-                    considerTarget('enemy', enemy);
+                    addCandidateTarget('enemy', enemy);
                 }
             }
 
-            return nearest;
+            return getNearestByDistance(this.x, this.y, candidates);
         }
 
-        considerTarget('player', player);
+        addCandidateTarget('player', player);
 
         if (world && typeof world.getEnemies === 'function') {
             for (const enemy of world.getEnemies()) {
                 if (!enemy || enemy === this || !enemy.isAlly) {
                     continue;
                 }
-
-                considerTarget('enemy', enemy);
+                addCandidateTarget('ally', enemy);
             }
         }
 
-        return nearest;
+        return getNearestByDistance(this.x, this.y, candidates);
+    }
+
+    isBerserkTargetCandidate(target) {
+        return Boolean(
+            target
+            && target !== this
+            && isActorAlive(target)
+            && !this.isNeutralNpcActor(target)
+        );
+    }
+
+    getBerserkMeleeAction(target, player, world, targetDistance) {
+        if (target === player && !this.isAlly && this.isVandal() && targetDistance <= this.getVandalAttackRange()) {
+            return this.performVandalRangedAttack(world, player);
+        }
+
+        if (targetDistance > 1.5) {
+            return null;
+        }
+
+        if (target === player) {
+            return this.performPlayerAttackOrThiefSteal(world, player);
+        }
+
+        return this.createAttackEnemyResult(target);
     }
 
     getNearestBerserkTarget(world, player) {
@@ -496,11 +528,7 @@ class Enemy {
         }
 
         for (const enemy of world.getEnemies()) {
-            if (enemy === this || !isActorAlive(enemy)) {
-                continue;
-            }
-
-            if (this.isNeutralNpcActor(enemy)) {
+            if (!this.isBerserkTargetCandidate(enemy)) {
                 continue;
             }
 
@@ -554,8 +582,10 @@ class Enemy {
 
         if (this.conditions.has(CONDITIONS.SLEEP)) {
             this.tickConditions();
+            const sleepResult = { type: 'sleep' };
+            this.regenerateOnNonAttackTurn(sleepResult);
             this.applyEnvironmentEffects(world);
-            return { type: 'sleep' };
+            return sleepResult;
         }
 
         // Pre-turn status tick
@@ -565,10 +595,40 @@ class Enemy {
 
         // Action
         const actionResult = this.performAction(world, player);
+        this.regenerateOnNonAttackTurn(actionResult);
 
         this.applyEnvironmentEffects(world);
 
         return actionResult;
+    }
+
+    didAttackThisTurn(actionResult) {
+        const resultType = actionResult?.type;
+        if (typeof resultType !== 'string') {
+            return false;
+        }
+
+        if (resultType.startsWith('attack-')) {
+            return true;
+        }
+
+        return resultType === 'vandal-ranged-attack' || resultType === 'thief-steal';
+    }
+
+    regenerateOnNonAttackTurn(actionResult) {
+        if (!this.isAlive()) {
+            return;
+        }
+
+        if (this.didAttackThisTurn(actionResult)) {
+            return;
+        }
+
+        if (this.health >= this.maxHealth) {
+            return;
+        }
+
+        this.heal(1);
     }
 
     tickConditions() {
@@ -641,7 +701,7 @@ class Enemy {
 
         const visibleHostile = this.getVisibleHostileTarget(world, player);
         if (visibleHostile) {
-            this.lastHostilePos = { x: visibleHostile.x, y: visibleHostile.y };
+            this.rememberLastHostilePos(visibleHostile);
             return AI_TYPES.CHASE;
         }
 
@@ -656,6 +716,14 @@ class Enemy {
         }
 
         return this.baseAiType;
+    }
+
+    rememberLastHostilePos(target) {
+        if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) {
+            return;
+        }
+
+        this.lastHostilePos = { x: target.x, y: target.y };
     }
 
     getStatusAiOverride() {
@@ -685,8 +753,7 @@ class Enemy {
             return this.turnCache.nearestVisibleGroundItem;
         }
 
-        let nearest = null;
-        let nearestDistance = Infinity;
+        const candidates = [];
         for (const [key, items] of world.getCurrentFloor().items.entries()) {
             if (!Array.isArray(items) || items.length === 0) {
                 continue;
@@ -697,12 +764,10 @@ class Enemy {
                 continue;
             }
 
-            const itemDistance = distance(this.x, this.y, x, y);
-            if (itemDistance < nearestDistance) {
-                nearest = { x, y, item: items[0] };
-                nearestDistance = itemDistance;
-            }
+            candidates.push({ x, y, item: items[0] });
         }
+
+        const nearest = getNearestByDistance(this.x, this.y, candidates);
 
         if (this.turnCache) {
             this.turnCache.nearestVisibleGroundItem = nearest;
@@ -720,23 +785,16 @@ class Enemy {
             return this.turnCache.nearestVisibleDisposalTile;
         }
 
-        let nearest = null;
-        let nearestDistance = Infinity;
         const disposalTiles = typeof world.getDisposalTiles === 'function'
             ? world.getDisposalTiles()
             : [];
 
-        for (const disposalTile of disposalTiles) {
-            if (!this.canSeePosition(world, disposalTile.x, disposalTile.y)) {
-                continue;
-            }
-
-            const tileDistance = distance(this.x, this.y, disposalTile.x, disposalTile.y);
-            if (tileDistance < nearestDistance) {
-                nearest = disposalTile;
-                nearestDistance = tileDistance;
-            }
-        }
+        const nearest = getNearestByDistance(
+            this.x,
+            this.y,
+            disposalTiles,
+            (disposalTile) => this.canSeePosition(world, disposalTile.x, disposalTile.y)
+        );
 
         if (this.turnCache) {
             this.turnCache.nearestVisibleDisposalTile = nearest;
@@ -846,7 +904,7 @@ class Enemy {
             return null;
         }
 
-        const trapType = trapTypes[randomInt(0, trapTypes.length - 1)];
+        const trapType = pickRandom(trapTypes);
         const placed = typeof world.setTrap === 'function'
             ? world.setTrap(this.x, this.y, trapType, true)
             : false;
@@ -864,10 +922,7 @@ class Enemy {
     }
 
     applyEnvironmentEffects(world) {
-        const tile = world.getTile(this.x, this.y);
-        const hazard = typeof world.getHazard === 'function' ? world.getHazard(this.x, this.y) : null;
-        const tileDamage = getEnvironmentalDamageForTile(tile, 0);
-        const hazardDamage = getEnvironmentalDamageForHazard(hazard, 0);
+        const { tile, hazard, tileDamage, hazardDamage } = this.getEnvironmentalDamageProfile(world, this.x, this.y);
 
         if (tileDamage > 0 && !isEnemyTypeImmuneToTileEffect(tile, this.creatureTypes)) {
             const armorEffectiveness =
@@ -883,11 +938,17 @@ class Enemy {
         }
     }
 
-    isDamagingPosition(world, x, y) {
+    getEnvironmentalDamageProfile(world, x, y) {
         const tile = world.getTile(x, y);
         const hazard = typeof world.getHazard === 'function' ? world.getHazard(x, y) : null;
         const tileDamage = getEnvironmentalDamageForTile(tile, 0);
         const hazardDamage = getEnvironmentalDamageForHazard(hazard, 0);
+
+        return { tile, hazard, tileDamage, hazardDamage };
+    }
+
+    isDamagingPosition(world, x, y) {
+        const { tile, tileDamage, hazardDamage } = this.getEnvironmentalDamageProfile(world, x, y);
 
         if (hazardDamage > 0) {
             return true;
@@ -940,7 +1001,7 @@ class Enemy {
     performChaseAction(world, player) {
         const visibleHostile = this.getVisibleHostileTarget(world, player);
         if (visibleHostile) {
-            this.lastHostilePos = { x: visibleHostile.x, y: visibleHostile.y };
+            this.rememberLastHostilePos(visibleHostile);
 
             const meleeRange = distance(this.x, this.y, visibleHostile.x, visibleHostile.y);
             if (visibleHostile.kind === 'player' && !this.isAlly && this.isVandal() && meleeRange <= this.getVandalAttackRange()) {
@@ -1017,29 +1078,24 @@ class Enemy {
         }
 
         const targetDistance = distance(this.x, this.y, target.x, target.y);
-        if (target === player && !this.isAlly && this.isVandal() && targetDistance <= this.getVandalAttackRange()) {
-            return this.performVandalRangedAttack(world, player);
+        const meleeAction = this.getBerserkMeleeAction(target, player, world, targetDistance);
+        if (meleeAction) {
+            return meleeAction;
         }
 
-        if (targetDistance <= 1.5) {
-            if (target === player) {
-                return this.performPlayerAttackOrThiefSteal(world, player);
-            }
-
-            return this.createAttackEnemyResult(target);
-        }
-
-        this.lastHostilePos = { x: target.x, y: target.y };
+        this.rememberLastHostilePos(target);
         return this.tryMoveTowardTarget(world, target.x, target.y, player);
     }
 
     getAdjacentHostileAction(world, player, neighbor) {
-        if (player && !this.isAlly && neighbor.x === player.x && neighbor.y === player.y) {
+        const isBerserk = this.conditions.has(CONDITIONS.BERSERK);
+
+        if (player && (isBerserk || !this.isAlly) && neighbor.x === player.x && neighbor.y === player.y) {
             return this.performPlayerAttackOrThiefSteal(world, player);
         }
 
         const blockingEnemy = world.getEnemyAt(neighbor.x, neighbor.y, this);
-        if (blockingEnemy && !this.isNeutralNpcActor(blockingEnemy)) {
+        if (blockingEnemy && !this.isNeutralNpcActor(blockingEnemy) && (isBerserk || this.isAlly !== blockingEnemy.isAlly)) {
             return this.createAttackEnemyResult(blockingEnemy);
         }
 
@@ -1081,6 +1137,18 @@ class Enemy {
             return { x: this.x, y: this.y };
         }
 
+        if (typeof world.findRandomFloorTile === 'function') {
+            const rng = createMathRng();
+            const tile = world.findRandomFloorTile(rng, 200);
+            return tile || { x: this.x, y: this.y };
+        }
+
+        if (typeof world.findRandomTile === 'function') {
+            const rng = createMathRng();
+            const tile = world.findRandomTile(rng, 200, (x, y) => world.getTile(x, y) === TILE_TYPES.FLOOR);
+            return tile || { x: this.x, y: this.y };
+        }
+
         for (let attempt = 0; attempt < 200; attempt++) {
             const x = randomInt(1, GRID_SIZE - 2);
             const y = randomInt(1, GRID_SIZE - 2);
@@ -1117,14 +1185,34 @@ class Enemy {
         return steps;
     }
 
+    shouldNeutralNpcYieldToOccupiedStep(world, player, x, y) {
+        if (!this.isNeutralNpc()) {
+            return false;
+        }
+
+        if (player && player.x === x && player.y === y) {
+            return true;
+        }
+
+        return Boolean(world.getEnemyAt(x, y, this));
+    }
+
     tryDirectMoveTowardTarget(world, targetX, targetY, player = null) {
         const candidateSteps = this.getPreferredMoveSteps(targetX, targetY);
 
         for (const avoidDamagingTiles of [true, false]) {
             for (const step of candidateSteps) {
-                if (player && step.x === player.x && step.y === player.y) {
+                if (this.shouldNeutralNpcYieldToOccupiedStep(world, player, step.x, step.y)) {
+                    return { type: 'wait' };
+                }
+
+                const playerSideActor = this.getPlayerSideActorAt(world, player, step.x, step.y);
+                if (playerSideActor) {
                     if (!this.isAlly) {
-                        return this.performPlayerAttackOrThiefSteal(world, player);
+                        if (playerSideActor.kind === 'player') {
+                            return this.performPlayerAttackOrThiefSteal(world, player);
+                        }
+                        return this.createAttackEnemyResult(playerSideActor.target);
                     }
                     continue;
                 }
@@ -1156,16 +1244,21 @@ class Enemy {
             return directMove;
         }
 
-        let path = this.findPath(world, targetX, targetY, { avoidDamagingTiles: true });
-        if (!path) {
-            path = this.findPath(world, targetX, targetY, { avoidDamagingTiles: false });
-        }
+        const path = this.findPath(world, targetX, targetY, { avoidDamagingTiles: true });
         if (path && path.length > 1) {
             const next = path[1];
 
-            if (player && next.x === player.x && next.y === player.y) {
+            if (this.shouldNeutralNpcYieldToOccupiedStep(world, player, next.x, next.y)) {
+                return { type: 'wait' };
+            }
+
+            const playerSideActor = this.getPlayerSideActorAt(world, player, next.x, next.y);
+            if (playerSideActor) {
                 if (!this.isAlly) {
-                    return this.performPlayerAttackOrThiefSteal(world, player);
+                    if (playerSideActor.kind === 'player') {
+                        return this.performPlayerAttackOrThiefSteal(world, player);
+                    }
+                    return this.createAttackEnemyResult(playerSideActor.target);
                 }
                 return { type: 'blocked' };
             }
@@ -1193,11 +1286,69 @@ class Enemy {
         return this.tameThreshold;
     }
 
+    getMonsterTier() {
+        return this.getTierFromMonsterType(/Tier(\d+)/i, 1);
+    }
+
+    getAllyExpProgressionMultiplier() {
+        const tier = this.getMonsterTier();
+        if (tier <= 1) {
+            return 1;
+        }
+
+        return 1 + (tier - 1) * 0.5;
+    }
+
+    getAllyExpToNextLevel() {
+        const baseRequirement = getExpRequiredForPlayerLevel(this.allyLevel + 1);
+        const scaledRequirement = Math.floor(baseRequirement * this.getAllyExpProgressionMultiplier());
+        return Math.max(1, scaledRequirement);
+    }
+
+    applyAllyLevelUpRewards() {
+        this.maxHealth += 3;
+        this.health = Math.min(this.maxHealth, this.health + 3);
+        this.power += 1;
+        if (this.allyLevel % 3 === 0) {
+            this.armor += 1;
+        }
+    }
+
+    allyLevelUpOnce() {
+        this.allyExp -= this.allyExpToNextLevel;
+        this.allyLevel += 1;
+        this.allyExpToNextLevel = this.getAllyExpToNextLevel();
+        this.applyAllyLevelUpRewards();
+    }
+
+    addAllyExp(amount) {
+        if (!this.isAlly) {
+            return 0;
+        }
+
+        const expAmount = Math.max(0, Math.floor(Number(amount) || 0));
+        if (expAmount <= 0) {
+            return 0;
+        }
+
+        this.allyExp += expAmount;
+        let levelUps = 0;
+        while (this.allyExp >= this.allyExpToNextLevel) {
+            this.allyLevelUpOnce();
+            levelUps += 1;
+        }
+
+        return levelUps;
+    }
+
     tame(tamer) {
         this.isAlly = true;
         this.tamedBy = tamer || null;
         this.baseAiType = AI_TYPES.GUARD;
         this.aiType = AI_TYPES.GUARD;
+        this.allyLevel = Math.max(1, Math.floor(Number(this.allyLevel) || 1));
+        this.allyExp = Math.max(0, Math.floor(Number(this.allyExp) || 0));
+        this.allyExpToNextLevel = this.getAllyExpToNextLevel();
         this.conditions.delete(CONDITIONS.FRIGHTENED);
         if (tamer && typeof tamer.addAlly === 'function') {
             tamer.addAlly(this);
@@ -1278,11 +1429,16 @@ class Enemy {
 
     findPath(world, targetX, targetY, options = {}) {
         const { avoidDamagingTiles = false } = options;
+        // When avoiding damaging tiles is preferred, use a single weighted search:
+        // damaging tiles are traversable but carry a high cost so A* avoids them
+        // unless they are the only route — eliminating the need for a second pass.
+        const edgeCostFn = avoidDamagingTiles
+            ? (nx, ny) => this.canOccupyTile(world, nx, ny, null, { avoidDamagingTiles: true }) ? 1 : 20
+            : null;
         return findPathAStar(this.x, this.y, targetX, targetY, (nx, ny, isGoal) => {
             if (isGoal) return true;
-            if (!this.canOccupyTile(world, nx, ny, null, { avoidDamagingTiles })) return false;
-            return true;
-        });
+            return !!this.canOccupyTile(world, nx, ny, null, { avoidDamagingTiles: false });
+        }, edgeCostFn);
     }
 
     takeDamage(amount, attacker = null, options = {}) {

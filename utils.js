@@ -13,7 +13,7 @@ class SeededRNG {
     }
 
     randomInt(min, max) {
-        return Math.floor(this.next() * (max - min + 1)) + min;
+        return randomIntFromUnitRoll(this.next(), min, max);
     }
 }
 
@@ -85,12 +85,24 @@ class MinHeap {
     }
 }
 
+function randomIntFromUnitRoll(unitRoll, min, max) {
+    return Math.floor(unitRoll * (max - min + 1)) + min;
+}
+
+function hasCallableMethod(target, methodName) {
+    return Boolean(target && typeof target[methodName] === 'function');
+}
+
+function hasConditionMap(actor) {
+    return Boolean(actor && actor.conditions instanceof Map);
+}
+
 function randomInt(min, max) {
-    return Math.floor(Math.random() * (max - min + 1)) + min;
+    return randomIntFromUnitRoll(Math.random(), min, max);
 }
 
 function getRngRoll(rng = null) {
-    if (rng && typeof rng.next === 'function') {
+    if (hasCallableMethod(rng, 'next')) {
         return rng.next();
     }
 
@@ -98,7 +110,7 @@ function getRngRoll(rng = null) {
 }
 
 function getRngRandomInt(rng, min, max) {
-    if (rng && typeof rng.randomInt === 'function') {
+    if (hasCallableMethod(rng, 'randomInt')) {
         return rng.randomInt(min, max);
     }
 
@@ -112,12 +124,38 @@ function createMathRng() {
     };
 }
 
+function pickRandom(list, rng = null, fallback = null) {
+    if (!Array.isArray(list) || list.length === 0) {
+        return fallback;
+    }
+
+    const index = getRngRandomInt(rng, 0, list.length - 1);
+    return list[index];
+}
+
+function isNeutralNpcActor(actor) {
+    if (!actor) {
+        return false;
+    }
+
+    if (hasCallableMethod(actor, 'isNeutralNpc')) {
+        return actor.isNeutralNpc();
+    }
+
+    if (hasCallableMethod(actor, 'hasEnemyType')) {
+        return actor.hasEnemyType(ENEMY_TYPES.NPC);
+    }
+
+    return Array.isArray(actor.creatureTypes)
+        && actor.creatureTypes.includes(ENEMY_TYPES.NPC);
+}
+
 function getItemLabel(item, fallback = 'item') {
     if (!item) {
         return fallback;
     }
 
-    if (typeof item.getDisplayName === 'function') {
+    if (hasCallableMethod(item, 'getDisplayName')) {
         return item.getDisplayName();
     }
 
@@ -139,7 +177,7 @@ function normalizeDirection(dx, dy, fallback = { dx: 0, dy: -1 }) {
 }
 
 function getActorFacing(actor, fallback = { dx: 0, dy: -1 }) {
-    if (actor && typeof actor.getFacingDirection === 'function') {
+    if (hasCallableMethod(actor, 'getFacingDirection')) {
         const facing = actor.getFacingDirection();
         return normalizeDirection(facing?.dx, facing?.dy, fallback);
     }
@@ -148,7 +186,7 @@ function getActorFacing(actor, fallback = { dx: 0, dy: -1 }) {
 }
 
 function isActorAlive(actor) {
-    return Boolean(actor && typeof actor.isAlive === 'function' && actor.isAlive());
+    return Boolean(hasCallableMethod(actor, 'isAlive') && actor.isAlive());
 }
 
 function toGridKey(x, y) {
@@ -161,6 +199,25 @@ function fromGridKey(key) {
 
 function distance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+}
+
+function getNearestByDistance(originX, originY, candidates, shouldConsiderCandidate = () => true) {
+    let nearest = null;
+    let nearestDistance = Infinity;
+
+    for (const candidate of candidates || []) {
+        if (!shouldConsiderCandidate(candidate)) {
+            continue;
+        }
+
+        const candidateDistance = distance(originX, originY, candidate.x, candidate.y);
+        if (candidateDistance < nearestDistance) {
+            nearest = candidate;
+            nearestDistance = candidateDistance;
+        }
+    }
+
+    return nearest;
 }
 
 function clamp(value, min, max) {
@@ -194,7 +251,7 @@ function isValidPosition(x, y, grid) {
 
 function findNearestSafeTile(x, y, grid, floor) {
     // Simple BFS to find nearest safe tile
-    const queue = [{ x, y, dist: 0 }];
+    const queue = [{ x, y }];
     const visited = new Set();
     visited.add(toGridKey(x, y));
 
@@ -208,7 +265,7 @@ function findNearestSafeTile(x, y, grid, floor) {
             const key = toGridKey(neighbor.x, neighbor.y);
             if (!visited.has(key) && isValidPosition(neighbor.x, neighbor.y, grid)) {
                 visited.add(key);
-                queue.push({ ...neighbor, dist: current.dist + 1 });
+                queue.push(neighbor);
             }
         }
     }
@@ -223,7 +280,7 @@ function isSafeTile(x, y, grid) {
 }
 
 function actorAddCondition(actor, condition, duration = getConditionDuration(condition, 1)) {
-    if (!actor || !(actor.conditions instanceof Map)) {
+    if (!hasConditionMap(actor)) {
         return;
     }
 
@@ -231,11 +288,11 @@ function actorAddCondition(actor, condition, duration = getConditionDuration(con
 }
 
 function actorHasCondition(actor, condition) {
-    return Boolean(actor && actor.conditions instanceof Map && actor.conditions.has(condition));
+    return Boolean(hasConditionMap(actor) && actor.conditions.has(condition));
 }
 
 function actorResolveOnAttackedConditions(actor) {
-    if (!actor || !(actor.conditions instanceof Map)) {
+    if (!hasConditionMap(actor)) {
         return;
     }
 
@@ -244,7 +301,7 @@ function actorResolveOnAttackedConditions(actor) {
             continue;
         }
 
-        if (typeof actor.removeCondition === 'function') {
+        if (hasCallableMethod(actor, 'removeCondition')) {
             actor.removeCondition(condition);
         } else {
             actor.conditions.delete(condition);
@@ -253,7 +310,7 @@ function actorResolveOnAttackedConditions(actor) {
 }
 
 // Shared A* pathfinding. canTraverseFn(x, y, isGoal) returns true if the tile can be entered.
-function findPathAStar(startX, startY, goalX, goalY, canTraverseFn) {
+function findPathAStar(startX, startY, goalX, goalY, canTraverseFn, edgeCostFn = null) {
     const start = { x: startX, y: startY };
     const goal = { x: goalX, y: goalY };
     const openSet = new MinHeap((left, right) => left.fScore - right.fScore);
@@ -299,7 +356,8 @@ function findPathAStar(startX, startY, goalX, goalY, canTraverseFn) {
                 continue;
             }
 
-            const tentativeGScore = currentGScore + 1;
+            const edgeCost = edgeCostFn ? edgeCostFn(neighbor.x, neighbor.y) : 1;
+            const tentativeGScore = currentGScore + edgeCost;
 
             if (!gScore.has(neighborKey) || tentativeGScore < gScore.get(neighborKey)) {
                 cameFrom.set(neighborKey, current);

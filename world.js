@@ -186,7 +186,7 @@ class World {
 
     carveHallwayBetweenPoints(grid, from, to, rng, roomTileKeys, hallwayTileKeys) {
         const carveCell = (x, y) => {
-            if (x <= 0 || x >= GRID_SIZE - 1 || y <= 0 || y >= GRID_SIZE - 1) {
+            if (!this.isWithinInteriorBounds(x, y)) {
                 return;
             }
 
@@ -261,7 +261,7 @@ class World {
                 continue;
             }
 
-            const replacement = hallwayHazardTiles[rng.randomInt(0, hallwayHazardTiles.length - 1)];
+            const replacement = pickRandom(hallwayHazardTiles, rng, TILE_TYPES.FLOOR);
             grid[y][x] = replacement;
         }
     }
@@ -272,24 +272,18 @@ class World {
             y: Math.floor(GRID_SIZE / 2)
         };
 
-        let best = null;
-        let bestDistance = Infinity;
+        const floorCandidates = [];
         for (let y = 1; y < GRID_SIZE - 1; y++) {
             for (let x = 1; x < GRID_SIZE - 1; x++) {
-                const tile = grid[y][x];
-                if (tile !== TILE_TYPES.FLOOR) {
+                if (!this.isFloorTile(grid, x, y)) {
                     continue;
                 }
 
-                const currentDistance = distance(x, y, center.x, center.y);
-                if (currentDistance < bestDistance) {
-                    best = { x, y };
-                    bestDistance = currentDistance;
-                }
+                floorCandidates.push({ x, y });
             }
         }
 
-        return best;
+        return getNearestByDistance(center.x, center.y, floorCandidates);
     }
 
     findCardinalPathKeys(grid, start, goal, canTraverseTile) {
@@ -408,7 +402,7 @@ class World {
         return this.forEachShapeCell(shape, (rowIndex, colIndex) => {
             const x = startX + colIndex;
             const y = startY + rowIndex;
-            if (x <= 0 || x >= GRID_SIZE - 1 || y <= 0 || y >= GRID_SIZE - 1) return false;
+            if (!this.isWithinInteriorBounds(x, y)) return false;
             if (grid[y][x] === TILE_TYPES.STAIRS_UP || grid[y][x] === TILE_TYPES.STAIRS_DOWN) return false;
         });
     }
@@ -430,7 +424,7 @@ class World {
             }
 
             if (Array.isArray(replacementRule.choices) && replacementRule.choices.length > 0) {
-                return replacementRule.choices[rng.randomInt(0, replacementRule.choices.length - 1)];
+                return pickRandom(replacementRule.choices, rng, replacementRule.tile);
             }
 
             return replacementRule.tile;
@@ -457,7 +451,7 @@ class World {
 
                     return neighbor.x === x || neighbor.y === y;
                 });
-                const next = neighbors[rng.randomInt(0, neighbors.length - 1)];
+                const next = pickRandom(neighbors, rng, { x, y });
                 x = clamp(next.x, 1, GRID_SIZE - 2);
                 y = clamp(next.y, 1, GRID_SIZE - 2);
             }
@@ -488,7 +482,7 @@ class World {
                         continue;
                     }
 
-                    if (grid[y][x] === TILE_TYPES.FLOOR) {
+                    if (this.isFloorTile(grid, x, y)) {
                         return { x, y, key };
                     }
                 }
@@ -502,7 +496,7 @@ class World {
                     continue;
                 }
 
-                if (grid[y][x] === TILE_TYPES.FLOOR) {
+                if (this.isFloorTile(grid, x, y)) {
                     return { x, y, key };
                 }
             }
@@ -544,7 +538,7 @@ class World {
         for (let y = 0; y < GRID_SIZE; y++) {
             for (let x = 0; x < GRID_SIZE; x++) {
                 const key = this.tileKey(x, y);
-                if (roomOnly && !roomTileKeys.has(key)) {
+                if (this.isFilteredOutByRoomOnly(roomOnly, roomTileKeys, key)) {
                     continue;
                 }
 
@@ -565,7 +559,7 @@ class World {
         for (let y = 1; y < GRID_SIZE - 1; y++) {
             for (let x = 1; x < GRID_SIZE - 1; x++) {
                 const key = this.tileKey(x, y);
-                if (roomOnly && !roomTileKeys.has(key)) {
+                if (this.isFilteredOutByRoomOnly(roomOnly, roomTileKeys, key)) {
                     continue;
                 }
 
@@ -578,7 +572,7 @@ class World {
                     continue;
                 }
 
-                traps.set(key, trapTypes[rng.randomInt(0, trapTypes.length - 1)]);
+                traps.set(key, pickRandom(trapTypes, rng));
             }
         }
 
@@ -607,6 +601,22 @@ class World {
 
     getGeneratorType(areaType) {
         return `generator:${areaType}`;
+    }
+
+    isWithinBounds(x, y) {
+        return x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE;
+    }
+
+    isWithinInteriorBounds(x, y) {
+        return x > 0 && x < GRID_SIZE - 1 && y > 0 && y < GRID_SIZE - 1;
+    }
+
+    isFloorTile(grid, x, y) {
+        return grid[y][x] === TILE_TYPES.FLOOR;
+    }
+
+    isFilteredOutByRoomOnly(roomOnly, roomTileKeys, key) {
+        return Boolean(roomOnly && !roomTileKeys.has(key));
     }
 
     getCurrentFloor() {
@@ -692,84 +702,96 @@ class World {
     }
 
     getTile(x, y) {
-        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return TILE_TYPES.WALL;
+        if (!this.isWithinBounds(x, y)) return TILE_TYPES.WALL;
         return this.getCurrentFloor().grid[y][x];
     }
 
     getHazard(x, y) {
-        return this.getCurrentFloor().hazards.get(this.tileKey(x, y)) || null;
+        const floor = this.getCurrentFloor();
+        const key = this.tileKey(x, y);
+        return floor.hazards.get(key) || null;
     }
 
     getTrap(x, y) {
-        return this.getCurrentFloor().traps.get(this.tileKey(x, y)) || null;
+        const floor = this.getCurrentFloor();
+        const key = this.tileKey(x, y);
+        return floor.traps.get(key) || null;
     }
 
     isTrapRevealed(x, y) {
-        return this.getCurrentFloor().revealedTraps.has(this.tileKey(x, y));
+        const floor = this.getCurrentFloor();
+        const key = this.tileKey(x, y);
+        return floor.revealedTraps.has(key);
     }
 
     revealTrap(x, y) {
+        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        if (this.getCurrentFloor().traps.has(key)) {
-            this.getCurrentFloor().revealedTraps.add(key);
+        if (floor.traps.has(key)) {
+            floor.revealedTraps.add(key);
         }
     }
 
     removeTrap(x, y) {
+        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        this.getCurrentFloor().traps.delete(key);
-        this.getCurrentFloor().revealedTraps.delete(key);
+        floor.traps.delete(key);
+        floor.revealedTraps.delete(key);
     }
 
     setTrap(x, y, trapType, revealed = false) {
-        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
+        if (!this.isWithinBounds(x, y)) {
             return false;
         }
 
+        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
         if (!trapType) {
-            this.getCurrentFloor().traps.delete(key);
-            this.getCurrentFloor().revealedTraps.delete(key);
+            floor.traps.delete(key);
+            floor.revealedTraps.delete(key);
             return true;
         }
 
-        this.getCurrentFloor().traps.set(key, trapType);
+        floor.traps.set(key, trapType);
         if (revealed) {
-            this.getCurrentFloor().revealedTraps.add(key);
+            floor.revealedTraps.add(key);
         } else {
-            this.getCurrentFloor().revealedTraps.delete(key);
+            floor.revealedTraps.delete(key);
         }
 
         return true;
     }
 
     setHazard(x, y, hazardType) {
-        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
+        if (!this.isWithinBounds(x, y)) {
             return;
         }
 
+        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
 
         if (!hazardType) {
-            this.getCurrentFloor().hazards.delete(key);
+            floor.hazards.delete(key);
             return;
         }
 
-        this.getCurrentFloor().hazards.set(key, hazardType);
+        floor.hazards.set(key, hazardType);
     }
 
     removeHazard(x, y) {
-        this.getCurrentFloor().hazards.delete(this.tileKey(x, y));
+        const floor = this.getCurrentFloor();
+        const key = this.tileKey(x, y);
+        floor.hazards.delete(key);
     }
 
     setTile(x, y, tile) {
-        if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+        if (this.isWithinBounds(x, y)) {
             this.getCurrentFloor().grid[y][x] = tile;
         }
     }
 
     tileKey(x, y) {
-        return `${x},${y}`;
+        return toGridKey(x, y);
     }
 
     addItem(x, y, item) {
@@ -784,30 +806,34 @@ class World {
             return { placed: false, burned: true, blocked: false };
         }
 
+        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        if (!this.getCurrentFloor().items.has(key)) {
-            this.getCurrentFloor().items.set(key, []);
+        if (!floor.items.has(key)) {
+            floor.items.set(key, []);
         }
-        this.getCurrentFloor().items.get(key).push(item);
+        floor.items.get(key).push(item);
         return { placed: true, burned: false, blocked: false };
     }
 
     removeItem(x, y, item) {
+        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        const items = this.getCurrentFloor().items.get(key);
+        const items = floor.items.get(key);
         if (items) {
             const index = items.indexOf(item);
             if (index > -1) {
                 items.splice(index, 1);
                 if (items.length === 0) {
-                    this.getCurrentFloor().items.delete(key);
+                    floor.items.delete(key);
                 }
             }
         }
     }
 
     getItems(x, y) {
-        return this.getCurrentFloor().items.get(this.tileKey(x, y)) || [];
+        const floor = this.getCurrentFloor();
+        const key = this.tileKey(x, y);
+        return floor.items.get(key) || [];
     }
 
     addEnemy(enemy) {
@@ -858,7 +884,7 @@ class World {
     }
 
     canEnemyOccupy(x, y, player, enemy, candidateEnemy = null) {
-        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) {
+        if (!this.isWithinBounds(x, y)) {
             return false;
         }
         if (player && player.x === x && player.y === y) {
@@ -906,6 +932,10 @@ class World {
 
     findRandomOpenTile(rng, player = null, attempts = 200, candidateEnemy = null) {
         return this.findRandomTile(rng, attempts, (x, y) => this.canEnemyOccupy(x, y, player, null, candidateEnemy));
+    }
+
+    findRandomFloorTile(rng, attempts = 200) {
+        return this.findRandomTile(rng, attempts, (x, y) => this.getTile(x, y) === TILE_TYPES.FLOOR);
     }
 
     findRandomItemSpawnTile(rng, player = null, attempts = 200) {

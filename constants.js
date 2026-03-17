@@ -404,14 +404,46 @@ const COLORS = {
     FOG_OVERLAY: 'rgba(100,100,100,0.5)'
 };
 
+// Terrain spritesheet lookup by sprite key.
+const TERRAIN_SPRITES = Object.freeze({
+    WALL_STONE_TOP_CORNER_LEFT: { x: 0, y: 0 },
+    WALL_STONE_HORIZONTAL: { x: 1, y: 0 },
+    WALL_STONE_TOP_CORNER_RIGHT: { x: 2, y: 0 },
+    WALL_STONE_OVERHEAD: { x: 3, y: 0 },
+    WALL_STONE_SPLIT_TOP: { x: 4, y: 0 },
+    SPIKE_RAISED: { x: 6, y: 0 },
+    WALL_STONE_VERTICAL: { x: 0, y: 1 },
+    WALL_STONE_FRONT_END: { x: 1, y: 1 },
+    WALL_STONE_SPLIT_LEFT: { x: 3, y: 1 },
+    WALL_STONE_SPLIT_CROSS: { x: 4, y: 1 },
+    WALL_STONE_SPLIT_RIGHT: { x: 5, y: 1 },
+    WALL_STONE_BOTTOM_CORNER_LEFT: { x: 0, y: 2 },
+    WALL_STONE_BOTTOM_CORNER_RIGHT: { x: 2, y: 2 },
+    WALL_STONE_SPLIT_BOTTOM: { x: 4, y: 2 },
+    FLOOR_STONE: { x: 0, y: 3 },
+    PIT_OPEN: { x: 1, y: 3 },
+    STAIRS_UP_STONE: { x: 2, y: 3 },
+    STAIRS_DOWN_STONE: { x: 3, y: 3 },
+    LAVA_ACTIVE: { x: 4, y: 3 },
+    WATER_SHALLOW: { x: 5, y: 3 }
+});
+
+function pickTerrainSprite(spriteKey) {
+    const sprite = TERRAIN_SPRITES[spriteKey];
+    if (!sprite) {
+        throw new Error(`Unknown terrain sprite key: ${spriteKey}`);
+    }
+    return { x: sprite.x, y: sprite.y };
+}
+
 const TILE_VISUALS = {
-    [TILE_TYPES.FLOOR]: { color: '#333', sprite: { x: 0, y: 0 } },
-    [TILE_TYPES.WALL]: { color: '#0e0e0e', sprite: { x: 1, y: 0 } },
-    [TILE_TYPES.PIT]: { color: '#8B4513', sprite: { x: 2, y: 0 }, icon: 'pit', foregroundColor: '#000' },
-    [TILE_TYPES.WATER]: { color: '#0000FF', sprite: { x: 3, y: 0 } },
+    [TILE_TYPES.FLOOR]: { color: '#333', sprite: pickTerrainSprite('FLOOR_STONE') },
+    [TILE_TYPES.WALL]: { color: '#0e0e0e', sprite: pickTerrainSprite('WALL_STONE_HORIZONTAL') },
+    [TILE_TYPES.PIT]: { color: '#8B4513', sprite: pickTerrainSprite('PIT_OPEN'), icon: 'pit', foregroundColor: '#000' },
+    [TILE_TYPES.WATER]: { color: '#0000FF', sprite: pickTerrainSprite('WATER_SHALLOW') },
     [TILE_TYPES.SPIKE]: {
         color: '#666',
-        sprite: { x: 4, y: 0 },
+        sprite: pickTerrainSprite('SPIKE_RAISED'),
         icon: 'spike',
         foregroundColor: '#d9d9d9',
         sourceHeight: 19,
@@ -425,15 +457,128 @@ const TILE_VISUALS = {
             [10, 2, 9, 2]
         ]
     },
-    [TILE_TYPES.STAIRS_DOWN]: { color: '#0ff', sprite: { x: 5, y: 0 }, glyph: '<', foregroundColor: '#fff' },
-    [TILE_TYPES.STAIRS_UP]: { color: '#0ff', sprite: { x: 6, y: 0 }, glyph: '>', foregroundColor: '#fff' },
-    [TILE_TYPES.LAVA]: { color: '#d9480f', sprite: { x: 7, y: 0 }, icon: 'lava', foregroundColor: '#ffb347' }
+    [TILE_TYPES.STAIRS_DOWN]: { color: '#0ff', sprite: pickTerrainSprite('STAIRS_DOWN_STONE'), glyph: '<', foregroundColor: '#fff' },
+    [TILE_TYPES.STAIRS_UP]: { color: '#0ff', sprite: pickTerrainSprite('STAIRS_UP_STONE'), glyph: '>', foregroundColor: '#fff' },
+    [TILE_TYPES.LAVA]: { color: '#d9480f', sprite: pickTerrainSprite('LAVA_ACTIVE'), icon: 'lava', foregroundColor: '#ffb347' }
 };
 
-const TERRAIN_SPRITESHEET_PATH = 'terrain-spritesheet.png';
+// Readable wall autotile mapping.
+// If a corner/junction looks wrong, edit only this map.
+const WALL_AUTOTILE_SPRITES = Object.freeze({
+    isolated: 'WALL_STONE_FRONT_END',
+    end_top: 'WALL_STONE_FRONT_END',
+    end_right: 'WALL_STONE_HORIZONTAL',
+    end_bottom: 'WALL_STONE_VERTICAL',
+    end_left: 'WALL_STONE_HORIZONTAL',
+    horizontal: 'WALL_STONE_HORIZONTAL',
+    vertical: 'WALL_STONE_VERTICAL',
+    corner_bottom_left: 'WALL_STONE_BOTTOM_CORNER_LEFT',
+    corner_top_left: 'WALL_STONE_TOP_CORNER_LEFT',
+    corner_top_right: 'WALL_STONE_TOP_CORNER_RIGHT',
+    corner_bottom_right: 'WALL_STONE_BOTTOM_CORNER_RIGHT',
+    tee_bottom: 'WALL_STONE_SPLIT_BOTTOM',
+    tee_right: 'WALL_STONE_SPLIT_RIGHT',
+    tee_top: 'WALL_STONE_SPLIT_TOP',
+    tee_left: 'WALL_STONE_SPLIT_LEFT',
+    cross: 'WALL_STONE_SPLIT_CROSS'
+});
+
+// Base autotile rules are checked after overrides.
+const WALL_BASE_AUTOTILE_RULES = Object.freeze([
+    { caseKey: 'cross', required: ['t', 'r', 'b', 'l'] },
+    { caseKey: 'tee_left', required: ['t', 'r', 'b'], forbidden: ['l'] },
+    { caseKey: 'tee_bottom', required: ['t', 'r', 'l'], forbidden: ['b'] },
+    { caseKey: 'tee_right', required: ['t', 'b', 'l'], forbidden: ['r'] },
+    { caseKey: 'tee_top', required: ['r', 'b', 'l'], forbidden: ['t'] },
+    { caseKey: 'corner_bottom_left', required: ['t', 'r'], forbidden: ['b', 'l'] },
+    { caseKey: 'corner_top_left', required: ['r', 'b'], forbidden: ['t', 'l'] },
+    { caseKey: 'corner_top_right', required: ['b', 'l'], forbidden: ['t', 'r'] },
+    { caseKey: 'corner_bottom_right', required: ['l', 't'], forbidden: ['r', 'b'] },
+    { caseKey: 'vertical', required: ['t', 'b'], forbidden: ['r', 'l'] },
+    { caseKey: 'horizontal', required: ['r', 'l'], forbidden: ['t', 'b'] },
+    { caseKey: 'end_top', required: ['t'], forbidden: ['r', 'b', 'l'] },
+    { caseKey: 'end_right', required: ['r'], forbidden: ['t', 'b', 'l'] },
+    { caseKey: 'end_bottom', required: ['b'], forbidden: ['t', 'r', 'l'] },
+    { caseKey: 'end_left', required: ['l'], forbidden: ['t', 'r', 'b'] },
+    { caseKey: 'isolated', forbidden: ['t', 'r', 'b', 'l'] }
+]);
+
+// Override rules are checked before pattern matching.
+// Each rule declares which neighbor flags must be true/false.
+const WALL_BAND_OVERRIDE_RULES = Object.freeze([
+    {
+        caseKey: 'horizontal',
+        required: ['r', 'l', 'b', 'bl', 'br'],
+        forbidden: ['t']
+    },
+    {
+        caseKey: 'horizontal',
+        required: ['t', 'r', 'l', 'tl', 'tr'],
+        forbidden: ['b']
+    },
+    {
+        caseKey: 'vertical',
+        required: ['t', 'r', 'b', 'tr', 'br'],
+        forbidden: ['l']
+    },
+    {
+        caseKey: 'vertical',
+        required: ['t', 'b', 'l', 'tl', 'bl'],
+        forbidden: ['r']
+    }
+]);
+
+function isWallTile(world, x, y) {
+    return world.getTile(x, y) === TILE_TYPES.WALL;
+}
+
+function getWallNeighborhood(world, x, y) {
+    return {
+        t: isWallTile(world, x, y - 1),
+        r: isWallTile(world, x + 1, y),
+        b: isWallTile(world, x, y + 1),
+        l: isWallTile(world, x - 1, y),
+        tl: isWallTile(world, x - 1, y - 1),
+        tr: isWallTile(world, x + 1, y - 1),
+        bl: isWallTile(world, x - 1, y + 1),
+        br: isWallTile(world, x + 1, y + 1)
+    };
+}
+
+function doesNeighborhoodMatchRule(neighborhood, rule) {
+    const { required = [], forbidden = [] } = rule;
+    return required.every((key) => Boolean(neighborhood[key]))
+        && forbidden.every((key) => !Boolean(neighborhood[key]));
+}
+
+function findWallCaseByRules(neighborhood, rules, fallbackCase = null) {
+    for (const rule of rules) {
+        if (doesNeighborhoodMatchRule(neighborhood, rule)) {
+            return rule.caseKey;
+        }
+    }
+    return fallbackCase;
+}
+
+function getWallAutotileCase(world, x, y) {
+    const neighborhood = getWallNeighborhood(world, x, y);
+    const bandOverrideCase = findWallCaseByRules(neighborhood, WALL_BAND_OVERRIDE_RULES);
+    if (bandOverrideCase) {
+        return bandOverrideCase;
+    }
+
+    return findWallCaseByRules(neighborhood, WALL_BASE_AUTOTILE_RULES, 'isolated');
+}
+
+function getWallSpriteKeyAt(world, x, y) {
+    const autotileCase = getWallAutotileCase(world, x, y);
+    return WALL_AUTOTILE_SPRITES[autotileCase] || 'WALL_STONE_HORIZONTAL';
+}
+
+const TERRAIN_SPRITESHEET_PATH = 'terrain.png';
 const TERRAIN_SPRITESHEET_VERSION = '4';
 const TERRAIN_SPRITESHEET_TILE_SIZE = 16;
-const TERRAIN_SPRITESHEET_TILE_HEIGHT = 19;
+const TERRAIN_SPRITESHEET_TILE_HEIGHT = 16;
 
 const ENTITY_VISUALS = {
     player: { color: '#fff', miniMapInset: 0 },
@@ -445,9 +590,38 @@ const ENTITY_VISUALS = {
 
 const UI_VISUALS = {
     playerFacingArrow: '#111',
+    playerHealthBarBackground: '#111',
+    playerHealthBarBorder: '#000',
+    playerHealthBarHigh: '#34d399',
+    playerHealthBarMid: '#facc15',
+    playerHealthBarLow: '#f87171',
     mapPlayerOutline: '#000',
     trapBackdrop: 'rgba(0, 0, 0, 0.35)',
-    trapIcon: '#ffd166'
+    trapIcon: '#ffd166',
+    enemyNameColor: '#fff',
+    enemyNameOutline: '#000',
+    enemyHealthBarBackground: '#111',
+    enemyHealthBarBorder: '#000',
+    enemyHealthBarHigh: '#39d353',
+    enemyHealthBarMid: '#f59e0b',
+    enemyHealthBarLow: '#ef4444'
+};
+
+const HEALTH_BAR_PALETTES = {
+    player: {
+        background: UI_VISUALS.playerHealthBarBackground,
+        border: UI_VISUALS.playerHealthBarBorder,
+        high: UI_VISUALS.playerHealthBarHigh,
+        mid: UI_VISUALS.playerHealthBarMid,
+        low: UI_VISUALS.playerHealthBarLow
+    },
+    enemy: {
+        background: UI_VISUALS.enemyHealthBarBackground,
+        border: UI_VISUALS.enemyHealthBarBorder,
+        high: UI_VISUALS.enemyHealthBarHigh,
+        mid: UI_VISUALS.enemyHealthBarMid,
+        low: UI_VISUALS.enemyHealthBarLow
+    }
 };
 
 const INPUT_DIRECTION_BINDINGS = {
@@ -689,12 +863,31 @@ function getTileVisual(tileType) {
     return TILE_VISUALS[tileType] || TILE_VISUALS[TILE_TYPES.FLOOR];
 }
 
+function getTileVisualAt(tileType, world = null, x = null, y = null) {
+    const baseVisual = getTileVisual(tileType);
+    if (
+        tileType !== TILE_TYPES.WALL
+        || !world
+        || typeof world.getTile !== 'function'
+        || !Number.isFinite(x)
+        || !Number.isFinite(y)
+    ) {
+        return baseVisual;
+    }
+
+    const spriteKey = getWallSpriteKeyAt(world, x, y);
+    return {
+        ...baseVisual,
+        sprite: pickTerrainSprite(spriteKey)
+    };
+}
+
 function getEntityVisual(entityKind, entity = null) {
     if (entityKind === 'enemy' && entity) {
         if (entity.isAlly) {
             return ENTITY_VISUALS.ally;
         }
-        if (typeof entity.isNeutralNpc === 'function' && entity.isNeutralNpc()) {
+        if (isNeutralNpcActor(entity)) {
             return ENTITY_VISUALS.npc;
         }
     }

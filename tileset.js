@@ -4,7 +4,6 @@ class Tileset {
     constructor() {
         this.sourceTileWidth = TERRAIN_SPRITESHEET_TILE_SIZE;
         this.sourceTileHeight = TERRAIN_SPRITESHEET_TILE_HEIGHT;
-        this.tiles = Object.fromEntries(Object.entries(TILE_VISUALS).map(([tileType, visual]) => [tileType, visual.sprite]));
         this.spriteSheet = null;
     }
 
@@ -25,14 +24,16 @@ class Tileset {
         image.src = versionedPath;
     }
 
-    getTileSpriteData(tileType) {
-        const pos = this.tiles[tileType];
+    getTileSpriteData(tileType, world = null, x = null, y = null) {
+        const visual = typeof getTileVisualAt === 'function'
+            ? getTileVisualAt(tileType, world, x, y)
+            : getTileVisual(tileType);
+        const pos = visual.sprite;
         if (!pos) {
             throw new Error(`Unknown tile type for spritesheet lookup: ${tileType}`);
         }
 
-        const visual = getTileVisual(tileType);
-        const sourceHeight = visual.sourceHeight || this.sourceTileWidth;
+        const sourceHeight = visual.sourceHeight || this.sourceTileHeight;
         const overdrawTop = visual.overdrawTop || 0;
         const sourceOffsetY = Number.isFinite(visual.sourceOffsetY) ? visual.sourceOffsetY : 0;
 
@@ -44,9 +45,9 @@ class Tileset {
         };
     }
 
-    getRenderMetrics(tileType, targetTileSize) {
-        const sourceRect = this.getSourceRect(tileType);
-        const { overdrawTop } = this.getTileSpriteData(tileType);
+    getRenderMetrics(tileType, targetTileSize, world = null, x = null, y = null) {
+        const sourceRect = this.getSourceRect(tileType, world, x, y);
+        const { overdrawTop } = this.getTileSpriteData(tileType, world, x, y);
         const overdrawRatio = overdrawTop / this.sourceTileWidth;
         const drawOffsetY = Math.round(targetTileSize * overdrawRatio);
         return {
@@ -57,9 +58,9 @@ class Tileset {
         };
     }
 
-    getMapSourceRect(tileType) {
-        const sourceRect = this.getSourceRect(tileType);
-        const { overdrawTop } = this.getTileSpriteData(tileType);
+    getMapSourceRect(tileType, world = null, x = null, y = null) {
+        const sourceRect = this.getSourceRect(tileType, world, x, y);
+        const { overdrawTop } = this.getTileSpriteData(tileType, world, x, y);
         if (overdrawTop <= 0) {
             return sourceRect;
         }
@@ -71,8 +72,8 @@ class Tileset {
         };
     }
 
-    getSourceRect(tileType) {
-        const { pos, sourceHeight, sourceOffsetY } = this.getTileSpriteData(tileType);
+    getSourceRect(tileType, world = null, x = null, y = null) {
+        const { pos, sourceHeight, sourceOffsetY } = this.getTileSpriteData(tileType, world, x, y);
         return {
             x: pos.x * this.sourceTileWidth,
             y: pos.y * this.sourceTileHeight + sourceOffsetY,

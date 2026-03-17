@@ -124,29 +124,59 @@ class Player {
         return { damage, critical, inflictedConditions };
     }
 
-    getIncomingDamageMultiplierAgainst(attacker) {
-        let multiplier = 1;
+    forEachEquippedItem(callback) {
         for (const item of this.equipment.values()) {
-            if (typeof item.getIncomingDamageMultiplierFrom === 'function') {
-                multiplier *= item.getIncomingDamageMultiplierFrom(attacker);
+            callback(item);
+        }
+    }
+
+    someEquippedItem(predicate) {
+        for (const item of this.equipment.values()) {
+            if (predicate(item)) {
+                return true;
             }
         }
 
+        return false;
+    }
+
+    getEquipmentMultiplier(methodName, arg) {
+        let multiplier = 1;
+        this.forEachEquippedItem((item) => {
+            const multiplierMethod = item?.[methodName];
+            if (typeof multiplierMethod === 'function') {
+                multiplier *= multiplierMethod.call(item, arg);
+            }
+        });
+        return multiplier;
+    }
+
+    hasPassiveHungerLossProtection() {
+        return Array.from(this.conditions.keys()).some((condition) => conditionPreventsPassiveHungerLoss(condition));
+    }
+
+    isItemCursed(item) {
+        if (!item) {
+            return false;
+        }
+
+        if (typeof item.isCursed === 'function') {
+            return item.isCursed();
+        }
+
+        return Boolean(item.properties?.cursed);
+    }
+
+    getIncomingDamageMultiplierAgainst(attacker) {
+        const multiplier = this.getEquipmentMultiplier('getIncomingDamageMultiplierFrom', attacker);
         return Math.max(0.1, multiplier);
     }
 
     getAttackPowerAgainst(target) {
         let attackPower = this.power;
-        let multiplier = 1;
-
-        for (const item of this.equipment.values()) {
-            if (typeof item.getDamageMultiplierAgainst === 'function') {
-                multiplier *= item.getDamageMultiplierAgainst(target);
-            }
-            if (typeof item.getDamageMultiplierForAttacker === 'function') {
-                multiplier *= item.getDamageMultiplierForAttacker(this);
-            }
-        }
+        const targetMultiplier = this.getEquipmentMultiplier('getDamageMultiplierAgainst', target);
+        const attackerMultiplier = this.getEquipmentMultiplier('getDamageMultiplierForAttacker', this);
+        const multiplier = targetMultiplier * attackerMultiplier;
 
         attackPower = Math.max(1, Math.round(attackPower * multiplier));
 
@@ -158,17 +188,13 @@ class Player {
             return false;
         }
 
-        for (const item of this.equipment.values()) {
+        return this.someEquippedItem((item) => {
             if (!item || typeof item.getEnchantments !== 'function') {
-                continue;
+                return false;
             }
 
-            if (item.getEnchantments().includes(enchantmentKey)) {
-                return true;
-            }
-        }
-
-        return false;
+            return item.getEnchantments().includes(enchantmentKey);
+        });
     }
 
     getWeaponInflictedConditions() {
@@ -231,7 +257,7 @@ class Player {
         for (const [condition, duration] of this.conditions) {
             const tickDamage = getConditionTickDamage(condition, 0);
             const tickHunger = getConditionTickHunger(condition, 0);
-            const preventsPassiveHungerLoss = Array.from(this.conditions.keys()).some((activeCondition) => conditionPreventsPassiveHungerLoss(activeCondition));
+            const preventsPassiveHungerLoss = this.hasPassiveHungerLossProtection();
 
             if (tickDamage > 0) {
                 this.takeDamage(tickDamage);
@@ -262,7 +288,7 @@ class Player {
 
     applyPerTurnRegen() {
         this.turns += 1;
-        const preventsPassiveHungerLoss = Array.from(this.conditions.keys()).some((condition) => conditionPreventsPassiveHungerLoss(condition));
+        const preventsPassiveHungerLoss = this.hasPassiveHungerLossProtection();
         if (this.turns % 5 === 0 && !preventsPassiveHungerLoss) {
             this.hunger = Math.max(0, this.hunger - 1);
         }
@@ -317,21 +343,18 @@ class Player {
 
     canUnequipItem(item) {
         if (!item) return true;
-        if (typeof item.isCursed === 'function' && item.isCursed()) {
-            return false;
-        }
-        return !item.properties?.cursed;
+        return !this.isItemCursed(item);
     }
 
     updateStats() {
         this.power = Math.max(1, Number(this.level) || 1);
         this.armor = 0;
-        for (const item of this.equipment.values()) {
+        this.forEachEquippedItem((item) => {
             if (item.properties.power) this.power += item.properties.power;
             if (item.properties.armor) this.armor += item.properties.armor;
             if (typeof item.getEnchantmentPowerBonus === 'function') this.power += item.getEnchantmentPowerBonus();
             if (typeof item.getEnchantmentArmorBonus === 'function') this.armor += item.getEnchantmentArmorBonus();
-        }
+        });
     }
 
     isStackableItem(item) {
@@ -395,17 +418,42 @@ class Player {
             return null;
         }
 
-        for (const existingItem of this.inventory) {
+        return this.inventory.find((existingItem) => {
             if (!this.isStackableItem(existingItem)) {
-                continue;
+                return false;
             }
 
-            if (this.getStackKey(existingItem) === stackKey) {
-                return existingItem;
-            }
+            return this.getStackKey(existingItem) === stackKey;
+        }) || null;
+    }
+
+    mergeThrowableStackQuantities(targetStack, sourceStack) {
+        if (!targetStack || !sourceStack) {
+            return;
         }
 
-        return null;
+        const nextQuantity = this.getItemQuantity(targetStack) + this.getItemQuantity(sourceStack);
+        this.setItemQuantity(targetStack, nextQuantity);
+    }
+
+    decrementThrowableStack(item, amount = 1) {
+        if (!item || !this.isStackableItem(item) || amount <= 0) {
+            return false;
+        }
+
+        const currentQuantity = this.getItemQuantity(item);
+        if (currentQuantity < amount) {
+            return false;
+        }
+
+        const nextQuantity = currentQuantity - amount;
+        if (nextQuantity > 0) {
+            this.setItemQuantity(item, nextQuantity);
+        } else {
+            this.removeItem(item);
+        }
+
+        return true;
     }
 
     addItem(item) {
@@ -416,8 +464,7 @@ class Player {
         if (this.isStackableItem(item)) {
             const existingStack = this.findMatchingThrowableStack(item);
             if (existingStack) {
-                const nextQuantity = this.getItemQuantity(existingStack) + this.getItemQuantity(item);
-                this.setItemQuantity(existingStack, nextQuantity);
+                this.mergeThrowableStackQuantities(existingStack, item);
                 return;
             }
 
@@ -454,11 +501,7 @@ class Player {
             ? item.createSingleUseClone()
             : item;
 
-        if (currentQuantity > 1) {
-            this.setItemQuantity(item, currentQuantity - 1);
-        } else {
-            this.removeItem(item);
-        }
+        this.decrementThrowableStack(item);
 
         return thrownItem;
     }
