@@ -167,6 +167,8 @@ Object.assign(Player.prototype, {
 
     clearConditions() {
         this.conditions.clear();
+        this.equipmentGrantedConditions.clear();
+        this.applyEquipmentGrantedConditions();
     },
 
     hasCondition(condition) {
@@ -222,9 +224,61 @@ Object.assign(Player.prototype, {
         }
     },
 
+    getEquipmentGrantedConditionEntries() {
+        const entries = [];
+        const seenConditions = new Set();
+
+        this.forEachEquippedItem((item) => {
+            if (!item || typeof item.getEnchantments !== 'function') {
+                return;
+            }
+
+            for (const enchantmentId of item.getEnchantments()) {
+                const definition = ENCHANTMENT_DEFINITIONS[enchantmentId] || {};
+                const condition = definition.grantsCondition;
+                if (!condition || seenConditions.has(condition)) {
+                    continue;
+                }
+
+                const fallbackDuration = Number.isFinite(definition.grantsConditionDuration)
+                    ? definition.grantsConditionDuration
+                    : Infinity;
+                entries.push({
+                    condition,
+                    duration: getConditionDuration(condition, fallbackDuration)
+                });
+                seenConditions.add(condition);
+            }
+        });
+
+        return entries;
+    },
+
     applyEquipmentGrantedConditions() {
-        if (this.hasEquippedEnchantment('fasting') && !this.hasCondition(CONDITIONS.SATIATED)) {
-            this.addCondition(CONDITIONS.SATIATED, getConditionDuration(CONDITIONS.SATIATED, Infinity));
+        const grantedEntries = this.getEquipmentGrantedConditionEntries();
+        const currentlyGrantedConditions = new Set(grantedEntries.map((entry) => entry.condition));
+
+        for (const entry of grantedEntries) {
+            const condition = entry.condition;
+            this.equipmentGrantedConditions.add(condition);
+            if (this.hasCondition(condition)) {
+                this.conditions.set(condition, entry.duration);
+                continue;
+            }
+
+            const added = this.addCondition(condition, entry.duration);
+            if (added === false) {
+                this.equipmentGrantedConditions.delete(condition);
+            }
+        }
+
+        for (const condition of [...this.equipmentGrantedConditions]) {
+            if (currentlyGrantedConditions.has(condition)) {
+                continue;
+            }
+
+            this.removeCondition(condition);
+            this.equipmentGrantedConditions.delete(condition);
         }
     },
 

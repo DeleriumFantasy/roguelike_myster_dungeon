@@ -20,6 +20,9 @@ Object.assign(Player.prototype, {
 
     _doUnequipSlot(slot, item) {
         if (!this.canUnequipItem(item)) return false;
+
+        this.applyEquipmentGrantedConditions();
+
         this.equipment.delete(slot);
         this.inventory.push(item);
         this.updateStats();
@@ -55,6 +58,8 @@ Object.assign(Player.prototype, {
             if (typeof item.getEnchantmentPowerBonus === 'function') this.power += item.getEnchantmentPowerBonus();
             if (typeof item.getEnchantmentArmorBonus === 'function') this.armor += item.getEnchantmentArmorBonus();
         });
+
+        this.applyEquipmentGrantedConditions();
     },
 
     isStackableItem(item) {

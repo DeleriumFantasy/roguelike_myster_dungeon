@@ -10,7 +10,122 @@
 // in enemy-ai.js and game-enemy-turns.js. Shared weighted content helpers belong in
 // game-content-utils.js.
 
+const ENEMY_FAMILY_SPAWN_BALANCING = {
+    floorRange: {
+        min: 1,
+        max: 99
+    },
+    groups: {
+        core: {
+            families: ['slime', 'beast', 'aquatic', 'floating'],
+            startFloor: 1,
+            startBudget: 3.2,
+            endBudget: 1
+        },
+        mid: {
+            families: ['ghost', 'crafter', 'thief'],
+            startFloor: 20,
+            startBudget: 0.12,
+            endBudget: 1
+        },
+        late: {
+            families: ['vandal', 'fuser', 'pariah'],
+            startFloor: 45,
+            startBudget: 0.05,
+            endBudget: 1
+        }
+    }
+};
+
 Object.assign(Game.prototype, {
+    isBankerTypeKey(enemyTypeKey) {
+        return enemyTypeKey === 'npcBankerTier1';
+    },
+
+    isDungeonNpcTypeKey(enemyTypeKey) {
+        return enemyTypeKey === 'npcTier1'
+            || enemyTypeKey === 'npcStarvingTier1'
+            || enemyTypeKey === 'npcHomeboundTier1'
+            || enemyTypeKey === 'npcShamanTier1';
+    },
+
+    getEnemyFamilyFromTypeKey(enemyTypeKey) {
+        const match = String(enemyTypeKey || '').match(/^([a-zA-Z]+)Tier\d+$/);
+        return match ? match[1] : String(enemyTypeKey || '');
+    },
+
+    getEnemySpawnGroupForFamily(enemyFamily) {
+        const groups = ENEMY_FAMILY_SPAWN_BALANCING.groups;
+        for (const [groupName, groupConfig] of Object.entries(groups)) {
+            if (Array.isArray(groupConfig?.families) && groupConfig.families.includes(enemyFamily)) {
+                return groupName;
+            }
+        }
+
+        return null;
+    },
+
+    getEnemySpawnGroupFamilyBudget(spawnGroup, floorIndex) {
+        const groupConfig = ENEMY_FAMILY_SPAWN_BALANCING.groups[spawnGroup];
+        if (!groupConfig) {
+            return 1;
+        }
+
+        const floorMin = ENEMY_FAMILY_SPAWN_BALANCING.floorRange.min;
+        const floorMax = ENEMY_FAMILY_SPAWN_BALANCING.floorRange.max;
+        const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, floorMin, floorMax);
+        const startFloor = clamp(Number(groupConfig.startFloor) || floorMin, floorMin, floorMax);
+        const startBudget = Number(groupConfig.startBudget) || 1;
+        const endBudget = Number(groupConfig.endBudget) || 1;
+
+        const progress = clamp((displayFloor - startFloor) / Math.max(1, floorMax - startFloor), 0, 1);
+        return startBudget + (endBudget - startBudget) * progress;
+    },
+
+    applyEnemyFamilySpawnBalancing(entries, floorIndex) {
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return [];
+        }
+
+        const familyBaseWeightTotals = new Map();
+
+        for (const entry of entries) {
+            const family = this.getEnemyFamilyFromTypeKey(entry.key);
+            const spawnGroup = this.getEnemySpawnGroupForFamily(family);
+            if (!spawnGroup) {
+                continue;
+            }
+
+            const weight = Math.max(0, Number(entry.weight) || 0);
+            const currentTotal = familyBaseWeightTotals.get(family) || 0;
+            familyBaseWeightTotals.set(family, currentTotal + weight);
+        }
+
+        return entries.map((entry) => {
+            const family = this.getEnemyFamilyFromTypeKey(entry.key);
+            const spawnGroup = this.getEnemySpawnGroupForFamily(family);
+            if (!spawnGroup) {
+                return entry;
+            }
+
+            const familyTotal = familyBaseWeightTotals.get(family) || 0;
+            if (familyTotal <= 0) {
+                return {
+                    ...entry,
+                    weight: 0
+                };
+            }
+
+            const familyBudget = this.getEnemySpawnGroupFamilyBudget(spawnGroup, floorIndex);
+            const entryShare = Math.max(0, Number(entry.weight) || 0) / familyTotal;
+
+            return {
+                ...entry,
+                weight: familyBudget * entryShare
+            };
+        });
+    },
+
     spawnPremadeLegendEnemies(rng, floorIndex = this.world.currentFloor) {
         const floor = this.world.getCurrentFloor();
         const premadeEnemySpawns = Array.isArray(floor?.meta?.premadeEnemySpawns)
@@ -41,9 +156,9 @@ Object.assign(Game.prototype, {
     },
 
     spawnOverworldNpcs(rng) {
-        const npcCount = 3;
-        for (let index = 0; index < npcCount; index++) {
-            const npcTypeKey = index === 0 ? 'npcBankerTier1' : 'npcTier1';
+        const npcTypeKeys = ['npcBankerTier1'];
+
+        for (const npcTypeKey of npcTypeKeys) {
             const npc = this.createEnemyForType(0, 0, npcTypeKey, 0);
             const spawn = this.world.findRandomOpenTile(rng, this.player, 200, npc);
             if (!spawn) {
@@ -59,11 +174,42 @@ Object.assign(Game.prototype, {
         return clamp(4 + Math.floor(floorIndex / 2), 4, 12);
     },
 
+    getDungeonNpcSpawnChanceForFloor(floorIndex) {
+        const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
+        const progress = (displayFloor - 1) / 98;
+        return 0.15 + (0.05 - 0.15) * progress;
+    },
+
+    shouldSpawnDungeonNpcForFloor(floorIndex, rng) {
+        const chance = this.getDungeonNpcSpawnChanceForFloor(floorIndex);
+        return getRngRoll(rng) < chance;
+    },
+
     spawnEnemiesForCurrentFloor(rng, floorIndex = this.world.currentFloor) {
         const enemyCount = this.getEnemySpawnCountForFloor(floorIndex);
         const enemyEntries = this.getEnemySpawnEntriesForFloor(floorIndex);
-        for (let i = 0; i < enemyCount; i++) {
-            const chosenEntry = this.chooseWeightedEntry(rng, enemyEntries);
+        const npcEntries = enemyEntries.filter((entry) => this.isDungeonNpcTypeKey(entry.key));
+        const nonNpcEntries = enemyEntries.filter((entry) => !this.isDungeonNpcTypeKey(entry.key));
+
+        let remainingSpawns = enemyCount;
+
+        // Dungeon floors can spawn at most one neutral NPC, with floor-scaled chance.
+        if (remainingSpawns > 0 && npcEntries.length > 0 && this.shouldSpawnDungeonNpcForFloor(floorIndex, rng)) {
+            const npcEntry = this.chooseWeightedEntry(rng, npcEntries);
+            if (npcEntry) {
+                const npc = this.createEnemyForType(0, 0, npcEntry.key, floorIndex);
+                const npcSpawn = this.world.findRandomOpenTile(rng, this.player, 200, npc);
+                if (npcSpawn) {
+                    this.assignActorPosition(npc, npcSpawn);
+                    this.addEnemyIfMissing(npc);
+                    remainingSpawns -= 1;
+                }
+            }
+        }
+
+        const defaultEntries = nonNpcEntries.length > 0 ? nonNpcEntries : enemyEntries;
+        for (let i = 0; i < remainingSpawns; i++) {
+            const chosenEntry = this.chooseWeightedEntry(rng, defaultEntries);
             if (!chosenEntry) {
                 continue;
             }
@@ -87,7 +233,15 @@ Object.assign(Game.prototype, {
             minFloor: template.minFloor,
             maxFloor: template.maxFloor
         }));
-        return getWeightedEntriesForFloor(entries, floorIndex);
+
+        const floorEntries = getWeightedEntriesForFloor(entries, floorIndex);
+        const isOverworld = this.world.getAreaType(floorIndex) === AREA_TYPES.OVERWORLD;
+        if (isOverworld) {
+            return floorEntries.filter((entry) => !this.isDungeonNpcTypeKey(entry.key));
+        }
+
+        const dungeonEntries = floorEntries.filter((entry) => !this.isBankerTypeKey(entry.key));
+        return this.applyEnemyFamilySpawnBalancing(dungeonEntries, floorIndex);
     },
 
     createEnemyForType(x, y, enemyTypeKey, floorIndex = this.world.currentFloor) {

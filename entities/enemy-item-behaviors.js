@@ -184,20 +184,16 @@ Object.assign(Enemy.prototype, {
             return null;
         }
 
-        const throwImpact = thrownRock.throw(this, player) || { damage: 0, healing: 0 };
-        let dropResult = null;
-        if (getRngRoll() < 0.2) {
-            dropResult = world?.addItem?.(player.x, player.y, thrownRock) || null;
+        const throwDx = Math.sign(player.x - this.x);
+        const throwDy = Math.sign(player.y - this.y);
+        if (throwDx === 0 && throwDy === 0) {
+            return this.createEnemyActionResult('wait');
         }
 
         return this.createEnemyActionResult('vandal-ranged-attack', {
             item: thrownRock,
-            damage: throwImpact.damage || 0,
-            healing: throwImpact.healing || 0,
-            dropOutcome: {
-                placedOnPlayerTile: Boolean(dropResult?.placed),
-                burned: Boolean(dropResult?.burned)
-            }
+            dx: throwDx,
+            dy: throwDy
         });
     },
 

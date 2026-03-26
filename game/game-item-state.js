@@ -207,7 +207,7 @@ Object.assign(Game.prototype, {
             ? { attempted: false, chance: 0, succeeded: false }
             : this.tryTameEnemyWithThrownFood(enemy, item, enemyHealthBeforeThrow);
         if (enemyDefeated) {
-            this.handleEnemyDefeat(enemy, { announceDefeat: false, killer: this.player });
+            this.handleEnemyDefeat(enemy, { announceDefeat: false, killer: this.player, defeatSource: 'player-throw' });
         }
 
         return {
@@ -269,6 +269,109 @@ Object.assign(Game.prototype, {
         }
 
         return this.resolveThrowFinalPlacement(item, lastValid);
+    },
+
+    resolveEnemyThrowHitPlayer(enemy, item, x, y) {
+        const throwImpact = item.throw(enemy, this.player) || { damage: 0, healing: 0 };
+        return {
+            outcome: 'hit-player',
+            item,
+            target: this.player,
+            damage: throwImpact.damage || 0,
+            healing: throwImpact.healing || 0,
+            x,
+            y
+        };
+    },
+
+    resolveEnemyThrowHitEnemy(enemy, item, targetEnemy, x, y) {
+        const throwImpact = item.throw(enemy, targetEnemy) || { damage: 0, healing: 0 };
+        const targetDefeated = !targetEnemy.isAlive();
+        if (targetDefeated) {
+            if (enemy.isAlly) {
+                this.handleEnemyDefeat(targetEnemy, { announceDefeat: false, grantExp: true, killer: enemy });
+            } else {
+                this.handleEnemyDefeat(targetEnemy, { announceDefeat: false, grantExp: false, killer: enemy });
+            }
+        }
+
+        return {
+            outcome: 'hit-enemy',
+            item,
+            target: targetEnemy,
+            targetDefeated,
+            damage: throwImpact.damage || 0,
+            healing: throwImpact.healing || 0,
+            x,
+            y
+        };
+    },
+
+    resolveEnemyThrowFinalPlacement(item, lastValidPosition) {
+        const dropX = lastValidPosition ? lastValidPosition.x : this.player.x;
+        const dropY = lastValidPosition ? lastValidPosition.y : this.player.y;
+        const dropResult = this.world.addItem(dropX, dropY, item);
+        if (dropResult?.burned) {
+            return {
+                outcome: 'burned',
+                item,
+                x: dropX,
+                y: dropY
+            };
+        }
+
+        return {
+            outcome: 'drop',
+            item,
+            x: dropX,
+            y: dropY
+        };
+    },
+
+    resolveEnemyRangedThrow(enemy, item, dx, dy) {
+        if (!enemy || !item) {
+            return null;
+        }
+
+        const throwDx = Math.sign(Number(dx) || 0);
+        const throwDy = Math.sign(Number(dy) || 0);
+        if (throwDx === 0 && throwDy === 0) {
+            return null;
+        }
+
+        const grid = this.world.getCurrentFloor().grid;
+        let x = enemy.x + throwDx;
+        let y = enemy.y + throwDy;
+        let lastValid = null;
+        const burnable = Boolean(item?.properties?.burnable);
+
+        while (isValidPosition(x, y, grid)) {
+            lastValid = { x, y };
+
+            const tile = this.world.getTile(x, y);
+            if (burnable && doesTileBurnItems(tile)) {
+                return {
+                    outcome: 'burned',
+                    item,
+                    x,
+                    y
+                };
+            }
+
+            if (this.player.x === x && this.player.y === y) {
+                return this.resolveEnemyThrowHitPlayer(enemy, item, x, y);
+            }
+
+            const enemyTarget = this.world.getEnemyAt(x, y, enemy);
+            if (enemyTarget && enemyTarget.isAlly !== enemy.isAlly) {
+                return this.resolveEnemyThrowHitEnemy(enemy, item, enemyTarget, x, y);
+            }
+
+            x += throwDx;
+            y += throwDy;
+        }
+
+        return this.resolveEnemyThrowFinalPlacement(item, lastValid);
     },
 
     placeEnemyItemAtTileOrDropNearby(enemy, item, tile) {

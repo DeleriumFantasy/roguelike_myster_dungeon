@@ -43,6 +43,9 @@ class UI {
         this._mapExploredCtx = this._mapExploredCanvas.getContext('2d');
         this._mapExploredCacheFloor = -1;
         this._mapExploredCacheSize = 0;
+
+        this.activeVisualEffects = [];
+        this.pendingAnimationFrame = null;
     }
 
     getTileSize() {
@@ -58,13 +61,42 @@ class UI {
     }
 
     render(world, player, fov) {
+        this.pruneExpiredVisualEffects(performance.now());
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.updateCamera(player);
         this.renderTopDownScene(world, player, fov);
+        this.renderActiveEventBanner(world);
         this.updateInfoPanel(player, world, fov);
 
         if (this.mapOpen) {
             this.renderMapOverlay(world, player);
         }
+    }
+
+    scheduleVisualEffectRender() {
+        if (this.pendingAnimationFrame !== null) {
+            return;
+        }
+
+        this.pendingAnimationFrame = window.requestAnimationFrame(() => {
+            this.pendingAnimationFrame = null;
+
+            if (!this.hasActiveVisualEffects()) {
+                return;
+            }
+
+            if (!this.game || !this.game.world || !this.game.player || !this.game.fov) {
+                if (this.hasActiveVisualEffects()) {
+                    this.scheduleVisualEffectRender();
+                }
+                return;
+            }
+
+            this.render(this.game.world, this.game.player, this.game.fov);
+
+            if (this.hasActiveVisualEffects()) {
+                this.scheduleVisualEffectRender();
+            }
+        });
     }
 }

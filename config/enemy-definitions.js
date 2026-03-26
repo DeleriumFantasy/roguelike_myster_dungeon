@@ -109,8 +109,11 @@ const ENEMY_FAMILY_DEFINITIONS = {
     npc: {
         defaults: { types: [ENEMY_TYPES.NPC], speed: ENEMY_SPEEDS.SLOW, aiType: AI_TYPES.WANDER, fovRange: 8 },
         tiers: {
-            1: { key: 'npcTier1', displayName: 'Wandering merchant', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 2, minFloor: 0 },
-            2: { key: 'npcBankerTier1', displayName: 'Banker', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 }
+            1: { key: 'npcTier1', displayName: 'Wandering merchant', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
+            2: { key: 'npcBankerTier1', displayName: 'Banker', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 },
+            3: { key: 'npcStarvingTier1', displayName: 'Starving traveler', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
+            4: { key: 'npcHomeboundTier1', displayName: 'Homebound courier', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
+            5: { key: 'npcShamanTier1', displayName: 'Shaman', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 }
         }
     }
 };

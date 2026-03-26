@@ -51,7 +51,7 @@
 
 - Rendering and UI-specific logic only.
 - `ui.js`: base UI shell.
-- `ui-rendering.js`: main scene rendering and camera logic.
+- `ui-rendering.js`: main scene rendering, camera logic, fog threshold behavior, and transient combat effects.
 - `ui-panels.js`: stats panel and message log helpers.
 - `ui-inventory.js`: inventory modal helpers.
 - `ui-map.js`: map overlay helpers.
@@ -65,14 +65,14 @@
 - `game-content.js`: setup and floor population flow.
 - `game-content-utils.js`: shared content-selection helpers such as weighted rolls.
 - `game-content-registry.js`: content-registry helpers for enemy templates and weighted item entry selection.
-- `game-enemy-content.js`: enemy spawn tables, enemy creation, promotion.
-- `game-item-generation.js`: item spawn counts, random item generation, starter loadout, premade item placement.
+- `game-enemy-content.js`: enemy spawn tables, family-balancing curves, enemy creation, promotion, and overworld NPC roster placement.
+- `game-item-generation.js`: floor-banded item spawn counts, floor-scaled tier weighting, random item generation, starter loadout, premade item placement.
 - `game-item-state.js`: throw resolution, pickup/drop mutation, defeat drop state changes.
 - `game-item-interactions.js`: item-related announcements and coordination helpers.
 - `game-player-turns.js`: player turn resolution.
 - `game-enemy-turns.js`: enemy turn resolution, defeat handling, EXP.
 - `game-combat-helpers.js`: shared combat helpers used across turn files.
-- `game-npc-interactions.js`: NPC, shop, and bank interactions.
+- `game-npc-interactions.js`: NPC interaction flow (merchant, banker, starving/homebound/shaman one-time services).
 
 ## Load Order Rules
 
@@ -118,4 +118,4 @@
 - For item issues: check `game-item-generation.js`, `game-item-state.js`, `game-item-interactions.js`, then item entity files.
 - For enemy behavior issues: check `enemy-ai.js`, `enemy-item-behaviors.js`, `enemy-combat.js`, then `game-enemy-turns.js`.
 - For map or rendering issues: check `ui-rendering.js`, `ui-map.js`, and `engine/fov.js`.
-- For floor spawning issues: check `game-content.js`, `game-enemy-content.js`, `game-item-generation.js`, and `engine/world-generation.js`.
+- For floor spawning issues: check `game-content.js`, `game-enemy-content.js` (including `ENEMY_FAMILY_SPAWN_BALANCING` and NPC placement/filtering), `game-item-generation.js` (count bands and tier weighting), and `engine/world-generation.js`.

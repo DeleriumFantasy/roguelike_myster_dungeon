@@ -14,6 +14,7 @@ class Player {
         this.power = 1;
         this.armor = 0;
         this.conditions = new Map();
+        this.equipmentGrantedConditions = new Set();
         this.equipment = new Map();
         this.inventory = [];
         this.allies = [];

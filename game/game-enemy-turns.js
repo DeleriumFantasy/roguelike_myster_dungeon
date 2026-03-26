@@ -69,16 +69,40 @@ Game.prototype.announceThiefStealEvent = function(enemyName, result) {
 
 Game.prototype.announceVandalRangedAttackEvent = function(enemyName, result) {
     const rockLabel = getItemLabel(result?.item, 'Sharp rock');
-    this.ui.addMessage(`${enemyName} throws ${rockLabel} at you.`);
-    this.ui.addMessage(`${enemyName} hits you for ${result?.damage || 0}.`);
+    this.ui.addMessage(`${enemyName} throws ${rockLabel}.`);
 
-    if (result?.dropOutcome?.burned) {
-        this.ui.addMessage(`${rockLabel} burns up before it can land.`);
-    } else if (result?.dropOutcome?.placedOnPlayerTile) {
-        this.ui.addMessage(`${rockLabel} lands on your tile instead of shattering.`);
-    } else {
+    if (result?.outcome === 'hit-player') {
+        this.ui.addMessage(`${enemyName} hits you for ${result?.damage || 0}.`);
+        if ((result?.healing || 0) > 0) {
+            this.ui.addMessage(`You recover ${result.healing} health from the hit.`);
+        }
         this.ui.addMessage(`${rockLabel} shatters on impact.`);
+        return;
     }
+
+    if (result?.outcome === 'hit-enemy' && result?.target) {
+        this.ui.addMessage(`${enemyName} hits ${result.target.name} for ${result?.damage || 0}.`);
+        if ((result?.healing || 0) > 0) {
+            this.ui.addMessage(`${result.target.name} recovers ${result.healing} health from the hit.`);
+        }
+        this.ui.addMessage(`${rockLabel} shatters on impact.`);
+        if (result.targetDefeated) {
+            this.ui.addMessage(`${result.target.name} is defeated.`);
+        }
+        return;
+    }
+
+    if (result?.outcome === 'burned') {
+        this.ui.addMessage(`${rockLabel} burns up before it can land.`);
+        return;
+    }
+
+    if (result?.outcome === 'drop') {
+        this.ui.addMessage(`${rockLabel} lands at ${result.x}, ${result.y}.`);
+        return;
+    }
+
+    this.ui.addMessage(`${rockLabel} misses.`);
 };
 
 Game.prototype.processEnemyAttackPlayerActionResult = function(enemy, result) {
@@ -86,6 +110,8 @@ Game.prototype.processEnemyAttackPlayerActionResult = function(enemy, result) {
         return null;
     }
 
+    this.ui.playMeleeStrikeEffect?.(enemy.x, enemy.y, this.player.x, this.player.y, { attackerSide: 'enemy' });
+    this.ui.playHitPulseEffect?.(this.player.x, this.player.y, { targetSide: 'player' });
     this.announceCombatHit(enemy.name, 'you', result.damage);
     return this.createEnemyActionResult({
         handled: true,
@@ -99,6 +125,8 @@ Game.prototype.processEnemyAttackEnemyActionResult = function(enemy, result) {
         return null;
     }
 
+    this.ui.playMeleeStrikeEffect?.(enemy.x, enemy.y, result.target.x, result.target.y, { attackerSide: 'enemy' });
+    this.ui.playHitPulseEffect?.(result.target.x, result.target.y, { targetSide: 'enemy' });
     this.announceCombatHit(enemy.name, result.target.name, result.damage);
     if (!result.target.isAlive()) {
         if (enemy.isAlly) {
@@ -128,7 +156,19 @@ Game.prototype.processEnemyItemActionResult = function(enemy, result) {
     }
 
     if (result.type === 'vandal-ranged-attack') {
-        this.announceVandalRangedAttackEvent(enemy.name, result);
+        const resolvedThrow = this.resolveEnemyRangedThrow(enemy, result.item, result.dx, result.dy);
+        if (!resolvedThrow) {
+            return this.createEnemyActionResult({ handled: true, continueTurnFlow: this.player.isAlive(), actionType: result.type });
+        }
+
+        this.ui.playThrowTrailEffect?.(enemy.x, enemy.y, resolvedThrow.x, resolvedThrow.y);
+        if (resolvedThrow.outcome === 'hit-player') {
+            this.ui.playHitPulseEffect?.(this.player.x, this.player.y, { targetSide: 'player' });
+        } else if (resolvedThrow.outcome === 'hit-enemy' && resolvedThrow.target) {
+            this.ui.playHitPulseEffect?.(resolvedThrow.target.x, resolvedThrow.target.y, { targetSide: 'enemy' });
+        }
+
+        this.announceVandalRangedAttackEvent(enemy.name, resolvedThrow);
         return this.createEnemyActionResult({ handled: true, continueTurnFlow: this.player.isAlive(), actionType: result.type });
     }
 
@@ -324,8 +364,9 @@ Game.prototype.handleEnemyDefeat = function(enemy, options = {}) {
         return;
     }
 
-    const { announceDefeat = false, grantExp = true, killer = null } = options;
+    const { announceDefeat = false, grantExp = true, killer = null, defeatSource = '' } = options;
     this.removeEnemyFromCurrentFloor(enemy);
+    this.handleFloorEventEnemyDefeat?.(enemy, { killer, defeatSource });
     this.resolveEnemyDefeatDrops(enemy);
     this.awardEnemyDefeatExp(enemy, grantExp, killer);
 

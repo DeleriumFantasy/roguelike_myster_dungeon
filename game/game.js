@@ -131,6 +131,7 @@ class Game {
 
         // Per-turn player effects
         this.player.applyPerTurnRegen();
+        this.advanceActiveFloorEventTurn?.();
 
         this.handleFloorChange(startFloor);
         if (playerTurnResult.applyEnvironmentAfterAction) {
@@ -294,28 +295,43 @@ class Game {
 
     updateFOV() {
         this.fov = this.world.getCurrentFloor().fov;
+        const fovRange = this.getFovRangeForFloor(this.world.currentFloor);
 
         const currentState = {
             floor: this.world.currentFloor,
             x: this.player.x,
             y: this.player.y,
-            overworld: this.isOverworldFloor()
+            overworld: this.isOverworldFloor(),
+            fovRange
         };
 
         if (this.fovCache
             && this.fovCache.floor === currentState.floor
             && this.fovCache.x === currentState.x
             && this.fovCache.y === currentState.y
-            && this.fovCache.overworld === currentState.overworld) {
+            && this.fovCache.overworld === currentState.overworld
+            && this.fovCache.fovRange === currentState.fovRange) {
             return;
         }
 
-        this.fov.compute(this.player.x, this.player.y, FOV_RANGE);
+        this.fov.compute(this.player.x, this.player.y, fovRange);
         if (this.isOverworldFloor() && typeof this.fov.showAll === 'function') {
             this.fov.showAll();
         }
 
         this.fovCache = currentState;
+    }
+
+    getFovRangeForFloor(floorIndex = this.world.currentFloor) {
+        if (this.isOverworldFloor(floorIndex)) {
+            return Math.max(FOV_RANGE, 14);
+        }
+
+        const normalizedFloor = clamp(Math.floor(Number(floorIndex) || 1), 1, 99);
+        const easiestFov = 14;
+        const hardestFov = 4;
+        const progress = (normalizedFloor - 1) / 98;
+        return Math.round(easiestFov + (hardestFov - easiestFov) * progress);
     }
 }
 

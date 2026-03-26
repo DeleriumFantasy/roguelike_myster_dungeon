@@ -1,6 +1,156 @@
 // NPC conversation, shop, and banking helpers
 
 Object.assign(Game.prototype, {
+    isFoodItemForNpcTrade(item) {
+        return Boolean(
+            item
+            && item.type === ITEM_TYPES.CONSUMABLE
+            && Number(item?.properties?.hunger || 0) > 0
+        );
+    },
+
+    getFoodTierForNpcTrade(item) {
+        const match = typeof getTieredItemMatch === 'function'
+            ? getTieredItemMatch(item)
+            : null;
+        if (match?.category === 'food' && Number.isFinite(match.tier)) {
+            return clamp(Math.floor(match.tier), 1, 4);
+        }
+
+        const hunger = Number(item?.properties?.hunger || 0);
+        if (hunger >= 50) {
+            return 4;
+        }
+        if (hunger >= 20) {
+            return 3;
+        }
+        if (hunger >= 10) {
+            return 2;
+        }
+        return 1;
+    },
+
+    promptForInventoryItem(enemy, header, itemFilter = () => true) {
+        const inventory = Array.isArray(this.player.getInventory()) ? this.player.getInventory() : [];
+        const filteredItems = inventory.filter((item) => itemFilter(item));
+
+        if (filteredItems.length === 0) {
+            return null;
+        }
+
+        const indexedList = filteredItems
+            .map((item, index) => `${index + 1}) ${getItemLabel(item)}`)
+            .join('\n');
+        const choiceValue = window.prompt(`${enemy.name}: ${header}\n${indexedList}\nChoose item number:`, '1');
+        const selectedIndex = Math.floor(Number(choiceValue)) - 1;
+        if (!Number.isFinite(selectedIndex) || selectedIndex < 0 || selectedIndex >= filteredItems.length) {
+            return null;
+        }
+
+        return filteredItems[selectedIndex] || null;
+    },
+
+    createNpcRewardEquipmentForTier(tier, rng = null) {
+        const rewardCategories = [
+            ITEM_TYPES.WEAPON,
+            ITEM_TYPES.ARMOR,
+            ITEM_TYPES.SHIELD,
+            ITEM_TYPES.ACCESSORY
+        ];
+
+        const availableCategories = rewardCategories.filter((category) => {
+            return Boolean(TIERED_ITEM_DEFINITIONS?.[category]?.[tier]);
+        });
+
+        if (availableCategories.length === 0) {
+            return null;
+        }
+
+        const category = pickRandom(availableCategories, rng || createMathRng());
+        return createTieredItem(category, tier);
+    },
+
+    completeOneTimeNpcInteraction(enemy) {
+        if (!enemy) {
+            return;
+        }
+
+        enemy.shopSoldOut = true;
+        enemy.shopOfferItem = null;
+        enemy.shopOfferPrice = null;
+    },
+
+    interactWithStarvingNpc(enemy) {
+        const selectedFood = this.promptForInventoryItem(
+            enemy,
+            'I am starving. Please offer one food item.',
+            (item) => this.isFoodItemForNpcTrade(item)
+        );
+
+        if (!selectedFood) {
+            this.ui.addMessage(`${enemy.name}: I can only accept food.`);
+            return;
+        }
+
+        this.player.removeItem(selectedFood);
+        const foodTier = this.getFoodTierForNpcTrade(selectedFood);
+        const rewardItem = this.createNpcRewardEquipmentForTier(foodTier);
+        if (rewardItem) {
+            this.player.addItem(rewardItem);
+            this.ui.addMessage(`${enemy.name}: Thank you. Please take ${getItemLabel(rewardItem)}.`);
+        } else {
+            this.ui.addMessage(`${enemy.name}: Thank you for the meal.`);
+        }
+
+        this.completeOneTimeNpcInteraction(enemy);
+    },
+
+    interactWithHomeboundNpc(enemy) {
+        const selectedItem = this.promptForInventoryItem(
+            enemy,
+            'I can send one item safely to your bank.',
+            () => true
+        );
+
+        if (!selectedItem) {
+            this.ui.addMessage(`${enemy.name}: Choose one item if you want me to carry it home.`);
+            return;
+        }
+
+        this.player.removeItem(selectedItem);
+        this.player.bankItems.push(selectedItem);
+        this.ui.addMessage(`${enemy.name}: ${getItemLabel(selectedItem)} is now stored in your bank.`);
+        this.completeOneTimeNpcInteraction(enemy);
+    },
+
+    interactWithShamanNpc(enemy) {
+        const inventory = Array.isArray(this.player.getInventory()) ? this.player.getInventory() : [];
+        const cursedItems = inventory.filter((item) => {
+            if (!item) {
+                return false;
+            }
+
+            if (typeof item.isCursed === 'function') {
+                return item.isCursed();
+            }
+
+            return Boolean(item?.properties?.cursed);
+        });
+
+        if (cursedItems.length === 0) {
+            this.ui.addMessage(`${enemy.name}: Return when you carry a cursed item.`);
+            return;
+        }
+
+        const targetItem = pickRandom(cursedItems, createMathRng());
+        if (targetItem?.properties) {
+            delete targetItem.properties.cursed;
+        }
+
+        this.ui.addMessage(`${enemy.name}: I have cleansed ${getItemLabel(targetItem)}.`);
+        this.completeOneTimeNpcInteraction(enemy);
+    },
+
     tryTalkToFacingNpc(facing) {
         const targetX = this.player.x + (Number(facing?.dx) || 0);
         const targetY = this.player.y + (Number(facing?.dy) || 0);
@@ -11,6 +161,21 @@ Object.assign(Game.prototype, {
 
         if (enemy.monsterType === 'npcBankerTier1') {
             this.interactWithBanker(enemy);
+            return true;
+        }
+
+        if (enemy.monsterType === 'npcStarvingTier1') {
+            this.interactWithStarvingNpc(enemy);
+            return true;
+        }
+
+        if (enemy.monsterType === 'npcHomeboundTier1') {
+            this.interactWithHomeboundNpc(enemy);
+            return true;
+        }
+
+        if (enemy.monsterType === 'npcShamanTier1') {
+            this.interactWithShamanNpc(enemy);
             return true;
         }
 

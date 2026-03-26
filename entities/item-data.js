@@ -327,7 +327,9 @@ const ENCHANTMENT_DEFINITIONS = {
     fasting: {
         id: 'fasting',
         name: 'Fasting',
-        validItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY]
+        validItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY],
+        grantsCondition: CONDITIONS.SATIATED,
+        grantsConditionDuration: Infinity
     }
 };
 

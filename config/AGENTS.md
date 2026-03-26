@@ -24,7 +24,8 @@
 
 ## Placement Hints
 
-- Add new enemy template data to `enemy-definitions.js`.
+- Add new enemy template data to `enemy-definitions.js` (including special NPC templates used by overworld and dungeon content policies).
+- Keep enemy baseline `spawnWeight` values in `enemy-definitions.js`; keep runtime family-balancing curves in `game/game-enemy-content.js`.
 - Add new rule-table readers to `rules.js`.
 - Add new static visual mappings to `terrain-constants.js`.
 - Add new key binding interpretation to `input-constants.js`.

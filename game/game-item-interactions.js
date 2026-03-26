@@ -20,6 +20,9 @@ Object.assign(Game.prototype, {
 
     announceThrowHitResult(itemLabel, result) {
         this.ui.addMessage(`${itemLabel} hits ${result.enemy.name}.`);
+        if (Number.isFinite(result?.x) && Number.isFinite(result?.y)) {
+            this.ui.playHitPulseEffect?.(result.x, result.y, { targetSide: 'enemy' });
+        }
         if ((result.damage || 0) > 0) {
             this.ui.addMessage(`${result.enemy.name} takes ${result.damage} throw damage.`);
         }

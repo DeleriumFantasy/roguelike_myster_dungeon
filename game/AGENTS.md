@@ -13,14 +13,15 @@
 - `game-content.js`: setup and floor population flow.
 - `game-content-utils.js`: shared content-selection helpers like weighted picks and floor content RNG.
 - `game-content-registry.js`: content-registry helpers for enemy templates and weighted item entry selection.
-- `game-enemy-content.js`: enemy spawning, creation, and promotion.
-- `game-item-generation.js`: item spawning, premade item placement, and starter loadout helpers.
+- `game-enemy-content.js`: enemy spawning, configurable family-balancing (`ENEMY_FAMILY_SPAWN_BALANCING`), creation, promotion, and explicit overworld NPC placement.
+- `game-item-generation.js`: floor-banded item spawn counts, floor-scaled item-tier weighting, premade item placement, starter loadout, and event-reward item helpers.
 - `game-item-state.js`: throw resolution, pickup/drop mutation, and defeat drop state changes.
 - `game-item-interactions.js`: item announcements and interaction coordination.
 - `game-player-turns.js`: player turn resolution.
 - `game-enemy-turns.js`: enemy turn resolution and defeat/EXP handling.
 - `game-combat-helpers.js`: shared combat coordination helpers.
-- `game-npc-interactions.js`: banker/shop/NPC interaction flow.
+- `game-npc-interactions.js`: NPC interaction flow (merchant shop, banker services, and one-time starving/homebound/shaman services).
+- Random floor event lifecycle (roll/activation/progression/cleanup) belongs in `game-content.js`.
 
 ## Editing Rules
 
@@ -28,6 +29,8 @@
 - Shared selection helpers used by both enemy and item content go in `game-content-utils.js`.
 - Shared registry-style lookups used by both enemy and item generation go in `game-content-registry.js`.
 - Enemy creation/spawn tables belong in `game-enemy-content.js`, not `game-content.js`.
+- Keep special NPC interactions in `game-npc-interactions.js`; keep NPC spawn policy in `game-enemy-content.js`.
+- Keep enemy-family spawn tuning data in `game-enemy-content.js` and keep template stat data in `config/enemy-definitions.js`.
 - Item spawning and premade item placement belong in `game-item-generation.js`.
 - Throw/drop/pickup resolution belongs in `game-item-state.js`.
 - If a method mainly adds messages, prefer `game-item-interactions.js` or another interaction-oriented file.
@@ -39,7 +42,7 @@
 - Read `game-input.js` for keyboard and held-move behavior.
 - Read `game-player-turns.js` and `game-enemy-turns.js` for turn bugs.
 - Read `game-item-state.js` first for throw, pickup, and drop bugs.
-- Read `game-enemy-content.js` and `game-item-generation.js` for spawning/content bugs.
+- Read `game-enemy-content.js` and `game-item-generation.js` for spawning/content bugs and floor-scaling balance issues.
 
 ## Common Mistakes
 

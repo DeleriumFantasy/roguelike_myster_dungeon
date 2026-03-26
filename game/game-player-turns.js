@@ -124,6 +124,9 @@ Game.prototype.resolvePlayerThrow = function(input, thrownItem) {
     thrownItem.identify?.();
 
     const throwResult = this.resolveThrow(thrownItem, input.dx, input.dy);
+    if (Number.isFinite(throwResult?.x) && Number.isFinite(throwResult?.y)) {
+        this.ui.playThrowTrailEffect?.(this.player.x, this.player.y, throwResult.x, throwResult.y);
+    }
     this.announceThrowResult(thrownItem, throwResult);
     this.clearFailedMoveRecord();
     return this.createPlayerTurnResult({ consumed: true, actionType: 'throw' });
@@ -214,8 +217,11 @@ Game.prototype.tryApplyPlayerAttackKnockback = function(enemy, damage, hasKnockb
 };
 
 Game.prototype.resolvePlayerAttackAgainstEnemy = function(enemy, hasKnockback) {
+    const targetX = enemy.x;
+    const targetY = enemy.y;
     const attackResult = this.player.attackEnemy(enemy);
     const { damage, critical, inflictedConditions } = this.extractAttackResultData(attackResult);
+    this.ui.playHitPulseEffect?.(targetX, targetY, { targetSide: 'enemy' });
     const criticalPrefix = critical ? 'Critical! ' : '';
     this.ui.addMessage(`${criticalPrefix}You attack ${enemy.name} for ${damage}.`);
     this.announceInflictedConditions(enemy.name, inflictedConditions);
@@ -255,6 +261,10 @@ Game.prototype.executePlayerAttackPass = function(offsets, options = {}) {
 
     for (const offset of offsets) {
         const attackTarget = this.getPlayerAttackTarget(offset);
+        this.ui.playMeleeStrikeEffect?.(this.player.x, this.player.y, attackTarget.x, attackTarget.y, {
+            attackerSide: 'player',
+            durationMs: 200
+        });
         const trapOutcome = this.applyAttackPassTrapEffects(attackTarget.x, attackTarget.y, hasRuinTraps);
         passSummary.revealedAnyTrapInPass = passSummary.revealedAnyTrapInPass || trapOutcome.revealedTrap;
         passSummary.ruinedAnyTrapInPass = passSummary.ruinedAnyTrapInPass || trapOutcome.ruinedTrap;
@@ -366,8 +376,12 @@ Game.prototype.resolvePlayerBerserkMeleeAttack = function(target) {
         return;
     }
 
+    const targetX = target.x;
+    const targetY = target.y;
     const attackResult = this.player.attackEnemy(target);
     const { damage, critical, inflictedConditions } = this.extractAttackResultData(attackResult);
+    this.ui.playMeleeStrikeEffect?.(this.player.x, this.player.y, targetX, targetY, { attackerSide: 'player' });
+    this.ui.playHitPulseEffect?.(targetX, targetY, { targetSide: 'enemy' });
     const criticalPrefix = critical ? 'Critical! ' : '';
     this.ui.addMessage(`${criticalPrefix}You berserk attack ${target.name} for ${damage}.`);
     this.announceInflictedConditions(target.name, inflictedConditions);

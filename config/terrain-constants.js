@@ -215,7 +215,14 @@ const UI_VISUALS = {
     enemyHealthBarBorder: '#000',
     enemyHealthBarHigh: '#39d353',
     enemyHealthBarMid: '#f59e0b',
-    enemyHealthBarLow: '#ef4444'
+    enemyHealthBarLow: '#ef4444',
+    playerMeleeTrail: '#facc15',
+    enemyMeleeTrail: '#fb7185',
+    throwTrail: '#93c5fd',
+    throwProjectile: '#ffffff',
+    hitPulsePlayer: '#f43f5e',
+    hitPulseEnemy: '#22d3ee',
+    hitPulseNeutral: '#ffffff'
 };
 
 const HEALTH_BAR_PALETTES = {

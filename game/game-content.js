@@ -1,6 +1,184 @@
 // Game setup and floor population helpers
 
 Object.assign(Game.prototype, {
+    getFloorRandomEventChance() {
+        return 0.02;
+    },
+
+    getFoodPartyEventTurnLimit() {
+        return 50;
+    },
+
+    getThrowingChallengeTurnLimit() {
+        return 40;
+    },
+
+    rollRandomFloorEventType(rng) {
+        const eventTypes = ['food-party', 'throwing-challenge'];
+        return pickRandom(eventTypes, rng);
+    },
+
+    tryActivateRandomFloorEvent(rng, floorIndex) {
+        const floor = this.world.getCurrentFloor();
+        floor.meta = floor.meta || {};
+
+        if (floor.meta.activeEvent) {
+            return;
+        }
+
+        if (getRngRoll(rng) >= this.getFloorRandomEventChance()) {
+            return;
+        }
+
+        const eventType = this.rollRandomFloorEventType(rng);
+        if (eventType === 'food-party') {
+            this.activateFoodPartyEvent(rng, floorIndex);
+            return;
+        }
+
+        if (eventType === 'throwing-challenge') {
+            this.activateThrowingChallengeEvent();
+        }
+    },
+
+    activateFoodPartyEvent(rng, floorIndex) {
+        const floor = this.world.getCurrentFloor();
+        floor.meta = floor.meta || {};
+
+        const spawnedItems = [];
+        const eventSpawnCount = 12;
+        for (let i = 0; i < eventSpawnCount; i++) {
+            const spawn = this.world.findRandomItemSpawnTile(rng, this.player);
+            if (!spawn) {
+                continue;
+            }
+
+            const tier = this.rollItemTierForFloor(floorIndex, rng);
+            const foodItem = createTieredItem('food', tier);
+            if (!foodItem) {
+                continue;
+            }
+
+            const placeResult = this.world.addItem(spawn.x, spawn.y, foodItem);
+            if (!placeResult?.placed) {
+                continue;
+            }
+
+            spawnedItems.push({ x: spawn.x, y: spawn.y, item: foodItem });
+        }
+
+        floor.meta.activeEvent = {
+            type: 'food-party',
+            turnsRemaining: this.getFoodPartyEventTurnLimit(),
+            spawnedItems
+        };
+
+        this.ui.addMessage(`Random event! Food party begins. Grab the food within ${this.getFoodPartyEventTurnLimit()} turns.`);
+    },
+
+    activateThrowingChallengeEvent() {
+        const floor = this.world.getCurrentFloor();
+        floor.meta = floor.meta || {};
+
+        floor.meta.activeEvent = {
+            type: 'throwing-challenge',
+            requiredKills: 5,
+            currentKills: 0,
+            turnsRemaining: this.getThrowingChallengeTurnLimit(),
+            rewardGranted: false
+        };
+
+        this.ui.addMessage(`Random event! Throwing challenge: defeat 5 enemies using thrown items in ${this.getThrowingChallengeTurnLimit()} turns.`);
+    },
+
+    cleanupFoodPartyEventItems(activeEvent) {
+        if (!activeEvent || !Array.isArray(activeEvent.spawnedItems)) {
+            return;
+        }
+
+        for (const spawnedItem of activeEvent.spawnedItems) {
+            const x = Number(spawnedItem?.x);
+            const y = Number(spawnedItem?.y);
+            const item = spawnedItem?.item;
+            if (!Number.isFinite(x) || !Number.isFinite(y) || !item) {
+                continue;
+            }
+
+            const itemsOnTile = this.world.getItems(x, y);
+            if (!Array.isArray(itemsOnTile) || !itemsOnTile.includes(item)) {
+                continue;
+            }
+
+            this.world.removeItem(x, y, item);
+        }
+    },
+
+    advanceActiveFloorEventTurn() {
+        const floor = this.world.getCurrentFloor();
+        const activeEvent = floor?.meta?.activeEvent;
+        if (!activeEvent) {
+            return;
+        }
+
+        const remainingTurns = Math.max(0, Math.floor(Number(activeEvent.turnsRemaining) - 1));
+        activeEvent.turnsRemaining = remainingTurns;
+        if (remainingTurns > 0) {
+            return;
+        }
+
+        if (activeEvent.type === 'food-party') {
+            this.cleanupFoodPartyEventItems(activeEvent);
+            floor.meta.activeEvent = null;
+            this.ui.addMessage('Food party has ended. Remaining event food disappears.');
+            return;
+        }
+
+        if (activeEvent.type === 'throwing-challenge') {
+            floor.meta.activeEvent = null;
+            this.ui.addMessage('Throwing challenge failed. Time is up.');
+        }
+    },
+
+    handleFloorEventEnemyDefeat(enemy, options = {}) {
+        const floor = this.world.getCurrentFloor();
+        const activeEvent = floor?.meta?.activeEvent;
+        if (!activeEvent || activeEvent.type !== 'throwing-challenge') {
+            return;
+        }
+
+        const { killer = null, defeatSource = '' } = options;
+        if (killer !== this.player || defeatSource !== 'player-throw') {
+            return;
+        }
+
+        if (this.isNeutralNpcEnemy(enemy)) {
+            return;
+        }
+
+        if (activeEvent.rewardGranted) {
+            return;
+        }
+
+        activeEvent.currentKills = Math.max(0, Math.floor(Number(activeEvent.currentKills) || 0) + 1);
+        this.ui.addMessage(`Throwing challenge progress: ${activeEvent.currentKills}/${activeEvent.requiredKills}.`);
+
+        if (activeEvent.currentKills < activeEvent.requiredKills) {
+            return;
+        }
+
+        const rewardRng = this.getFloorContentRng(this.world.currentFloor + 900000);
+        const rewardItem = this.createThrowingChallengeRewardItem(rewardRng, this.getDungeonDepthIndex(this.world.currentFloor));
+        if (rewardItem) {
+            this.player.addItem(rewardItem);
+            this.ui.addMessage(`Throwing challenge complete! You receive ${getItemLabel(rewardItem)}.`);
+        } else {
+            this.ui.addMessage('Throwing challenge complete!');
+        }
+
+        activeEvent.rewardGranted = true;
+        floor.meta.activeEvent = null;
+    },
+
     initializeGame() {
         this.populateCurrentFloorIfNeeded();
         this.spawnPlayerOnFloor();
@@ -145,6 +323,7 @@ Object.assign(Game.prototype, {
             this.spawnEnemiesForCurrentFloor(rng, dungeonDepthIndex);
             this.spawnItemsForCurrentFloor(rng, dungeonDepthIndex);
             this.spawnPremadeItemsForCurrentFloor(rng, itemFloorIndex);
+            this.tryActivateRandomFloorEvent(rng, dungeonDepthIndex);
         }
 
         floor.meta = floor.meta || {};

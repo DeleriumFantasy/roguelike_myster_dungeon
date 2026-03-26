@@ -424,6 +424,14 @@ Object.assign(Enemy.prototype, {
         return canActorTraverseTile(tile, this.creatureTypes);
     },
 
+    isValidVandalPickupTile(world, x, y) {
+        if (!world) {
+            return false;
+        }
+
+        return world.getTile(x, y) === TILE_TYPES.FLOOR;
+    },
+
     getNearestVisibleGroundItem(world) {
         if (!world || this.hasHeldItem()) {
             return null;
@@ -441,6 +449,10 @@ Object.assign(Enemy.prototype, {
 
             const [x, y] = fromGridKey(key);
             if (!this.canSeePosition(world, x, y)) {
+                continue;
+            }
+
+            if (this.isVandal() && !this.isValidVandalPickupTile(world, x, y)) {
                 continue;
             }
 
@@ -485,6 +497,10 @@ Object.assign(Enemy.prototype, {
 
     pickupGroundItem(world) {
         if (!world || this.hasHeldItem()) {
+            return null;
+        }
+
+        if (this.isVandal() && !this.isValidVandalPickupTile(world, this.x, this.y)) {
             return null;
         }
 

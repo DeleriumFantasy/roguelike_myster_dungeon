@@ -1,12 +1,27 @@
 // Item generation, money valuation, and starter loadout helpers
 
 Object.assign(Game.prototype, {
-    getItemSpawnCountForFloor(floorIndex) {
-        return clamp(5 + Math.floor(floorIndex / 3), 5, 14);
+    getItemSpawnCountForFloor(floorIndex, rng = null) {
+        const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
+
+        let minCount = 1;
+        let maxCount = 2;
+        if (displayFloor <= 25) {
+            minCount = 4;
+            maxCount = 5;
+        } else if (displayFloor <= 50) {
+            minCount = 3;
+            maxCount = 4;
+        } else if (displayFloor <= 75) {
+            minCount = 2;
+            maxCount = 3;
+        }
+
+        return getRngRandomInt(rng, minCount, maxCount);
     },
 
     spawnItemsForCurrentFloor(rng, floorIndex = this.world.currentFloor) {
-        const itemCount = this.getItemSpawnCountForFloor(floorIndex);
+        const itemCount = this.getItemSpawnCountForFloor(floorIndex, rng);
         for (let i = 0; i < itemCount; i++) {
             const spawn = this.world.findRandomItemSpawnTile(rng, this.player);
             if (!spawn) {
@@ -109,15 +124,81 @@ Object.assign(Game.prototype, {
     },
 
     rollItemTierForFloor(floorIndex, rng) {
-        const baseTier = Math.min(4, 1 + Math.floor(floorIndex / 2));
-        const tierRoll = rng.randomInt(0, 3);
-        if (tierRoll === 0 && baseTier > 1) {
-            return baseTier - 1;
+        const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
+
+        if (displayFloor <= 25) {
+            const earlyProgress = (displayFloor - 1) / 24;
+            const tier1Weight = Math.round(80 + (55 - 80) * earlyProgress);
+            const tier2Weight = Math.round(20 + (45 - 20) * earlyProgress);
+
+            const totalWeight = tier1Weight + tier2Weight;
+            let roll = getRngRoll(rng) * totalWeight;
+            roll -= tier1Weight;
+            return roll <= 0 ? 1 : 2;
         }
-        if (tierRoll >= 2 && baseTier < 4) {
-            return baseTier + 1;
+
+        const lateProgress = (displayFloor - 26) / 73;
+        const tier1Weight = Math.round(50 + (2 - 50) * lateProgress);
+        const tier2Weight = Math.round(30 + (8 - 30) * lateProgress);
+        const tier3Weight = Math.round(15 + (20 - 15) * lateProgress);
+        const tier4Weight = Math.round(5 + (70 - 5) * lateProgress);
+        const weightedTiers = [
+            { tier: 1, weight: Math.max(1, tier1Weight) },
+            { tier: 2, weight: Math.max(1, tier2Weight) },
+            { tier: 3, weight: Math.max(1, tier3Weight) },
+            { tier: 4, weight: Math.max(1, tier4Weight) }
+        ];
+
+        const totalWeight = weightedTiers.reduce((sum, entry) => sum + entry.weight, 0);
+        let roll = getRngRoll(rng) * totalWeight;
+        for (const entry of weightedTiers) {
+            roll -= entry.weight;
+            if (roll <= 0) {
+                return entry.tier;
+            }
         }
-        return baseTier;
+
+        return 4;
+    },
+
+    rollBoostedRewardTierForFloor(floorIndex, rng) {
+        let tier = this.rollItemTierForFloor(floorIndex, rng);
+
+        if (tier < 4 && getRngRoll(rng) < 0.7) {
+            tier += 1;
+        }
+
+        if (tier < 4 && getRngRoll(rng) < 0.35) {
+            tier += 1;
+        }
+
+        return clamp(tier, 1, 4);
+    },
+
+    createThrowingChallengeRewardItem(rng, floorIndex = this.world.currentFloor) {
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const tier = this.rollBoostedRewardTierForFloor(floorIndex, rng);
+            const tierEntries = getWeightedItemEntriesForTier(tier);
+            const chosenEntry = this.chooseWeightedEntry(rng, tierEntries);
+            if (!chosenEntry || typeof chosenEntry.create !== 'function') {
+                continue;
+            }
+
+            const item = chosenEntry.create();
+            if (!item) {
+                continue;
+            }
+
+            if (item.type === ITEM_TYPES.MONEY) {
+                item.properties = item.properties || {};
+                item.properties.value = this.computeMoneyValueForFloor(item, floorIndex, rng);
+            }
+
+            applyWorldEnchantmentRoll(item, rng);
+            return applyWorldCurseRoll(item, rng);
+        }
+
+        return null;
     },
 
     seedPlayerInventory() {

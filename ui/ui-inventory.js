@@ -1,6 +1,14 @@
 // UI inventory helpers
 
 Object.assign(UI.prototype, {
+    refreshUiAfterInventoryMutation() {
+        if (!this.game || !this.game.world || !this.game.player || !this.game.fov) {
+            return;
+        }
+
+        this.render(this.game.world, this.game.player, this.game.fov);
+    },
+
     createInventoryListItem(text, onClick = null, textColor = null) {
         const div = document.createElement('div');
         div.className = 'inventory-item';
@@ -140,6 +148,7 @@ Object.assign(UI.prototype, {
             this.addMessage(`${item.name} is cursed and cannot be unequipped`);
         }
 
+        this.refreshUiAfterInventoryMutation();
         this.reopenInventoryForCurrentPlayer();
     },
 
@@ -156,6 +165,7 @@ Object.assign(UI.prototype, {
             item.use(this.game.player);
             this.game.player.removeItem(item);
             this.addMessage(`Used ${itemLabel}`);
+            this.refreshUiAfterInventoryMutation();
             this.reopenInventoryForCurrentPlayer();
             return;
         }
@@ -168,6 +178,7 @@ Object.assign(UI.prototype, {
             } else {
                 this.addMessage(`Could not equip ${itemLabel}`);
             }
+            this.refreshUiAfterInventoryMutation();
             this.reopenInventoryForCurrentPlayer();
             return;
         }
@@ -186,6 +197,7 @@ Object.assign(UI.prototype, {
             } else {
                 this.addMessage(`Dropped ${itemLabel}`);
             }
+            this.refreshUiAfterInventoryMutation();
             this.reopenInventoryForCurrentPlayer();
         }
     },

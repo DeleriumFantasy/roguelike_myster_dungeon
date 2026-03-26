@@ -1,6 +1,192 @@
 // UI scene rendering and camera helpers
 
 Object.assign(UI.prototype, {
+    hasActiveVisualEffects() {
+        return Array.isArray(this.activeVisualEffects) && this.activeVisualEffects.length > 0;
+    },
+
+    pruneExpiredVisualEffects(now = performance.now()) {
+        if (!Array.isArray(this.activeVisualEffects) || this.activeVisualEffects.length === 0) {
+            return;
+        }
+
+        this.activeVisualEffects = this.activeVisualEffects.filter((effect) => {
+            const elapsed = now - Number(effect?.startedAt || 0);
+            const duration = Math.max(1, Number(effect?.durationMs) || 1);
+            return elapsed < duration;
+        });
+    },
+
+    enqueueVisualEffect(effect) {
+        if (!effect || typeof effect !== 'object') {
+            return;
+        }
+
+        const now = performance.now();
+        const nextEffect = {
+            ...effect,
+            startedAt: now,
+            durationMs: Math.max(1, Number(effect.durationMs) || 1)
+        };
+
+        this.activeVisualEffects.push(nextEffect);
+        if (this.game?.world && this.game?.player && this.game?.fov) {
+            this.render(this.game.world, this.game.player, this.game.fov);
+        }
+        this.scheduleVisualEffectRender();
+    },
+
+    playMeleeStrikeEffect(fromX, fromY, toX, toY, options = {}) {
+        this.enqueueVisualEffect({
+            type: 'melee-strike',
+            fromX,
+            fromY,
+            toX,
+            toY,
+            attackerSide: options.attackerSide || 'neutral',
+            durationMs: options.durationMs || 240
+        });
+    },
+
+    playThrowTrailEffect(fromX, fromY, toX, toY, options = {}) {
+        const distanceTiles = Math.max(Math.abs(toX - fromX), Math.abs(toY - fromY));
+        this.enqueueVisualEffect({
+            type: 'throw-trail',
+            fromX,
+            fromY,
+            toX,
+            toY,
+            durationMs: options.durationMs || (220 + distanceTiles * 65)
+        });
+    },
+
+    playHitPulseEffect(x, y, options = {}) {
+        this.enqueueVisualEffect({
+            type: 'hit-pulse',
+            x,
+            y,
+            targetSide: options.targetSide || 'neutral',
+            durationMs: options.durationMs || 320
+        });
+    },
+
+    renderTransientEffects(world, fov, now = performance.now()) {
+        if (!this.hasActiveVisualEffects()) {
+            return;
+        }
+
+        for (const effect of this.activeVisualEffects) {
+            if (!effect || !effect.type) {
+                continue;
+            }
+
+            const elapsed = now - Number(effect.startedAt || 0);
+            const duration = Math.max(1, Number(effect.durationMs) || 1);
+            const t = clamp(elapsed / duration, 0, 1);
+
+            if (effect.type === 'melee-strike') {
+                this.renderMeleeStrikeEffect(effect, t);
+                continue;
+            }
+
+            if (effect.type === 'throw-trail') {
+                this.renderThrowTrailEffect(effect, t);
+                continue;
+            }
+
+            if (effect.type === 'hit-pulse') {
+                this.renderHitPulseEffect(effect, fov, t);
+            }
+        }
+    },
+
+    renderMeleeStrikeEffect(effect, t) {
+        const from = this.getScreenCenter(effect.fromX, effect.fromY);
+        const to = this.getScreenCenter(effect.toX, effect.toY);
+        const progress = Math.min(1, t * 1.25);
+        const drawX = from.x + (to.x - from.x) * progress;
+        const drawY = from.y + (to.y - from.y) * progress;
+        const baseLineWidth = Math.max(2, Math.floor(this.getTileSize() * 0.16));
+        const lineWidth = baseLineWidth + (1 - t) * baseLineWidth;
+        const alpha = 1 - t;
+
+        let stroke = UI_VISUALS.playerMeleeTrail;
+        if (effect.attackerSide === 'enemy') {
+            stroke = UI_VISUALS.enemyMeleeTrail;
+        }
+
+        this.ctx.save();
+        this.ctx.globalCompositeOperation = 'lighter';
+        this.ctx.globalAlpha = alpha;
+        this.ctx.strokeStyle = stroke;
+        this.ctx.lineWidth = lineWidth;
+        this.ctx.lineCap = 'round';
+        this.ctx.beginPath();
+        this.ctx.moveTo(from.x, from.y);
+        this.ctx.lineTo(drawX, drawY);
+        this.ctx.stroke();
+        this.ctx.restore();
+    },
+
+    renderThrowTrailEffect(effect, t) {
+        const from = this.getScreenCenter(effect.fromX, effect.fromY);
+        const to = this.getScreenCenter(effect.toX, effect.toY);
+        const currentX = from.x + (to.x - from.x) * t;
+        const currentY = from.y + (to.y - from.y) * t;
+        const tileSize = this.getTileSize();
+        const projectileRadius = Math.max(2, tileSize * 0.16);
+
+        this.ctx.save();
+        this.ctx.globalCompositeOperation = 'lighter';
+        this.ctx.globalAlpha = 0.52;
+        this.ctx.strokeStyle = UI_VISUALS.throwTrail;
+        this.ctx.lineWidth = Math.max(3, Math.floor(tileSize * 0.18));
+        this.ctx.lineCap = 'round';
+        this.ctx.beginPath();
+        this.ctx.moveTo(from.x, from.y);
+        this.ctx.lineTo(currentX, currentY);
+        this.ctx.stroke();
+
+        this.ctx.globalAlpha = 1;
+        this.ctx.fillStyle = UI_VISUALS.throwProjectile;
+        this.ctx.beginPath();
+        this.ctx.arc(currentX, currentY, projectileRadius, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.restore();
+    },
+
+    renderHitPulseEffect(effect, fov, t) {
+        if (!this.isInCameraBounds(effect.x, effect.y)) {
+            return;
+        }
+
+        const shouldHideUnseenTiles = this.shouldHideUnseenTilesForFloor(this.game?.world?.currentFloor);
+        if (!this.isTileRevealed(effect.x, effect.y, fov, shouldHideUnseenTiles)) {
+            return;
+        }
+
+        const center = this.getScreenCenter(effect.x, effect.y);
+        const tileSize = this.getTileSize();
+        const radius = tileSize * (0.35 + t * 0.78);
+        const alpha = Math.max(0, 0.92 - t * 0.95);
+
+        let fill = UI_VISUALS.hitPulseNeutral;
+        if (effect.targetSide === 'player') {
+            fill = UI_VISUALS.hitPulsePlayer;
+        } else if (effect.targetSide === 'enemy') {
+            fill = UI_VISUALS.hitPulseEnemy;
+        }
+
+        this.ctx.save();
+        this.ctx.globalCompositeOperation = 'lighter';
+        this.ctx.globalAlpha = alpha;
+        this.ctx.fillStyle = fill;
+        this.ctx.beginPath();
+        this.ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        this.ctx.fill();
+        this.ctx.restore();
+    },
+
     renderTopDownScene(world, player, fov) {
         const tileSize = this.getTileSize();
         const shouldUseFog = this.shouldUseFogForFloor(world.currentFloor);
@@ -8,6 +194,7 @@ Object.assign(UI.prototype, {
 
         if (this.isActorBlind(player)) {
             this.renderPlayer(player);
+            this.renderTransientEffects(world, fov, performance.now());
             return;
         }
 
@@ -47,6 +234,76 @@ Object.assign(UI.prototype, {
                 od.screenX, od.screenY - od.drawOffsetY, tileSize, od.drawOffsetY
             );
         }
+
+        this.renderTransientEffects(world, fov, performance.now());
+    },
+
+    getActiveEventBannerData(world) {
+        const activeEvent = world?.getCurrentFloor?.()?.meta?.activeEvent;
+        if (!activeEvent) {
+            return null;
+        }
+
+        const turnsRemaining = Math.max(0, Math.floor(Number(activeEvent.turnsRemaining) || 0));
+        if (activeEvent.type === 'food-party') {
+            return {
+                title: 'Random Event: Food Party',
+                objective: 'Collect the spawned food before it disappears.',
+                turnsRemaining
+            };
+        }
+
+        if (activeEvent.type === 'throwing-challenge') {
+            const requiredKills = Math.max(1, Math.floor(Number(activeEvent.requiredKills) || 1));
+            const currentKills = clamp(Math.floor(Number(activeEvent.currentKills) || 0), 0, requiredKills);
+            return {
+                title: 'Random Event: Throwing Challenge',
+                objective: `Defeat enemies with thrown items (${currentKills}/${requiredKills}).`,
+                turnsRemaining
+            };
+        }
+
+        return {
+            title: 'Random Event Active',
+            objective: 'Complete the event objective.',
+            turnsRemaining
+        };
+    },
+
+    renderActiveEventBanner(world) {
+        const bannerData = this.getActiveEventBannerData(world);
+        if (!bannerData) {
+            return;
+        }
+
+        const { title, objective, turnsRemaining } = bannerData;
+        const textLine = `${objective} Time left: ${turnsRemaining} turns.`;
+        const paddingX = 12;
+        const topY = 8;
+        const lineHeight = 18;
+        const boxWidth = Math.min(this.canvas.width - 16, Math.max(320, this.canvas.width * 0.9));
+        const boxX = Math.floor((this.canvas.width - boxWidth) / 2);
+        const boxHeight = 48;
+
+        this.ctx.save();
+        this.ctx.globalAlpha = 0.9;
+        this.ctx.fillStyle = 'rgba(8, 12, 20, 0.9)';
+        this.ctx.fillRect(boxX, topY, boxWidth, boxHeight);
+        this.ctx.strokeStyle = '#f7c948';
+        this.ctx.lineWidth = 2;
+        this.ctx.strokeRect(boxX, topY, boxWidth, boxHeight);
+
+        this.ctx.globalAlpha = 1;
+        this.ctx.textAlign = 'left';
+        this.ctx.textBaseline = 'top';
+        this.ctx.font = 'bold 14px monospace';
+        this.ctx.fillStyle = '#f7c948';
+        this.ctx.fillText(title, boxX + paddingX, topY + 6);
+
+        this.ctx.font = '12px monospace';
+        this.ctx.fillStyle = '#f4f7ff';
+        this.ctx.fillText(textLine, boxX + paddingX, topY + 6 + lineHeight);
+        this.ctx.restore();
     },
 
     renderTile(x, y, world, fov) {
@@ -305,7 +562,7 @@ Object.assign(UI.prototype, {
     },
 
     shouldUseFogForFloor(floorIndex) {
-        return Number.isInteger(floorIndex) && floorIndex > 0 && floorIndex % 2 === 0;
+        return Number.isInteger(floorIndex) && floorIndex >= 25;
     },
 
     shouldHideUnseenTilesForFloor(floorIndex) {
