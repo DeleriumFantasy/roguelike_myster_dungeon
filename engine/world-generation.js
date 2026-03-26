@@ -1,13 +1,6 @@
-// World generation and management
+// World generation helpers
 
-class World {
-    constructor(seed) {
-        this.baseSeed = seed;
-        this.floors = [];
-        this.currentFloor = 0;
-        this.generateFloor();
-    }
-
+Object.assign(World.prototype, {
     generateFloor(areaType = this.selectAreaTypeForFloor(this.currentFloor)) {
         const rng = new SeededRNG(this.baseSeed + this.currentFloor);
         const layout = this.generateGridForArea(areaType, rng);
@@ -38,10 +31,12 @@ class World {
             meta: {
                 areaType,
                 generatorType: this.getGeneratorType(areaType),
+                premadeItemSpawns: Array.isArray(layout?.premadeItemSpawns) ? [...layout.premadeItemSpawns] : [],
+                premadeEnemySpawns: Array.isArray(layout?.premadeEnemySpawns) ? [...layout.premadeEnemySpawns] : [],
                 contentSpawned: false
             }
         };
-    }
+    },
 
     collectTilesByType(grid, tileTypes) {
         const targetTiles = new Set(tileTypes);
@@ -57,7 +52,7 @@ class World {
         }
 
         return matches;
-    }
+    },
 
     generateGridForArea(areaType, rng) {
         if (areaType === AREA_TYPES.OVERWORLD) {
@@ -70,6 +65,8 @@ class World {
 
         const rule = getAreaGenerationRule(areaType);
         const grid = [];
+        const premadeItemSpawns = [];
+        const premadeEnemySpawns = [];
 
         for (let y = 0; y < GRID_SIZE; y++) {
             grid[y] = [];
@@ -79,13 +76,15 @@ class World {
         }
 
         this.applyAreaWalkers(grid, rule, rng);
-        this.applyPremadeTerrainShapes(grid, areaType, rng, this.currentFloor);
+        this.applyPremadeTerrainShapes(grid, areaType, rng, this.currentFloor, premadeItemSpawns, premadeEnemySpawns);
         return {
             grid,
             roomTileKeys: null,
-            hallwayTileKeys: null
+            hallwayTileKeys: null,
+            premadeItemSpawns,
+            premadeEnemySpawns
         };
-    }
+    },
 
     generateOverworldGrid() {
         const grid = Array.from({ length: GRID_SIZE }, (_, y) => Array.from({ length: GRID_SIZE }, (_, x) => {
@@ -101,7 +100,7 @@ class World {
             roomTileKeys: null,
             hallwayTileKeys: null
         };
-    }
+    },
 
     generateCatacombsGrid(rng) {
         const config = getCatacombsGenerationConfig();
@@ -157,7 +156,7 @@ class World {
             roomTileKeys,
             hallwayTileKeys
         };
-    }
+    },
 
     doesRoomOverlap(existingRooms, candidate, padding = 0) {
         return existingRooms.some((room) => (
@@ -166,7 +165,7 @@ class World {
             && candidate.y <= room.y + room.height - 1 + padding
             && candidate.y + candidate.height - 1 + padding >= room.y
         ));
-    }
+    },
 
     carveRoom(grid, room, roomTileKeys) {
         for (let y = room.y; y < room.y + room.height; y++) {
@@ -175,14 +174,14 @@ class World {
                 roomTileKeys.add(this.tileKey(x, y));
             }
         }
-    }
+    },
 
     getRoomCenter(room) {
         return {
             x: Math.floor(room.x + room.width / 2),
             y: Math.floor(room.y + room.height / 2)
         };
-    }
+    },
 
     carveHallwayBetweenPoints(grid, from, to, rng, roomTileKeys, hallwayTileKeys) {
         const carveCell = (x, y) => {
@@ -218,7 +217,7 @@ class World {
             carveVertical(from.x, from.y, to.y);
             carveHorizontal(from.x, to.x, to.y);
         }
-    }
+    },
 
     decorateCatacombsHallways(grid, rng, layout, stairPositions) {
         const hallwayKeys = layout?.hallwayTileKeys;
@@ -264,7 +263,7 @@ class World {
             const replacement = pickRandom(hallwayHazardTiles, rng, TILE_TYPES.FLOOR);
             grid[y][x] = replacement;
         }
-    }
+    },
 
     findNearestFloorToCenter(grid) {
         const center = {
@@ -284,7 +283,7 @@ class World {
         }
 
         return getNearestByDistance(center.x, center.y, floorCandidates);
-    }
+    },
 
     findCardinalPathKeys(grid, start, goal, canTraverseTile) {
         const startKey = this.tileKey(start.x, start.y);
@@ -335,9 +334,9 @@ class World {
         }
 
         return new Set();
-    }
+    },
 
-    applyPremadeTerrainShapes(grid, areaType, rng, floorIndex) {
+    applyPremadeTerrainShapes(grid, areaType, rng, floorIndex, premadeItemSpawns = [], premadeEnemySpawns = []) {
         const placementRules = getPremadeTerrainPlacementRulesForFloor(areaType, floorIndex);
         for (const placementRule of placementRules) {
             const chance = Number.isFinite(placementRule.chance) ? placementRule.chance : 1;
@@ -350,12 +349,12 @@ class World {
             const targetCount = maxCount > minCount ? rng.randomInt(minCount, maxCount) : minCount;
 
             for (let i = 0; i < targetCount; i++) {
-                this.placePremadeTerrainShapeRandom(grid, placementRule.shapeId, rng);
+                this.placePremadeTerrainShapeRandom(grid, placementRule.shapeId, rng, 40, premadeItemSpawns, premadeEnemySpawns);
             }
         }
-    }
+    },
 
-    placePremadeTerrainShapeRandom(grid, shapeId, rng, attempts = 40) {
+    placePremadeTerrainShapeRandom(grid, shapeId, rng, attempts = 40, premadeItemSpawns = [], premadeEnemySpawns = []) {
         const shape = getPremadeTerrainShape(shapeId);
         if (!shape || !Array.isArray(shape.rows) || shape.rows.length === 0) {
             return false;
@@ -377,12 +376,12 @@ class World {
                 continue;
             }
 
-            this.applyPremadeTerrainShapeAt(grid, shape, startX, startY);
+            this.applyPremadeTerrainShapeAt(grid, shape, startX, startY, premadeItemSpawns, premadeEnemySpawns);
             return true;
         }
 
         return false;
-    }
+    },
 
     forEachShapeCell(shape, callback) {
         const legend = getPremadeTerrainLegend();
@@ -396,7 +395,7 @@ class World {
             }
         }
         return true;
-    }
+    },
 
     canPlacePremadeTerrainShapeAt(grid, shape, startX, startY) {
         return this.forEachShapeCell(shape, (rowIndex, colIndex) => {
@@ -405,13 +404,27 @@ class World {
             if (!this.isWithinInteriorBounds(x, y)) return false;
             if (grid[y][x] === TILE_TYPES.STAIRS_UP || grid[y][x] === TILE_TYPES.STAIRS_DOWN) return false;
         });
-    }
+    },
 
-    applyPremadeTerrainShapeAt(grid, shape, startX, startY) {
+    applyPremadeTerrainShapeAt(grid, shape, startX, startY, premadeItemSpawns = [], premadeEnemySpawns = []) {
         this.forEachShapeCell(shape, (rowIndex, colIndex, replacementTile) => {
-            grid[startY + rowIndex][startX + colIndex] = replacementTile;
+            const x = startX + colIndex;
+            const y = startY + rowIndex;
+            if (replacementTile === 'premade_random_item') {
+                grid[y][x] = TILE_TYPES.FLOOR;
+                premadeItemSpawns.push({ x, y });
+                return;
+            }
+
+            if (replacementTile === 'premade_random_enemy') {
+                grid[y][x] = TILE_TYPES.FLOOR;
+                premadeEnemySpawns.push({ x, y });
+                return;
+            }
+
+            grid[y][x] = replacementTile;
         });
-    }
+    },
 
     generateTileFromAreaRule(rule, rng, x, y) {
         if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
@@ -431,7 +444,7 @@ class World {
         }
 
         return rule.baseTile;
-    }
+    },
 
     applyAreaWalkers(grid, rule, rng) {
         const walkerRule = rule.walkers;
@@ -456,7 +469,7 @@ class World {
                 y = clamp(next.y, 1, GRID_SIZE - 2);
             }
         }
-    }
+    },
 
     placeStairs(grid, rng, layout = null) {
         const roomKeys = layout?.roomTileKeys;
@@ -522,13 +535,13 @@ class World {
         }
 
         return { up, down };
-    }
+    },
 
     getRoomGenFilter(areaType, layout) {
         const roomTileKeys = layout?.roomTileKeys;
         const roomOnly = areaType === AREA_TYPES.CATACOMBS && roomTileKeys instanceof Set;
         return { roomTileKeys, roomOnly };
-    }
+    },
 
     generateHazardsForGrid(grid, rng, areaType, layout = null) {
         const hazards = new Map();
@@ -549,7 +562,7 @@ class World {
         }
 
         return hazards;
-    }
+    },
 
     generateTrapsForGrid(grid, rng, areaType, layout = null) {
         const traps = new Map();
@@ -577,7 +590,7 @@ class World {
         }
 
         return traps;
-    }
+    },
 
     selectAreaTypeForFloor(floorIndex) {
         if (floorIndex === 0) {
@@ -597,381 +610,9 @@ class World {
             return AREA_TYPES.DUNGEON;
         }
         return AREA_TYPES.CATACOMBS;
-    }
+    },
 
     getGeneratorType(areaType) {
         return `generator:${areaType}`;
     }
-
-    isWithinBounds(x, y) {
-        return x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE;
-    }
-
-    isWithinInteriorBounds(x, y) {
-        return x > 0 && x < GRID_SIZE - 1 && y > 0 && y < GRID_SIZE - 1;
-    }
-
-    isFloorTile(grid, x, y) {
-        return grid[y][x] === TILE_TYPES.FLOOR;
-    }
-
-    isFilteredOutByRoomOnly(roomOnly, roomTileKeys, key) {
-        return Boolean(roomOnly && !roomTileKeys.has(key));
-    }
-
-    getCurrentFloor() {
-        return this.floors[this.currentFloor];
-    }
-
-    getDisposalTiles() {
-        return this.getCurrentFloor().disposalTiles || [];
-    }
-
-    getAreaType(floorIndex = this.currentFloor) {
-        return this.floors[floorIndex]?.meta?.areaType || AREA_TYPES.DUNGEON;
-    }
-
-    descendFloor() {
-        this.currentFloor++;
-        if (!this.floors[this.currentFloor]) {
-            this.generateFloor();
-        }
-    }
-
-    ascendFloor() {
-        if (this.currentFloor > 0) {
-            this.currentFloor--;
-        }
-    }
-
-    findFirstTile(tileType) {
-        const grid = this.getCurrentFloor().grid;
-        for (let y = 0; y < GRID_SIZE; y++) {
-            for (let x = 0; x < GRID_SIZE; x++) {
-                if (grid[y][x] === tileType) {
-                    return { x, y };
-                }
-            }
-        }
-        return null;
-    }
-
-    moveActorToTile(actor, tileType) {
-        const position = this.findFirstTile(tileType);
-        if (!position || !actor) {
-            return false;
-        }
-
-        actor.x = position.x;
-        actor.y = position.y;
-        return true;
-    }
-
-    resolvePlayerHazardTransition(player, tileType) {
-        if (!player) {
-            return false;
-        }
-
-        if (tileType === TILE_TYPES.PIT || tileType === TILE_TYPES.WATER) {
-            const safePos = findNearestSafeTile(player.x, player.y, this.getCurrentFloor().grid, this.currentFloor);
-            player.x = safePos.x;
-            player.y = safePos.y;
-
-            if (tileType === TILE_TYPES.PIT && this.currentFloor > 0) {
-                const pitX = player.x;
-                const pitY = player.y;
-                this.ascendFloor();
-                const safePrevFloor = findNearestSafeTile(pitX, pitY, this.getCurrentFloor().grid, this.currentFloor);
-                player.x = safePrevFloor.x;
-                player.y = safePrevFloor.y;
-            }
-            return true;
-        }
-
-        if (tileType === TILE_TYPES.STAIRS_DOWN) {
-            this.descendFloor();
-            return this.moveActorToTile(player, TILE_TYPES.STAIRS_UP);
-        }
-
-        if (tileType === TILE_TYPES.STAIRS_UP && this.currentFloor > 0) {
-            this.ascendFloor();
-            return this.moveActorToTile(player, TILE_TYPES.STAIRS_DOWN);
-        }
-
-        return false;
-    }
-
-    getTile(x, y) {
-        if (!this.isWithinBounds(x, y)) return TILE_TYPES.WALL;
-        return this.getCurrentFloor().grid[y][x];
-    }
-
-    getHazard(x, y) {
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        return floor.hazards.get(key) || null;
-    }
-
-    getTrap(x, y) {
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        return floor.traps.get(key) || null;
-    }
-
-    isTrapRevealed(x, y) {
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        return floor.revealedTraps.has(key);
-    }
-
-    revealTrap(x, y) {
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        if (floor.traps.has(key)) {
-            floor.revealedTraps.add(key);
-        }
-    }
-
-    removeTrap(x, y) {
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        floor.traps.delete(key);
-        floor.revealedTraps.delete(key);
-    }
-
-    setTrap(x, y, trapType, revealed = false) {
-        if (!this.isWithinBounds(x, y)) {
-            return false;
-        }
-
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        if (!trapType) {
-            floor.traps.delete(key);
-            floor.revealedTraps.delete(key);
-            return true;
-        }
-
-        floor.traps.set(key, trapType);
-        if (revealed) {
-            floor.revealedTraps.add(key);
-        } else {
-            floor.revealedTraps.delete(key);
-        }
-
-        return true;
-    }
-
-    setHazard(x, y, hazardType) {
-        if (!this.isWithinBounds(x, y)) {
-            return;
-        }
-
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-
-        if (!hazardType) {
-            floor.hazards.delete(key);
-            return;
-        }
-
-        floor.hazards.set(key, hazardType);
-    }
-
-    removeHazard(x, y) {
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        floor.hazards.delete(key);
-    }
-
-    setTile(x, y, tile) {
-        if (this.isWithinBounds(x, y)) {
-            this.getCurrentFloor().grid[y][x] = tile;
-        }
-    }
-
-    tileKey(x, y) {
-        return toGridKey(x, y);
-    }
-
-    addItem(x, y, item) {
-        // prevent items on walls; other tile types are allowed
-        const tile = this.getTile(x, y);
-        if (tile === TILE_TYPES.WALL) {
-            return { placed: false, burned: false, blocked: true };
-        }
-
-        const burnable = Boolean(item?.properties?.burnable);
-        if (doesTileBurnItems(tile) && burnable) {
-            return { placed: false, burned: true, blocked: false };
-        }
-
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        if (!floor.items.has(key)) {
-            floor.items.set(key, []);
-        }
-        floor.items.get(key).push(item);
-        return { placed: true, burned: false, blocked: false };
-    }
-
-    removeItem(x, y, item) {
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        const items = floor.items.get(key);
-        if (items) {
-            const index = items.indexOf(item);
-            if (index > -1) {
-                items.splice(index, 1);
-                if (items.length === 0) {
-                    floor.items.delete(key);
-                }
-            }
-        }
-    }
-
-    getItems(x, y) {
-        const floor = this.getCurrentFloor();
-        const key = this.tileKey(x, y);
-        return floor.items.get(key) || [];
-    }
-
-    addEnemy(enemy) {
-        const tile = this.getTile(enemy.x, enemy.y);
-        if (typeof enemy.canTraverseTile === 'function' && !enemy.canTraverseTile(tile)) {
-            return;
-        }
-
-        if (typeof enemy.canTraverseTile !== 'function' && tile === TILE_TYPES.WALL) {
-            return;
-        }
-
-        if (this.getEnemyAt(enemy.x, enemy.y)) {
-            return;
-        }
-
-        this.getCurrentFloor().enemies.push(enemy);
-    }
-
-    removeEnemy(enemy) {
-        const index = this.getCurrentFloor().enemies.indexOf(enemy);
-        if (index > -1) {
-            this.getCurrentFloor().enemies.splice(index, 1);
-        }
-    }
-
-    getEnemies() {
-        return this.getCurrentFloor().enemies;
-    }
-
-    getEnemyAt(x, y, excludeEnemy = null) {
-        for (const enemy of this.getCurrentFloor().enemies) {
-            if (enemy === excludeEnemy) continue;
-            if (!enemy.isAlive()) continue;
-            if (enemy.x === x && enemy.y === y) {
-                return enemy;
-            }
-        }
-        return null;
-    }
-
-    canPlayerOccupy(x, y) {
-        const grid = this.getCurrentFloor().grid;
-        if (!isValidPosition(x, y, grid)) {
-            return false;
-        }
-        return !this.getEnemyAt(x, y);
-    }
-
-    canEnemyOccupy(x, y, player, enemy, candidateEnemy = null) {
-        if (!this.isWithinBounds(x, y)) {
-            return false;
-        }
-        if (player && player.x === x && player.y === y) {
-            return false;
-        }
-
-        if (candidateEnemy && typeof candidateEnemy.canTraverseTile === 'function') {
-            const tile = this.getTile(x, y);
-            if (!candidateEnemy.canTraverseTile(tile)) {
-                return false;
-            }
-        }
-
-        return !this.getEnemyAt(x, y, enemy);
-    }
-
-    canSpawnItemAt(x, y, player = null) {
-        const grid = this.getCurrentFloor().grid;
-        if (!isValidPosition(x, y, grid)) {
-            return false;
-        }
-
-        const tile = grid[y][x];
-        if (tile === TILE_TYPES.WATER || tile === TILE_TYPES.PIT || doesTileBurnItems(tile)) {
-            return false;
-        }
-
-        if (player && player.x === x && player.y === y) {
-            return false;
-        }
-
-        return !this.getEnemyAt(x, y);
-    }
-
-    findRandomTile(rng, attempts, predicate) {
-        for (let i = 0; i < attempts; i++) {
-            const x = rng.randomInt(1, GRID_SIZE - 2);
-            const y = rng.randomInt(1, GRID_SIZE - 2);
-            if (predicate(x, y)) {
-                return { x, y };
-            }
-        }
-        return null;
-    }
-
-    findRandomOpenTile(rng, player = null, attempts = 200, candidateEnemy = null) {
-        return this.findRandomTile(rng, attempts, (x, y) => this.canEnemyOccupy(x, y, player, null, candidateEnemy));
-    }
-
-    findRandomFloorTile(rng, attempts = 200) {
-        return this.findRandomTile(rng, attempts, (x, y) => this.getTile(x, y) === TILE_TYPES.FLOOR);
-    }
-
-    findRandomItemSpawnTile(rng, player = null, attempts = 200) {
-        return this.findRandomTile(rng, attempts, (x, y) => this.canSpawnItemAt(x, y, player));
-    }
-
-    advanceHazards() {
-        const activatedSteam = [];
-        const floor = this.getCurrentFloor();
-        const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
-
-        for (let y = 0; y < GRID_SIZE; y++) {
-            for (let x = 0; x < GRID_SIZE; x++) {
-                const tile = floor.grid[y][x];
-                const key = this.tileKey(x, y);
-                const existingHazard = floor.hazards.get(key);
-
-                if (tile !== steamRule?.spawnTile) {
-                    floor.hazards.delete(key);
-                    continue;
-                }
-
-                if (existingHazard === HAZARD_TYPES.STEAM) {
-                    if (Math.random() < (steamRule?.dissipateChance ?? 0)) {
-                        floor.hazards.delete(key);
-                    }
-                    continue;
-                }
-
-                if (Math.random() < (steamRule?.activationChance ?? 0)) {
-                    floor.hazards.set(key, HAZARD_TYPES.STEAM);
-                    activatedSteam.push(key);
-                }
-            }
-        }
-
-        return activatedSteam;
-    }
-}
+});

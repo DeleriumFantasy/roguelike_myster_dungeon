@@ -15,18 +15,33 @@
         }
         #game-container {
             display: flex;
+            width: 100vw;
             height: 100vh;
+            align-items: flex-start;
         }
         #canvas {
+            display: block;
+            flex: 0 0 auto;
             border: none;
             image-rendering: pixelated;
         }
         #info-panel {
-            width: 300px;
+            flex: 0 0 clamp(180px, 20vw, 240px);
+            width: clamp(180px, 20vw, 240px);
+            height: 100vh;
+            margin-left: auto;
+            box-sizing: border-box;
             padding: 10px;
             background-color: #111;
             border-left: 1px solid #333;
             overflow-y: auto;
+        }
+        @media (max-width: 900px) {
+            #info-panel {
+                flex-basis: 180px;
+                width: 180px;
+                padding: 8px;
+            }
         }
         #inventory-modal {
             display: none;
@@ -41,25 +56,32 @@
             max-height: 80vh;
             overflow-y: auto;
         }
-        #map-modal {
+        #map-overlay {
             display: none;
             position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background-color: #111;
-            border: 1px solid #555;
-            padding: 20px;
-            z-index: 1000;
-            max-width: 90vw;
-            max-height: 80vh;
-            overflow: auto;
+            top: 12px;
+            left: 12px;
+            transform: none;
+            background: rgba(10, 10, 10, 0.68);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            padding: 8px;
+            z-index: 900;
+            width: min(28vw, 220px);
+            box-sizing: border-box;
+            pointer-events: none;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        }
+        #map-overlay h3,
+        #map-overlay button {
+            display: none;
         }
         #map-canvas {
             display: block;
+            width: 100%;
+            height: auto;
             image-rendering: pixelated;
-            border: 1px solid #333;
-            background: #000;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(0, 0, 0, 0.5);
         }
         .inventory-item {
             margin: 5px 0;
@@ -72,7 +94,7 @@
 </head>
 <body>
     <div id="game-container">
-        <canvas id="canvas" width="800" height="800" tabindex="0"></canvas>
+        <canvas id="canvas" tabindex="0"></canvas>
         <div id="info-panel">
             <div id="stats"></div>
             <div id="messages"></div>
@@ -83,20 +105,58 @@
         <div id="inventory-list"></div>
         <button id="close-inventory">Close</button>
     </div>
-    <div id="map-modal">
+    <div id="map-overlay" aria-hidden="true">
         <h3>Map</h3>
         <canvas id="map-canvas"></canvas>
-        <button id="close-map">Close</button>
     </div>
-    <script src="constants.js"></script>
-    <script src="utils.js"></script>
-    <script src="tileset.js"></script>
-    <script src="fov.js"></script>
-    <script src="world.js"></script>
-    <script src="items.js"></script>
-    <script src="player.js"></script>
-    <script src="enemy.js"></script>
-    <script src="ui.js"></script>
-    <script src="game.js"></script>
+    <script src="config/constants.js"></script>
+    <script src="config/rules.js"></script>
+    <script src="config/terrain-constants.js"></script>
+    <script src="config/input-constants.js"></script>
+    <script src="config/generation-constants.js"></script>
+    <script src="config/enemy-definitions.js"></script>
+    <script src="config/combat-rules.js"></script>
+    <script src="engine/random.js"></script>
+    <script src="engine/utils.js"></script>
+    <script src="engine/actor-helpers.js"></script>
+    <script src="engine/pathfinding.js"></script>
+    <script src="engine/tileset.js"></script>
+    <script src="engine/fov.js"></script>
+    <script src="engine/world.js"></script>
+    <script src="engine/world-actors.js"></script>
+    <script src="engine/world-tile-state.js"></script>
+    <script src="engine/world-traversal.js"></script>
+    <script src="engine/world-generation.js"></script>
+    <script src="entities/item.js"></script>
+    <script src="entities/item-data.js"></script>
+    <script src="entities/item-factories.js"></script>
+    <script src="entities/player.js"></script>
+    <script src="entities/player-combat.js"></script>
+    <script src="entities/player-inventory.js"></script>
+    <script src="entities/player-progression.js"></script>
+    <script src="entities/enemy.js"></script>
+    <script src="entities/enemy-item-behaviors.js"></script>
+    <script src="entities/enemy-ai.js"></script>
+    <script src="entities/enemy-progression.js"></script>
+    <script src="entities/enemy-combat.js"></script>
+    <script src="ui/ui.js"></script>
+    <script src="ui/ui-rendering.js"></script>
+    <script src="ui/ui-panels.js"></script>
+    <script src="ui/ui-inventory.js"></script>
+    <script src="ui/ui-map.js"></script>
+    <script src="game/game.js"></script>
+    <script src="game/game-input.js"></script>
+    <script src="game/game-turn-results.js"></script>
+    <script src="game/game-npc-interactions.js"></script>
+    <script src="game/game-combat-helpers.js"></script>
+    <script src="game/game-content-utils.js"></script>
+    <script src="game/game-content-registry.js"></script>
+    <script src="game/game-content.js"></script>
+    <script src="game/game-enemy-content.js"></script>
+    <script src="game/game-item-generation.js"></script>
+    <script src="game/game-item-state.js"></script>
+    <script src="game/game-item-interactions.js"></script>
+    <script src="game/game-player-turns.js"></script>
+    <script src="game/game-enemy-turns.js"></script>
 </body>
 </html>
