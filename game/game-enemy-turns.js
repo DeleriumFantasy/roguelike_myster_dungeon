@@ -289,8 +289,11 @@ Game.prototype.shouldAwardEnemyDefeatExp = function(enemy, grantExp) {
 };
 
 Game.prototype.announcePlayerExpGain = function(expGain) {
-    const playerLevelUps = this.player.addExp(expGain);
-    this.ui.addMessage(`Gained ${expGain} EXP.`);
+    const actualExpGain = typeof this.player?.getModifiedExpGain === 'function'
+        ? this.player.getModifiedExpGain(expGain)
+        : expGain;
+    const playerLevelUps = this.player.addExp(actualExpGain);
+    this.ui.addMessage(`Gained ${actualExpGain} EXP.`);
     if (playerLevelUps > 0) {
         this.ui.addMessage(`Leveled up to ${this.player.level}!`);
     }
@@ -310,11 +313,13 @@ Game.prototype.announceAllyExpGain = function(ally, expGain) {
 
 Game.prototype.awardPlayerKillExp = function(killer, defeatedExp) {
     const killerIsPlayer = killer === this.player;
+    const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
+    const hasAllies = allies.some((ally) => ally && ally.isAlive?.() && typeof ally.addAllyExp === 'function');
     const playerExpGain = killerIsPlayer
-        ? Math.max(0, Math.ceil(defeatedExp * 0.75))
+        ? (hasAllies ? Math.max(0, Math.ceil(defeatedExp * 0.75)) : defeatedExp)
         : defeatedExp;
-    const allyExpShare = killerIsPlayer
-        ? Math.max(0, defeatedExp - playerExpGain)
+    const allyExpShare = (killerIsPlayer && hasAllies)
+        ? Math.max(0, Math.ceil(defeatedExp * 0.5))
         : 0;
 
     this.announcePlayerExpGain(playerExpGain);
@@ -323,7 +328,6 @@ Game.prototype.awardPlayerKillExp = function(killer, defeatedExp) {
         return;
     }
 
-    const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
     for (const ally of allies) {
         if (!ally || !ally.isAlive?.() || typeof ally.addAllyExp !== 'function') {
             continue;
@@ -334,12 +338,28 @@ Game.prototype.awardPlayerKillExp = function(killer, defeatedExp) {
 };
 
 Game.prototype.awardAllyKillExp = function(killer, defeatedExp) {
-    const killerShare = Math.max(0, Math.ceil(defeatedExp * 0.75));
-    const playerShare = Math.max(0, defeatedExp - killerShare);
+    const playerShare = Math.max(0, Math.ceil(defeatedExp * 0.5));
+    const allyShare = Math.max(0, Math.ceil(defeatedExp * 0.5));
+    const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
 
-    this.announceAllyExpGain(killer, killerShare);
     if (playerShare > 0) {
         this.announcePlayerExpGain(playerShare);
+    }
+
+    if (allyShare <= 0) {
+        return;
+    }
+
+    for (const ally of allies) {
+        if (ally === killer) {
+            continue;
+        }
+
+        if (!ally || !ally.isAlive?.() || typeof ally.addAllyExp !== 'function') {
+            continue;
+        }
+
+        this.announceAllyExpGain(ally, allyShare);
     }
 };
 
@@ -365,7 +385,11 @@ Game.prototype.handleEnemyDefeat = function(enemy, options = {}) {
     }
 
     const { announceDefeat = false, grantExp = true, killer = null, defeatSource = '' } = options;
+    if (enemy.isAlly && typeof enemy.untame === 'function') {
+        enemy.untame();
+    }
     this.removeEnemyFromCurrentFloor(enemy);
+    this.trackQuestProgressForEnemyDefeat?.(enemy, { killer, defeatSource });
     this.handleFloorEventEnemyDefeat?.(enemy, { killer, defeatSource });
     this.resolveEnemyDefeatDrops(enemy);
     this.awardEnemyDefeatExp(enemy, grantExp, killer);

@@ -14,9 +14,9 @@
 
 ## Enemy Split
 
-- `enemy.js`: base enemy shell and core identity/type helpers.
+- `enemy.js`: base enemy shell, core identity/type helpers, and per-enemy state used by AI and quest systems.
 - `enemy-item-behaviors.js`: carried items, thief/vandal/fuser logic, item-side enemy behavior.
-- `enemy-ai.js`: perception, targeting, movement, and turn decisions.
+- `enemy-ai.js`: perception, targeting, movement, turn decisions, and passive escort behavior.
 - `enemy-progression.js`: ally progression and tier helpers.
 - `enemy-combat.js`: attacks, damage, status application, and line-of-sight combat helpers.
 
@@ -33,6 +33,7 @@
 - If a helper is specific to one enemy archetype's item behavior, prefer `enemy-item-behaviors.js` over `enemy-ai.js`.
 - If logic is about choosing actions, it belongs in `enemy-ai.js`; if it is about resolving hits or damage, it belongs in `enemy-combat.js`.
 - If logic is about inventory/equipment mutation, it belongs in `player-inventory.js`.
+- Passive quest escort movement and flee logic belongs in `enemy-ai.js`; escort state flags belong in `enemy.js`.
 
 ## Common Mistakes
 

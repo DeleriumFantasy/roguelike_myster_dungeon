@@ -71,6 +71,57 @@ Object.assign(Player.prototype, {
         return multiplier;
     },
 
+    getEquipmentNumericSum(methodName, arg) {
+        let total = 0;
+        this.forEachEquippedItem((item) => {
+            const valueMethod = item?.[methodName];
+            if (typeof valueMethod !== 'function') {
+                return;
+            }
+
+            const value = Number(valueMethod.call(item, arg) || 0);
+            if (Number.isFinite(value)) {
+                total += value;
+            }
+        });
+        return total;
+    },
+
+    getExpGainMultiplier() {
+        return Math.max(1, this.getEquipmentMultiplier('getExpGainMultiplier'));
+    },
+
+    getModifiedExpGain(amount) {
+        const baseAmount = Math.max(0, Math.floor(Number(amount) || 0));
+        if (baseAmount <= 0) {
+            return 0;
+        }
+
+        return Math.max(1, Math.round(baseAmount * this.getExpGainMultiplier()));
+    },
+
+    getPassiveHungerLossInterval() {
+        const baseInterval = 5;
+        const multiplier = Math.max(1, this.getEquipmentMultiplier('getPassiveHungerLossIntervalMultiplier'));
+        return Math.max(1, Math.round(baseInterval * multiplier));
+    },
+
+    getPassiveHealingBonus() {
+        return Math.max(0, this.getEquipmentNumericSum('getPassiveHealingBonus'));
+    },
+
+    revealsEnemiesOnMap() {
+        return this.someEquippedItem((item) => typeof item?.revealsEnemiesOnMap === 'function' && item.revealsEnemiesOnMap());
+    },
+
+    revealsItemsOnMap() {
+        return this.someEquippedItem((item) => typeof item?.revealsItemsOnMap === 'function' && item.revealsItemsOnMap());
+    },
+
+    identifiesItemsOnPickup() {
+        return this.someEquippedItem((item) => typeof item?.identifiesItemsOnPickup === 'function' && item.identifiesItemsOnPickup());
+    },
+
     hasPassiveHungerLossProtection() {
         return Array.from(this.conditions.keys()).some((condition) => conditionPreventsPassiveHungerLoss(condition));
     },
@@ -212,14 +263,15 @@ Object.assign(Player.prototype, {
         this.applyEquipmentGrantedConditions();
         this.turns += 1;
         const preventsPassiveHungerLoss = this.hasPassiveHungerLossProtection();
-        if (this.turns % 5 === 0 && !preventsPassiveHungerLoss) {
+        const passiveHungerLossInterval = this.getPassiveHungerLossInterval();
+        if (this.turns % passiveHungerLossInterval === 0 && !preventsPassiveHungerLoss) {
             this.hunger = Math.max(0, this.hunger - 1);
         }
 
         if (this.hunger <= 0) {
             this.takeDamage(1);
         } else {
-            const regenAmount = this.level >= 20 ? 3 : (this.level >= 10 ? 2 : 1);
+            const regenAmount = (this.level >= 20 ? 3 : (this.level >= 10 ? 2 : 1)) + this.getPassiveHealingBonus();
             this.heal(regenAmount);
         }
     },

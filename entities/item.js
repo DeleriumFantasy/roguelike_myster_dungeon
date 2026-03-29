@@ -10,9 +10,13 @@ class Item {
 
     use(user, target) {
         if (this.type === ITEM_TYPES.CONSUMABLE) {
-            this.consume(user);
+            const consumeResult = this.consume(user, target);
+            this.identify();
+            return consumeResult;
         }
+
         this.identify();
+        return { consumed: false, reason: 'not-consumable' };
     }
 
     requiresIdentification() {
@@ -41,14 +45,299 @@ class Item {
 
     getDisplayName() {
         if (this.isIdentified()) {
+            const improvementSuffix = this.getImprovementSuffix();
             const enchantmentNames = this.getVisibleEnchantmentNames();
             if (enchantmentNames.length === 0) {
-                return this.name;
+                return `${this.name}${improvementSuffix}`;
             }
 
-            return `${this.name} [${enchantmentNames.join(', ')}]`;
+            return `${this.name} [${enchantmentNames.join(', ')}]${improvementSuffix}`;
         }
         return this.properties.hiddenName || `unknown ${this.type}`;
+    }
+
+    getImprovementLevel() {
+        const level = Number(this.properties?.improvementLevel || 0);
+        return Number.isFinite(level) && level > 0 ? Math.floor(level) : 0;
+    }
+
+    getImprovementSuffix() {
+        const level = this.getImprovementLevel();
+        return level > 0 ? ` +${level}` : '';
+    }
+
+    hasEnchantment(enchantmentId) {
+        return this.getEnchantments().includes(enchantmentId);
+    }
+
+    loseImprovement(amount = 1) {
+        const improvementLoss = Math.max(0, Math.floor(Number(amount) || 0));
+        const currentLevel = this.getImprovementLevel();
+        if (improvementLoss <= 0 || currentLevel <= 0 || this.hasEnchantment('gilded')) {
+            return 0;
+        }
+
+        const actualLoss = Math.min(currentLevel, improvementLoss);
+        const powerBonus = Math.max(0, Math.floor(Number(this.properties?.improvementPowerBonus || 0)));
+        const armorBonus = Math.max(0, Math.floor(Number(this.properties?.improvementArmorBonus || 0)));
+
+        if (powerBonus > 0) {
+            const powerLoss = Math.min(powerBonus, actualLoss);
+            this.properties.power = Math.max(0, Number(this.properties.power || 0) - powerLoss);
+            const nextPowerBonus = powerBonus - powerLoss;
+            if (nextPowerBonus > 0) {
+                this.properties.improvementPowerBonus = nextPowerBonus;
+            } else {
+                delete this.properties.improvementPowerBonus;
+            }
+        }
+
+        if (armorBonus > 0) {
+            const armorLoss = Math.min(armorBonus, actualLoss);
+            this.properties.armor = Math.max(0, Number(this.properties.armor || 0) - armorLoss);
+            const nextArmorBonus = armorBonus - armorLoss;
+            if (nextArmorBonus > 0) {
+                this.properties.improvementArmorBonus = nextArmorBonus;
+            } else {
+                delete this.properties.improvementArmorBonus;
+            }
+        }
+
+        const nextLevel = currentLevel - actualLoss;
+        if (nextLevel > 0) {
+            this.properties.improvementLevel = nextLevel;
+        } else {
+            delete this.properties.improvementLevel;
+        }
+
+        return actualLoss;
+    }
+
+    tryLoseImprovement(chance = 1, amount = 1, randomFn = getRngRoll) {
+        if (this.getImprovementLevel() <= 0 || this.hasEnchantment('gilded')) {
+            return 0;
+        }
+
+        const lossChance = clamp(Number(chance) || 0, 0, 1);
+        if (lossChance <= 0) {
+            return 0;
+        }
+
+        const roll = typeof randomFn === 'function' ? randomFn() : Math.random();
+        if (roll >= lossChance) {
+            return 0;
+        }
+
+        return this.loseImprovement(amount);
+    }
+
+    getImprovementTargetTypes() {
+        const configuredTypes = this.properties?.improvesItemTypes;
+        if (!Array.isArray(configuredTypes)) {
+            return [];
+        }
+
+        return configuredTypes.filter((type) => typeof type === 'string' && type.length > 0);
+    }
+
+    isEquipmentImprovementScroll() {
+        return this.type === ITEM_TYPES.CONSUMABLE && this.getImprovementTargetTypes().length > 0;
+    }
+
+    getScrollEffect() {
+        return typeof this.properties?.scrollEffect === 'string'
+            ? this.properties.scrollEffect
+            : '';
+    }
+
+    getTargetItemTypes() {
+        const configuredTypes = this.properties?.targetItemTypes;
+        if (!Array.isArray(configuredTypes)) {
+            return [];
+        }
+
+        return configuredTypes.filter((type) => typeof type === 'string' && type.length > 0);
+    }
+
+    isEquipmentItem(item) {
+        if (!item) {
+            return false;
+        }
+
+        const equipmentTypes = [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY];
+        return equipmentTypes.includes(item.type);
+    }
+
+    canTargetItemForScroll(item) {
+        if (!item) {
+            return false;
+        }
+
+        if (this.isEquipmentImprovementScroll()) {
+            return this.canImproveEquipmentItem(item);
+        }
+
+        const validTypes = this.getTargetItemTypes();
+        if (validTypes.length > 0) {
+            return validTypes.includes(item.type);
+        }
+
+        return false;
+    }
+
+    getMaxEnchantmentSlots() {
+        const slots = Number(this.properties?.slots || 0);
+        return Number.isFinite(slots) && slots > 0 ? Math.floor(slots) : 0;
+    }
+
+    addEnchantment(enchantmentId) {
+        if (typeof enchantmentId !== 'string' || enchantmentId.length === 0) {
+            return { added: false, reason: 'invalid-enchantment' };
+        }
+
+        const enchantmentDefinition = ENCHANTMENT_DEFINITIONS[enchantmentId];
+        if (!enchantmentDefinition) {
+            return { added: false, reason: 'unknown-enchantment' };
+        }
+
+        const validItemTypes = Array.isArray(enchantmentDefinition.validItemTypes)
+            ? enchantmentDefinition.validItemTypes
+            : [];
+        if (validItemTypes.length > 0 && !validItemTypes.includes(this.type)) {
+            return { added: false, reason: 'invalid-item-type' };
+        }
+
+        if (!Array.isArray(this.properties.enchantments)) {
+            this.properties.enchantments = [];
+        }
+
+        if (this.properties.enchantments.includes(enchantmentId)) {
+            return { added: false, reason: 'already-present' };
+        }
+
+        const maxSlots = this.getMaxEnchantmentSlots();
+        if (maxSlots > 0 && this.getEnchantments().length >= maxSlots) {
+            return { added: false, reason: 'slot-limit' };
+        }
+
+        this.properties.enchantments.push(enchantmentId);
+        return { added: true };
+    }
+
+    applyScrollTargetEffect(target) {
+        if (!target) {
+            return { consumed: false, effect: this.getScrollEffect(), reason: 'missing-target' };
+        }
+
+        const scrollEffect = this.getScrollEffect();
+        if (scrollEffect === 'add-slot') {
+            if (!this.canTargetItemForScroll(target) || !this.isEquipmentItem(target)) {
+                return { consumed: false, effect: scrollEffect, target, reason: 'invalid-target' };
+            }
+
+            target.properties = target.properties || {};
+            const slots = Number(target.properties.slots || 0);
+            const nextSlots = Math.max(0, Math.floor(slots)) + 1;
+            target.properties.slots = nextSlots;
+            return { consumed: true, effect: scrollEffect, target, slots: nextSlots };
+        }
+
+        if (scrollEffect === 'purify-item') {
+            if (!this.canTargetItemForScroll(target)) {
+                return { consumed: false, effect: scrollEffect, target, reason: 'invalid-target' };
+            }
+
+            const wasCursed = Boolean(target.properties?.cursed);
+            if (target.properties && Object.prototype.hasOwnProperty.call(target.properties, 'cursed')) {
+                delete target.properties.cursed;
+            }
+            return { consumed: true, effect: scrollEffect, target, wasCursed };
+        }
+
+        if (scrollEffect === 'identify-item') {
+            if (!this.canTargetItemForScroll(target)) {
+                return { consumed: false, effect: scrollEffect, target, reason: 'invalid-target' };
+            }
+
+            target.identify?.();
+            return { consumed: true, effect: scrollEffect, target, isCursed: Boolean(target.properties?.cursed) };
+        }
+
+        if (scrollEffect === 'add-gilded') {
+            if (!this.canTargetItemForScroll(target) || !this.isEquipmentItem(target)) {
+                return { consumed: false, effect: scrollEffect, target, reason: 'invalid-target' };
+            }
+
+            const added = typeof target.addEnchantment === 'function'
+                ? target.addEnchantment('gilded')
+                : { added: false, reason: 'target-cannot-enchant' };
+            return {
+                consumed: Boolean(added?.added),
+                effect: scrollEffect,
+                target,
+                reason: added?.reason || ''
+            };
+        }
+
+        return { consumed: false, effect: scrollEffect, target, reason: 'unsupported-target-effect' };
+    }
+
+    canImproveEquipmentItem(item) {
+        if (!item || item.type === ITEM_TYPES.CONSUMABLE || item.type === ITEM_TYPES.THROWABLE) {
+            return false;
+        }
+
+        const validTypes = this.getImprovementTargetTypes();
+        return validTypes.includes(item.type);
+    }
+
+    applyEquipmentImprovement(item) {
+        if (!this.canImproveEquipmentItem(item)) {
+            return { applied: false };
+        }
+
+        if (!item.properties) {
+            item.properties = {};
+        }
+
+        const incrementProperty = (propertyName, bonusPropertyName) => {
+            const currentValue = Number(item.properties[propertyName] || 0);
+            item.properties[propertyName] = currentValue + 1;
+
+            const currentBonus = Number(item.properties[bonusPropertyName] || 0);
+            item.properties[bonusPropertyName] = currentBonus + 1;
+        };
+
+        let improvedProperty = null;
+        if (item.type === ITEM_TYPES.ARMOR || item.type === ITEM_TYPES.SHIELD) {
+            improvedProperty = 'armor';
+            incrementProperty('armor', 'improvementArmorBonus');
+        } else if (item.type === ITEM_TYPES.WEAPON) {
+            improvedProperty = 'power';
+            incrementProperty('power', 'improvementPowerBonus');
+        } else if (item.type === ITEM_TYPES.ACCESSORY) {
+            const accessoryPower = Number(item.properties.power || 0);
+            if (accessoryPower > 0) {
+                improvedProperty = 'power';
+                incrementProperty('power', 'improvementPowerBonus');
+            } else {
+                improvedProperty = 'armor';
+                incrementProperty('armor', 'improvementArmorBonus');
+            }
+        }
+
+        if (!improvedProperty) {
+            return { applied: false };
+        }
+
+        const currentLevel = Number(item.properties.improvementLevel || 0);
+        item.properties.improvementLevel = Math.max(0, Math.floor(currentLevel)) + 1;
+
+        return {
+            applied: true,
+            property: improvedProperty,
+            level: item.properties.improvementLevel
+        };
     }
 
     getEnchantments() {
@@ -92,6 +381,58 @@ class Item {
 
     getEnchantmentArmorBonus() {
         return sumEnchantmentBonus(this.getEnchantments(), 'armorBonus');
+    }
+
+    getEnchantmentMultiplier(bonusKey) {
+        let multiplier = 1;
+        for (const enchantmentId of this.getEnchantments()) {
+            const configuredMultiplier = getPositiveFiniteNumber(ENCHANTMENT_DEFINITIONS[enchantmentId]?.[bonusKey]);
+            if (configuredMultiplier > 0) {
+                multiplier *= configuredMultiplier;
+            }
+        }
+
+        return multiplier;
+    }
+
+    getEnchantmentNumericSum(bonusKey) {
+        let total = 0;
+        for (const enchantmentId of this.getEnchantments()) {
+            const configuredValue = Number(ENCHANTMENT_DEFINITIONS[enchantmentId]?.[bonusKey] || 0);
+            if (Number.isFinite(configuredValue)) {
+                total += configuredValue;
+            }
+        }
+
+        return total;
+    }
+
+    hasEnchantmentFlag(flagKey) {
+        return this.getEnchantments().some((enchantmentId) => Boolean(ENCHANTMENT_DEFINITIONS[enchantmentId]?.[flagKey]));
+    }
+
+    getExpGainMultiplier() {
+        return this.getEnchantmentMultiplier('expGainMultiplier');
+    }
+
+    getPassiveHungerLossIntervalMultiplier() {
+        return this.getEnchantmentMultiplier('passiveHungerLossIntervalMultiplier');
+    }
+
+    getPassiveHealingBonus() {
+        return this.getEnchantmentNumericSum('passiveHealingBonus');
+    }
+
+    revealsEnemiesOnMap() {
+        return this.hasEnchantmentFlag('revealsEnemiesOnMap');
+    }
+
+    revealsItemsOnMap() {
+        return this.hasEnchantmentFlag('revealsItemsOnMap');
+    }
+
+    identifiesItemsOnPickup() {
+        return this.hasEnchantmentFlag('identifiesItemsOnPickup');
     }
 
     getDamageMultiplierAgainst(target) {
@@ -243,7 +584,21 @@ class Item {
         return Boolean(this.properties.cursed);
     }
 
-    consume(user) {
+    consume(user, target = null) {
+        if (this.isEquipmentImprovementScroll()) {
+            const improvementResult = this.applyEquipmentImprovement(target);
+            return {
+                consumed: improvementResult.applied,
+                effect: 'equipment-improvement',
+                target,
+                ...improvementResult
+            };
+        }
+
+        if (target && this.getScrollEffect()) {
+            return this.applyScrollTargetEffect(target);
+        }
+
         const health = Number(this.properties.health || 0);
         const hunger = Number(this.properties.hunger || 0);
         const { condition, duration } = resolveConditionDuration(this.properties);
@@ -259,6 +614,8 @@ class Item {
         if (this.properties.clearConditions) {
             user.clearConditions();
         }
+
+        return { consumed: true };
     }
 
     throw(user, target) {

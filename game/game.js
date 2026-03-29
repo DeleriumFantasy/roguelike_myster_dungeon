@@ -17,6 +17,7 @@ class Game {
         this.lastFailedMove = null;
         this.inventoryOpen = false;
         this.fovCache = null;
+        this.persistentOverworldNpcs = [];
         this.inputController = new GameInputController(this);
 
         this.inputController.attach();
@@ -25,8 +26,7 @@ class Game {
 
     resizeCanvas() {
         const container = this.canvas?.parentElement;
-        const panelWidth = this.infoPanel?.offsetWidth || 0;
-        const availableWidth = Math.max(1, (container?.clientWidth || window.innerWidth) - panelWidth);
+        const availableWidth = Math.max(1, container?.clientWidth || window.innerWidth);
         const availableHeight = Math.max(1, container?.clientHeight || window.innerHeight);
         const tileSize = Math.max(1, Math.floor(availableHeight / CAMERA_VISIBLE_TILE_ROWS));
         const visibleTilesX = Math.max(1, Math.min(GRID_SIZE, Math.floor(availableWidth / tileSize)));
@@ -205,7 +205,7 @@ class Game {
         this.spawnPlayerOnFloor();
         this.updateFOV();
         this.ui.render(this.world, this.player, this.fov);
-        this.ui.addMessage('A new run begins. Only banked storage was preserved.');
+        this.ui.addMessage('A new run begins. Banked storage and overworld NPC state were preserved.');
     }
 
     handleFloorChange(previousFloor) {
@@ -213,6 +213,7 @@ class Game {
             return;
         }
 
+        this.trackQuestProgressForFloorVisit?.(this.world.currentFloor);
         this.populateCurrentFloorIfNeeded();
         this.spawnAlliesOnCurrentFloor();
         if (this.isOverworldFloor(this.world.currentFloor)) {

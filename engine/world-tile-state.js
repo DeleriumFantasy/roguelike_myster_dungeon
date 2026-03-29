@@ -57,6 +57,14 @@ Object.assign(World.prototype, {
         return true;
     },
 
+    removeAllTrapsOnCurrentFloor() {
+        const floor = this.getCurrentFloor();
+        const removedCount = floor.traps.size;
+        floor.traps.clear();
+        floor.revealedTraps.clear();
+        return removedCount;
+    },
+
     setHazard(x, y, hazardType) {
         if (!this.isWithinBounds(x, y)) {
             return;

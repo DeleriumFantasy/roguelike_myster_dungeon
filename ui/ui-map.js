@@ -39,6 +39,8 @@ Object.assign(UI.prototype, {
         const tileSize = this.mapTileSize;
         const shouldUseFog = this.shouldUseFogForFloor(world.currentFloor);
         const shouldHideUnseenTiles = this.shouldHideUnseenTilesForFloor(world.currentFloor);
+        const revealItemsOnMap = typeof player?.revealsItemsOnMap === 'function' && player.revealsItemsOnMap();
+        const revealEnemiesOnMap = typeof player?.revealsEnemiesOnMap === 'function' && player.revealsEnemiesOnMap();
 
         if (!shouldUseFog || this._mapExploredCacheFloor !== world.currentFloor || this._mapExploredCacheSize !== mapFov.explored.size) {
             const eCtx = this._mapExploredCtx;
@@ -78,11 +80,14 @@ Object.assign(UI.prototype, {
 
         for (const [key] of world.getCurrentFloor().items) {
             const [x, y] = this.parseGridKey(key);
-            if (!this.isTileRevealed(x, y, mapFov, shouldHideUnseenTiles)) continue;
+            if (!revealItemsOnMap && !this.isTileRevealed(x, y, mapFov, shouldHideUnseenTiles)) continue;
 
             const itemVisual = getEntityVisual('item');
             const itemType = this.getItemTypeAt(world, x, y);
-            this.withTemporaryAlpha(mapCtx, shouldUseFog ? this.getVisibilityAlpha(mapFov.isVisible(x, y)) : 1, () => {
+            const alpha = revealItemsOnMap && !this.isTileRevealed(x, y, mapFov, shouldHideUnseenTiles)
+                ? 1
+                : (shouldUseFog ? this.getVisibilityAlpha(mapFov.isVisible(x, y)) : 1);
+            this.withTemporaryAlpha(mapCtx, alpha, () => {
                 mapCtx.fillStyle = getItemTypeColor(itemType, itemVisual.color);
                 mapCtx.fillRect(
                     x * tileSize + itemVisual.miniMapInsetMap,
@@ -94,7 +99,10 @@ Object.assign(UI.prototype, {
         }
 
         for (const enemy of world.getEnemies()) {
-            if (!this.isEnemyVisibleInFov(enemy, mapFov)) {
+            const shouldShowEnemy = revealEnemiesOnMap
+                ? this.shouldRenderEnemy(enemy, () => true)
+                : this.isEnemyVisibleInFov(enemy, mapFov);
+            if (!shouldShowEnemy) {
                 continue;
             }
             mapCtx.fillStyle = getEntityVisual('enemy', enemy).color;

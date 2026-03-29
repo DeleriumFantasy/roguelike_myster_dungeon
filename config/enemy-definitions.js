@@ -106,6 +106,12 @@ const ENEMY_FAMILY_DEFINITIONS = {
             4: { key: 'crafterTier4', displayName: 'Illaqueator', health: 175, power: 54, armor: 44, exp: 2100, tameThreshold: 6, spawnWeight: 2, minFloor: 8 }
         }
     },
+    escort: {
+        defaults: { types: [], speed: ENEMY_SPEEDS.SLOW, aiType: AI_TYPES.GUARD, fovRange: 8 },
+        tiers: {
+            1: { key: 'escortPassengerTier1', displayName: 'Pilgrim', health: 24, power: 0, armor: 1, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 }
+        }
+    },
     npc: {
         defaults: { types: [ENEMY_TYPES.NPC], speed: ENEMY_SPEEDS.SLOW, aiType: AI_TYPES.WANDER, fovRange: 8 },
         tiers: {
@@ -113,7 +119,9 @@ const ENEMY_FAMILY_DEFINITIONS = {
             2: { key: 'npcBankerTier1', displayName: 'Banker', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 },
             3: { key: 'npcStarvingTier1', displayName: 'Starving traveler', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
             4: { key: 'npcHomeboundTier1', displayName: 'Homebound courier', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
-            5: { key: 'npcShamanTier1', displayName: 'Shaman', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 }
+            5: { key: 'npcShamanTier1', displayName: 'Shaman', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
+            6: { key: 'npcQuestgiverTier1', displayName: 'Questgiver', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 },
+            7: { key: 'npcHandlerTier1', displayName: 'Handler', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 }
         }
     }
 };

@@ -44,6 +44,43 @@ Object.assign(Game.prototype, {
         return true;
     },
 
+    tryPushEnemy(enemy, dx, dy, distance = 1) {
+        if (!enemy) {
+            return 0;
+        }
+
+        const pushDx = Math.sign(Number(dx) || 0);
+        const pushDy = Math.sign(Number(dy) || 0);
+        const maxDistance = Math.max(0, Math.floor(Number(distance) || 0));
+        if (pushDx === 0 && pushDy === 0 || maxDistance <= 0) {
+            return 0;
+        }
+
+        let stepsMoved = 0;
+        for (let step = 0; step < maxDistance; step++) {
+            const targetX = enemy.x + pushDx;
+            const targetY = enemy.y + pushDy;
+
+            if (this.player.x === targetX && this.player.y === targetY) {
+                break;
+            }
+
+            const occupyingEnemy = this.world.getEnemyAt(targetX, targetY, enemy);
+            if (occupyingEnemy) {
+                break;
+            }
+
+            if (typeof enemy.canOccupyTile === 'function' && !enemy.canOccupyTile(this.world, targetX, targetY, this.player)) {
+                break;
+            }
+
+            this.world.moveEnemy(enemy, targetX, targetY);
+            stepsMoved += 1;
+        }
+
+        return stepsMoved;
+    },
+
     getAttackOffsetsForFacing(dx, dy) {
         const normalizedDx = Math.sign(Number(dx) || 0);
         const normalizedDy = Math.sign(Number(dy) || 0);

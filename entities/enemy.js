@@ -22,6 +22,7 @@ class Enemy {
         this.speed = this.normalizeSpeed(stats.speed);
         this.actionCharge = typeof stats.actionCharge === 'number' ? Math.max(0, stats.actionCharge) : 0;
         this.conditions = new Map();
+        this.sleepLockedUntilPlayerEntry = false;
         this.aiByStatus = new Map([
             [CONDITIONS.FRIGHTENED, AI_TYPES.FLEE],
             [CONDITIONS.SLEEP, AI_TYPES.GUARD]
@@ -29,8 +30,12 @@ class Enemy {
         this.lastHostilePos = null;
         this.targetX = null;
         this.targetY = null;
+        this.unreachableItemTargets = new Map();
         this.isAlly = false;
         this.tamedBy = null;
+        this.questEscortId = null;
+        this.questEscortTargetFloor = null;
+        this.questEscortPassive = false;
         this.equipment = new Map();
         this.swallowedItems = new Map();
         this.fuserFusionLocked = false;

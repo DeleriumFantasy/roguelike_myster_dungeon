@@ -1,5 +1,11 @@
 // Area generation rules and premade terrain data
 
+const OVERWORLD_GENERATION_CONFIG = {
+    halfWidth: 14,
+    halfHeight: 12,
+    cornerInset: 3
+};
+
 const AREA_GENERATION_RULES = {
     [AREA_TYPES.OVERWORLD]: {
         boundaryTile: TILE_TYPES.WALL,
@@ -116,6 +122,10 @@ function getAreaGenerationRule(areaType) {
 
 function getCatacombsGenerationConfig() {
     return CATACOMBS_GENERATION_CONFIG;
+}
+
+function getOverworldGenerationConfig() {
+    return OVERWORLD_GENERATION_CONFIG;
 }
 
 function getAreaSelectionRules() {

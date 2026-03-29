@@ -9,7 +9,7 @@
 
 - `ui.js`: base UI shell and shared DOM/canvas setup.
 - `ui-rendering.js`: scene rendering, tile drawing, camera, and visibility-based render decisions.
-- `ui-panels.js`: stats panel and message log updates.
+- `ui-panels.js`: stats and message overlay updates.
 - `ui-inventory.js`: inventory modal behavior.
 - `ui-map.js`: minimap/map overlay rendering.
 
@@ -24,7 +24,7 @@
 
 - For on-screen actor/tile rendering, start in `ui-rendering.js`.
 - For the top-left overlay map, start in `ui-map.js`.
-- For side-panel stats or message output, start in `ui-panels.js`.
+- For stats or message overlay output, start in `ui-panels.js`.
 
 ## Common Mistakes
 

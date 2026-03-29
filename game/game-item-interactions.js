@@ -34,6 +34,12 @@ Object.assign(Game.prototype, {
         } else if (result.tameAttempted) {
             this.ui.addMessage(`${result.enemy.name} resists the taming attempt.`);
         }
+        if (result.switchedPositions) {
+            this.ui.addMessage(`You switch places with ${result.enemy.name}.`);
+        }
+        if ((result.pushedDistance || 0) > 0) {
+            this.ui.addMessage(`${result.enemy.name} is pushed back ${result.pushedDistance} tile(s).`);
+        }
         this.ui.addMessage(`${itemLabel} shatters on impact.`);
         if (result.enemyDefeated) {
             this.ui.addMessage(`${result.enemy.name} is defeated.`);
@@ -151,6 +157,13 @@ Object.assign(Game.prototype, {
             this.announceSimpleDropList(result.drops, label);
         } else if (result.type === 'hit') {
             this.announceThrowHitResult(label, result);
+        } else if (result.type === 'blink') {
+            this.ui.addMessage(`${label} shatters at ${result.x}, ${result.y}.`);
+            if (result.playerTeleported) {
+                this.ui.addMessage(`You blink to ${result.x}, ${result.y}.`);
+            } else {
+                this.ui.addMessage('The blink fails.');
+            }
         } else if (result.type === 'burned') {
             this.ui.addMessage(`${label} burns up in lava.`);
         } else {

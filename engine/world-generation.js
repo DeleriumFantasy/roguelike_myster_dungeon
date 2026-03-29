@@ -31,6 +31,11 @@ Object.assign(World.prototype, {
             meta: {
                 areaType,
                 generatorType: this.getGeneratorType(areaType),
+                catacombsRooms: Array.isArray(layout?.rooms) ? layout.rooms.map((room) => ({ ...room })) : [],
+                stairPositions: stairPositions ? {
+                    up: stairPositions.up ? { ...stairPositions.up } : null,
+                    down: stairPositions.down ? { ...stairPositions.down } : null
+                } : null,
                 premadeItemSpawns: Array.isArray(layout?.premadeItemSpawns) ? [...layout.premadeItemSpawns] : [],
                 premadeEnemySpawns: Array.isArray(layout?.premadeEnemySpawns) ? [...layout.premadeEnemySpawns] : [],
                 contentSpawned: false
@@ -81,24 +86,44 @@ Object.assign(World.prototype, {
             grid,
             roomTileKeys: null,
             hallwayTileKeys: null,
+            rooms: null,
             premadeItemSpawns,
             premadeEnemySpawns
         };
     },
 
     generateOverworldGrid() {
-        const grid = Array.from({ length: GRID_SIZE }, (_, y) => Array.from({ length: GRID_SIZE }, (_, x) => {
-            if (x === 0 || x === GRID_SIZE - 1 || y === 0 || y === GRID_SIZE - 1) {
-                return TILE_TYPES.WALL;
-            }
+        const config = getOverworldGenerationConfig();
+        const centerX = Math.floor(GRID_SIZE / 2);
+        const centerY = Math.floor(GRID_SIZE / 2);
+        const halfWidth = clamp(Math.floor(Number(config?.halfWidth) || 14), 4, Math.floor((GRID_SIZE - 2) / 2));
+        const halfHeight = clamp(Math.floor(Number(config?.halfHeight) || 12), 4, Math.floor((GRID_SIZE - 2) / 2));
+        const cornerInset = Math.max(0, Math.floor(Number(config?.cornerInset) || 0));
+        const grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(TILE_TYPES.WALL));
 
-            return TILE_TYPES.FLOOR;
-        }));
+        for (let y = 1; y < GRID_SIZE - 1; y++) {
+            for (let x = 1; x < GRID_SIZE - 1; x++) {
+                const dx = Math.abs(x - centerX);
+                const dy = Math.abs(y - centerY);
+                if (dx > halfWidth || dy > halfHeight) {
+                    continue;
+                }
+
+                const insetX = Math.max(0, dx - Math.max(0, halfWidth - cornerInset));
+                const insetY = Math.max(0, dy - Math.max(0, halfHeight - cornerInset));
+                if (insetX + insetY > cornerInset) {
+                    continue;
+                }
+
+                grid[y][x] = TILE_TYPES.FLOOR;
+            }
+        }
 
         return {
             grid,
             roomTileKeys: null,
-            hallwayTileKeys: null
+            hallwayTileKeys: null,
+            rooms: null
         };
     },
 
@@ -141,7 +166,8 @@ Object.assign(World.prototype, {
             return {
                 grid,
                 roomTileKeys: null,
-                hallwayTileKeys: null
+                hallwayTileKeys: null,
+                rooms: null
             };
         }
 
@@ -154,7 +180,8 @@ Object.assign(World.prototype, {
         return {
             grid,
             roomTileKeys,
-            hallwayTileKeys
+            hallwayTileKeys,
+            rooms: rooms.map((room) => ({ ...room }))
         };
     },
 

@@ -21,6 +21,8 @@ class UI {
         });
         this.statsDiv = this.infoPanel.querySelector('#stats');
         this.messagesDiv = this.infoPanel.querySelector('#messages');
+        this.statsOpen = true;
+        this.messagesOpen = true;
         this.mapOpen = false;
         this.mapTileSize = 8;
         this.cameraBounds = {
@@ -46,6 +48,7 @@ class UI {
 
         this.activeVisualEffects = [];
         this.pendingAnimationFrame = null;
+        this.applyOverlayVisibility();
     }
 
     getTileSize() {

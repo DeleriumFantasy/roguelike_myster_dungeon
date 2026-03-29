@@ -244,29 +244,17 @@ Object.assign(UI.prototype, {
             return null;
         }
 
-        const turnsRemaining = Math.max(0, Math.floor(Number(activeEvent.turnsRemaining) || 0));
-        if (activeEvent.type === 'food-party') {
-            return {
-                title: 'Random Event: Food Party',
-                objective: 'Collect the spawned food before it disappears.',
-                turnsRemaining
-            };
-        }
-
-        if (activeEvent.type === 'throwing-challenge') {
-            const requiredKills = Math.max(1, Math.floor(Number(activeEvent.requiredKills) || 1));
-            const currentKills = clamp(Math.floor(Number(activeEvent.currentKills) || 0), 0, requiredKills);
-            return {
-                title: 'Random Event: Throwing Challenge',
-                objective: `Defeat enemies with thrown items (${currentKills}/${requiredKills}).`,
-                turnsRemaining
-            };
-        }
+        const display = activeEvent.display || {};
+        const turnsValue = Number(activeEvent.turnsRemaining);
+        const turnsRemaining = Number.isFinite(turnsValue)
+            ? Math.max(0, Math.floor(turnsValue))
+            : null;
 
         return {
-            title: 'Random Event Active',
-            objective: 'Complete the event objective.',
-            turnsRemaining
+            title: display.title || 'Random Event Active',
+            objective: display.objective || 'Complete the event objective.',
+            turnsRemaining,
+            appendTurnsRemaining: display.appendTurnsRemaining !== false
         };
     },
 
@@ -276,8 +264,10 @@ Object.assign(UI.prototype, {
             return;
         }
 
-        const { title, objective, turnsRemaining } = bannerData;
-        const textLine = `${objective} Time left: ${turnsRemaining} turns.`;
+        const { title, objective, turnsRemaining, appendTurnsRemaining } = bannerData;
+        const textLine = Number.isFinite(turnsRemaining) && appendTurnsRemaining
+            ? `${objective} Time left: ${turnsRemaining} turns.`
+            : objective;
         const paddingX = 12;
         const topY = 8;
         const lineHeight = 18;

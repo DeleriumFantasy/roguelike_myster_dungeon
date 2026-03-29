@@ -161,6 +161,42 @@ Object.assign(Game.prototype, {
         };
     },
 
+    getThrowableEffect(item) {
+        return typeof item?.properties?.throwEffect === 'string'
+            ? item.properties.throwEffect
+            : '';
+    },
+
+    swapPlayerWithEnemy(enemy) {
+        if (!enemy || !enemy.isAlive?.()) {
+            return false;
+        }
+
+        const playerX = this.player.x;
+        const playerY = this.player.y;
+        const enemyX = enemy.x;
+        const enemyY = enemy.y;
+
+        this.world.moveEnemy(enemy, playerX, playerY);
+        this.player.x = enemyX;
+        this.player.y = enemyY;
+        return true;
+    },
+
+    tryTeleportPlayerToPosition(x, y) {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            return false;
+        }
+
+        if (!this.world.canPlayerOccupy(x, y)) {
+            return false;
+        }
+
+        this.player.x = x;
+        this.player.y = y;
+        return true;
+    },
+
     resolveThrowAgainstFuser(enemy, item, x, y) {
         if (typeof enemy.canSwallowThrownItems === 'function' && enemy.canSwallowThrownItems()) {
             const swallowResult = typeof enemy.swallowThrownItem === 'function'
@@ -199,13 +235,25 @@ Object.assign(Game.prototype, {
         };
     },
 
-    resolveThrowHitEnemy(item, enemy, x, y) {
+    resolveThrowHitEnemy(item, enemy, x, y, dx = 0, dy = 0) {
         const enemyHealthBeforeThrow = Number(enemy.health || 0);
+        const throwEffect = this.getThrowableEffect(item);
         const throwImpact = item.throw(this.player, enemy) || { damage: 0, healing: 0 };
         const enemyDefeated = !enemy.isAlive();
         const tameRoll = enemyDefeated
             ? { attempted: false, chance: 0, succeeded: false }
             : this.tryTameEnemyWithThrownFood(enemy, item, enemyHealthBeforeThrow);
+        let switchedPositions = false;
+        let pushedDistance = 0;
+
+        if (!enemyDefeated && throwEffect === 'switch') {
+            switchedPositions = this.swapPlayerWithEnemy(enemy);
+        }
+
+        if (!enemyDefeated && throwEffect === 'pushback') {
+            pushedDistance = this.tryPushEnemy(enemy, dx, dy, 2);
+        }
+
         if (enemyDefeated) {
             this.handleEnemyDefeat(enemy, { announceDefeat: false, killer: this.player, defeatSource: 'player-throw' });
         }
@@ -219,23 +267,35 @@ Object.assign(Game.prototype, {
             tameAttempted: tameRoll.attempted,
             tameChance: tameRoll.chance,
             tameSucceeded: tameRoll.succeeded,
+            switchedPositions,
+            pushedDistance,
             x,
             y
         };
     },
 
-    resolveThrowAgainstEnemy(item, enemy, x, y) {
+    resolveThrowAgainstEnemy(item, enemy, x, y, dx = 0, dy = 0) {
         const isFuser = typeof enemy.hasEnemyType === 'function' && enemy.hasEnemyType(ENEMY_TYPES.FUSER);
         if (isFuser) {
             return this.resolveThrowAgainstFuser(enemy, item, x, y);
         }
 
-        return this.resolveThrowHitEnemy(item, enemy, x, y);
+        return this.resolveThrowHitEnemy(item, enemy, x, y, dx, dy);
     },
 
     resolveThrowFinalPlacement(item, lastValidPosition) {
         const dropX = lastValidPosition ? lastValidPosition.x : this.player.x;
         const dropY = lastValidPosition ? lastValidPosition.y : this.player.y;
+        if (this.getThrowableEffect(item) === 'blink') {
+            const teleported = this.tryTeleportPlayerToPosition(dropX, dropY);
+            return {
+                type: 'blink',
+                x: dropX,
+                y: dropY,
+                playerTeleported: teleported
+            };
+        }
+
         const dropResult = this.world.addItem(dropX, dropY, item);
         if (dropResult?.burned) {
             return this.createBurnedThrowResult(dropX, dropY);
@@ -261,7 +321,7 @@ Object.assign(Game.prototype, {
 
             const enemy = this.world.getEnemyAt(x, y);
             if (enemy && !enemy.isAlly) {
-                return this.resolveThrowAgainstEnemy(item, enemy, x, y);
+                return this.resolveThrowAgainstEnemy(item, enemy, x, y, dx, dy);
             }
 
             x += dx;
@@ -430,6 +490,11 @@ Object.assign(Game.prototype, {
                 pickedNames.push(`${value} money`);
                 continue;
             }
+
+            if (typeof this.player?.identifiesItemsOnPickup === 'function' && this.player.identifiesItemsOnPickup()) {
+                item.identify?.();
+            }
+
             this.player.addItem(item);
             this.world.removeItem(x, y, item);
             const itemName = getItemLabel(item);

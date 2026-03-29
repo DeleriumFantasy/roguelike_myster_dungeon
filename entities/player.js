@@ -25,6 +25,12 @@ class Player {
         this.money = 0;
         this.bankMoney = 0;
         this.bankItems = [];
+        this.questgiverState = {
+            activeQuest: null,
+            completedQuestCount: 0,
+            nextQuestId: 1,
+            deepestDungeonFloorReached: 0
+        };
         this.updateStats();
     }
 

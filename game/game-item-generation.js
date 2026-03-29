@@ -1,6 +1,52 @@
 // Item generation, money valuation, and starter loadout helpers
 
 Object.assign(Game.prototype, {
+    isSpawnRolledEquipment(item) {
+        return item && [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY].includes(item.type);
+    },
+
+    applySpawnImprovementRolls(item, rng = null) {
+        if (!this.isSpawnRolledEquipment(item)) {
+            return item;
+        }
+
+        let improvementCount = 0;
+        for (let rollIndex = 0; rollIndex < 3; rollIndex++) {
+            if (getRngRoll(rng) < 0.05) {
+                improvementCount += 1;
+            }
+        }
+
+        if (improvementCount <= 0) {
+            return item;
+        }
+
+        item.properties = item.properties || {};
+        item.properties.improvementLevel = Number(item.properties.improvementLevel || 0) + improvementCount;
+
+        if (item.type === ITEM_TYPES.WEAPON) {
+            item.properties.power = Number(item.properties.power || 0) + improvementCount;
+            item.properties.improvementPowerBonus = Number(item.properties.improvementPowerBonus || 0) + improvementCount;
+            return item;
+        }
+
+        if (item.type === ITEM_TYPES.ARMOR || item.type === ITEM_TYPES.SHIELD) {
+            item.properties.armor = Number(item.properties.armor || 0) + improvementCount;
+            item.properties.improvementArmorBonus = Number(item.properties.improvementArmorBonus || 0) + improvementCount;
+            return item;
+        }
+
+        if (Number(item.properties.power || 0) > 0) {
+            item.properties.power = Number(item.properties.power || 0) + improvementCount;
+            item.properties.improvementPowerBonus = Number(item.properties.improvementPowerBonus || 0) + improvementCount;
+        } else {
+            item.properties.armor = Number(item.properties.armor || 0) + improvementCount;
+            item.properties.improvementArmorBonus = Number(item.properties.improvementArmorBonus || 0) + improvementCount;
+        }
+
+        return item;
+    },
+
     getItemSpawnCountForFloor(floorIndex, rng = null) {
         const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
 
@@ -67,7 +113,7 @@ Object.assign(Game.prototype, {
                 continue;
             }
 
-            const item = chosenEntry.create();
+            const item = chosenEntry.create(rng);
             if (!item) {
                 continue;
             }
@@ -86,6 +132,7 @@ Object.assign(Game.prototype, {
                 item.properties = item.properties || {};
                 item.properties.value = this.computeMoneyValueForFloor(item, floorIndex, rng);
             }
+            this.applySpawnImprovementRolls(item, rng);
             applyWorldEnchantmentRoll(item, rng);
             return applyWorldCurseRoll(item, rng);
         }
@@ -184,7 +231,7 @@ Object.assign(Game.prototype, {
                 continue;
             }
 
-            const item = chosenEntry.create();
+            const item = chosenEntry.create(rng);
             if (!item) {
                 continue;
             }
@@ -194,6 +241,7 @@ Object.assign(Game.prototype, {
                 item.properties.value = this.computeMoneyValueForFloor(item, floorIndex, rng);
             }
 
+            this.applySpawnImprovementRolls(item, rng);
             applyWorldEnchantmentRoll(item, rng);
             return applyWorldCurseRoll(item, rng);
         }
@@ -206,7 +254,8 @@ Object.assign(Game.prototype, {
 
         const starterItems = [
             ...createTieredStarterItems(),
-            ...createAllStatusConsumables()
+            ...createAllStatusConsumables(),
+            ...createAllImprovementScrolls()
         ];
 
         starterItems.forEach((item) => this.player.addItem(item));

@@ -38,8 +38,18 @@ const ENEMY_FAMILY_SPAWN_BALANCING = {
 };
 
 Object.assign(Game.prototype, {
+    getPersistentOverworldNpcTypeKeys() {
+        return ['npcBankerTier1', 'npcQuestgiverTier1', 'npcHandlerTier1'];
+    },
+
     isBankerTypeKey(enemyTypeKey) {
         return enemyTypeKey === 'npcBankerTier1';
+    },
+
+    isOverworldNpcTypeKey(enemyTypeKey) {
+        return enemyTypeKey === 'npcBankerTier1'
+            || enemyTypeKey === 'npcQuestgiverTier1'
+            || enemyTypeKey === 'npcHandlerTier1';
     },
 
     isDungeonNpcTypeKey(enemyTypeKey) {
@@ -156,10 +166,21 @@ Object.assign(Game.prototype, {
     },
 
     spawnOverworldNpcs(rng) {
-        const npcTypeKeys = ['npcBankerTier1'];
+        if (!Array.isArray(this.persistentOverworldNpcs)) {
+            this.persistentOverworldNpcs = [];
+        }
 
-        for (const npcTypeKey of npcTypeKeys) {
-            const npc = this.createEnemyForType(0, 0, npcTypeKey, 0);
+        if (this.persistentOverworldNpcs.length === 0) {
+            this.persistentOverworldNpcs = this.getPersistentOverworldNpcTypeKeys()
+                .map((npcTypeKey) => this.createEnemyForType(0, 0, npcTypeKey, 0))
+                .filter(Boolean);
+        }
+
+        for (const npc of this.persistentOverworldNpcs) {
+            if (!npc?.isAlive?.()) {
+                continue;
+            }
+
             const spawn = this.world.findRandomOpenTile(rng, this.player, 200, npc);
             if (!spawn) {
                 continue;
@@ -229,18 +250,18 @@ Object.assign(Game.prototype, {
     getEnemySpawnEntriesForFloor(floorIndex) {
         const entries = Object.entries(ENEMY_TEMPLATES).map(([key, template]) => ({
             key,
-            weight: template.spawnWeight || 1,
+            weight: Number.isFinite(template.spawnWeight) ? template.spawnWeight : 1,
             minFloor: template.minFloor,
             maxFloor: template.maxFloor
-        }));
+        })).filter((entry) => entry.weight > 0);
 
         const floorEntries = getWeightedEntriesForFloor(entries, floorIndex);
-        const isOverworld = this.world.getAreaType(floorIndex) === AREA_TYPES.OVERWORLD;
+        const isOverworld = this.world.getAreaType() === AREA_TYPES.OVERWORLD;
         if (isOverworld) {
             return floorEntries.filter((entry) => !this.isDungeonNpcTypeKey(entry.key));
         }
 
-        const dungeonEntries = floorEntries.filter((entry) => !this.isBankerTypeKey(entry.key));
+        const dungeonEntries = floorEntries.filter((entry) => !this.isOverworldNpcTypeKey(entry.key));
         return this.applyEnemyFamilySpawnBalancing(dungeonEntries, floorIndex);
     },
 

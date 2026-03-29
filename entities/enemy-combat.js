@@ -60,6 +60,13 @@ Object.assign(Enemy.prototype, {
         actorResolveOnAttackedConditions(this);
     },
 
+    removeCondition(condition) {
+        this.conditions.delete(condition);
+        if (condition === CONDITIONS.SLEEP) {
+            this.sleepLockedUntilPlayerEntry = false;
+        }
+    },
+
     getAttackPower() {
         let basePower = this.power;
         for (const item of this.equipment.values()) {

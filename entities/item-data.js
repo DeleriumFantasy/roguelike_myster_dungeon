@@ -330,6 +330,53 @@ const ENCHANTMENT_DEFINITIONS = {
         validItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY],
         grantsCondition: CONDITIONS.SATIATED,
         grantsConditionDuration: Infinity
+    },
+    gilded: {
+        id: 'gilded',
+        name: 'Gilded',
+        validItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY]
+    },
+    scholar: {
+        id: 'scholar',
+        name: 'Scholar',
+        validItemTypes: [ITEM_TYPES.ACCESSORY],
+        expGainMultiplier: 1.25
+    },
+    sustenance: {
+        id: 'sustenance',
+        name: 'Sustenance',
+        validItemTypes: [ITEM_TYPES.ACCESSORY],
+        passiveHungerLossIntervalMultiplier: 2
+    },
+    vitality: {
+        id: 'vitality',
+        name: 'Vitality',
+        validItemTypes: [ITEM_TYPES.ACCESSORY],
+        passiveHealingBonus: 1
+    },
+    enemySight: {
+        id: 'enemySight',
+        name: 'Enemy sight',
+        validItemTypes: [ITEM_TYPES.ACCESSORY],
+        revealsEnemiesOnMap: true
+    },
+    itemSight: {
+        id: 'itemSight',
+        name: 'Item sight',
+        validItemTypes: [ITEM_TYPES.ACCESSORY],
+        revealsItemsOnMap: true
+    },
+    appraiser: {
+        id: 'appraiser',
+        name: 'Appraiser',
+        validItemTypes: [ITEM_TYPES.ACCESSORY],
+        identifiesItemsOnPickup: true
+    },
+    miner: {
+        id: 'miner',
+        name: 'Miner',
+        validItemTypes: [ITEM_TYPES.ACCESSORY],
+        reducesPickaxeDegradation: true
     }
 };
 
@@ -365,16 +412,28 @@ const TIERED_ITEM_DEFINITIONS = {
     },
     throwable: {
         1: { name: 'Pebble', type: ITEM_TYPES.THROWABLE, properties: { power: 5, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
-        2: { name: 'Sharp rock', type: ITEM_TYPES.THROWABLE, properties: { power: 10, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
-        3: { name: 'Ninja star', type: ITEM_TYPES.THROWABLE, properties: { power: 15, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
-        4: { name: 'Javelin', type: ITEM_TYPES.THROWABLE, properties: { power: 20, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
+        2: [
+            { name: 'Sharp rock', type: ITEM_TYPES.THROWABLE, properties: { power: 10, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
+            { name: 'Pushback crystal', type: ITEM_TYPES.THROWABLE, properties: { power: 5, throwEffect: 'pushback', hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
+        ],
+        3: [
+            { name: 'Ninja star', type: ITEM_TYPES.THROWABLE, properties: { power: 15, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
+            { name: 'Blink crystal', type: ITEM_TYPES.THROWABLE, properties: { throwEffect: 'blink', breakOnWall: true, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
+        ],
+        4: [
+            { name: 'Javelin', type: ITEM_TYPES.THROWABLE, properties: { power: 20, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
+            { name: 'Switch crystal', type: ITEM_TYPES.THROWABLE, properties: { throwEffect: 'switch', hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
+        ]
     },
     weapon: {
         0: { name: 'Cheater sword', type: ITEM_TYPES.WEAPON, properties: { power: 9999, slots: 80, enchantments: [...CHEATER_WEAPON_ENCHANTMENTS], hiddenName: hiddenSword, burnable: false } },
         1: { name: 'Rusted sword', type: ITEM_TYPES.WEAPON, properties: { power: 3, slots: 7, hiddenName: hiddenSword, burnable: false } },
         2: { name: 'Bronze sword', type: ITEM_TYPES.WEAPON, properties: { power: 4, slots: 6, hiddenName: hiddenSword, burnable: false } },
         3: { name: 'Iron sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 5, hiddenName: hiddenSword, burnable: false } },
-        4: { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 8, slots: 4, hiddenName: hiddenSword, burnable: false } }
+        4: [
+            { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 8, slots: 4, hiddenName: hiddenSword, burnable: false } },
+            { name: 'Pickaxe', type: ITEM_TYPES.WEAPON, properties: { power: 1, slots: 0, breaksWalls: true, spawnImprovementMin: 5, spawnImprovementMax: 10, hiddenName: hiddenSword, burnable: false } }
+        ]
     },
     armor: {
         0: { name: 'Cheater armor', type: ITEM_TYPES.ARMOR, properties: { armor: 9999, slots: 80, enchantments: [...CHEATER_ARMOR_ENCHANTMENTS], hiddenName: hiddenArmor, burnable: false } },
@@ -399,11 +458,20 @@ const TIERED_ITEM_DEFINITIONS = {
         2: [
             { name: 'Bronze ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 10, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
             { name: 'Bronze bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 10, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
-        ],
+],
         3: [
             { name: 'Waterwalk ring', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['waterwalk'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
             { name: 'Lavawalk bracelet', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['lavawalk'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
             { name: 'Flying amulet', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['fly'], slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+        ],
+        4: [
+            { name: 'Scholar charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['scholar'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Sustenance charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['sustenance'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Vitality charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['vitality'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Hunter lens', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['enemySight'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Treasure lens', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['itemSight'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Appraiser monocle', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['appraiser'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Mining hardhat', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['miner'], slots: 3, hiddenName: hiddenAccessory, burnable: false } }
         ]
     },
     statusConsumable: {
@@ -427,6 +495,25 @@ const TIERED_ITEM_DEFINITIONS = {
             { name: 'Holy water', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BLESSED, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
             { name: 'Invincibility elixir', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.INVINCIBILITY, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
             { name: 'Garlic chicken pizza', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SATIATED, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+        ]
+    },
+    scroll: {
+        1: [
+            { name: 'Trap eraser scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'erase-traps', hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Mapping scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'map-floor', hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+        ],
+        2: [
+            { name: 'Identifying scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'identify-item', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY, ITEM_TYPES.CONSUMABLE, ITEM_TYPES.THROWABLE], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Gilding scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'add-gilded', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+        ],
+        3: [
+            { name: 'Purifying scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'purify-item', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY, ITEM_TYPES.CONSUMABLE, ITEM_TYPES.THROWABLE], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Warp scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'warp-player', hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+        ],
+        4: [
+            { name: 'Earthly power scroll', type: ITEM_TYPES.CONSUMABLE, properties: { improvesItemTypes: [ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Heavenly power scroll', type: ITEM_TYPES.CONSUMABLE, properties: { improvesItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ACCESSORY], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Slot adding scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'add-slot', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ]
     }
 };
@@ -548,6 +635,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'healing', tier: 1, weight: 4 },
         { category: 'food', tier: 1, weight: 4 },
         { category: 'statusConsumable', tier: 1, weight: 2 },
+        { category: 'scroll', tier: 1, weight: 1 },
         { category: 'throwable', tier: 1, weight: 3 },
         { category: 'weapon', tier: 1, weight: 2 },
         { category: 'armor', tier: 1, weight: 2 },
@@ -559,6 +647,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'healing', tier: 2, weight: 4 },
         { category: 'food', tier: 2, weight: 4 },
         { category: 'statusConsumable', tier: 2, weight: 2 },
+        { category: 'scroll', tier: 2, weight: 1 },
         { category: 'throwable', tier: 2, weight: 3 },
         { category: 'weapon', tier: 2, weight: 2 },
         { category: 'armor', tier: 2, weight: 2 },
@@ -570,21 +659,23 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'healing', tier: 3, weight: 4 },
         { category: 'food', tier: 3, weight: 4 },
         { category: 'statusConsumable', tier: 3, weight: 2 },
+        { category: 'scroll', tier: 3, weight: 1 },
         { category: 'throwable', tier: 3, weight: 3 },
         { category: 'weapon', tier: 3, weight: 2 },
         { category: 'armor', tier: 3, weight: 2 },
         { category: 'shield', tier: 3, weight: 2 },
-        { category: 'accessory', tier: 2, weight: 1 }
+        { category: 'accessory', tier: 3, weight: 1 }
     ],
     4: [
         { category: 'money', tier: 4, weight: 4 },
         { category: 'healing', tier: 4, weight: 4 },
         { category: 'food', tier: 4, weight: 4 },
         { category: 'statusConsumable', tier: 4, weight: 2 },
+        { category: 'scroll', tier: 4, weight: 1 },
         { category: 'throwable', tier: 4, weight: 3 },
         { category: 'weapon', tier: 4, weight: 2 },
         { category: 'armor', tier: 4, weight: 2 },
         { category: 'shield', tier: 4, weight: 2 },
-        { category: 'accessory', tier: 2, weight: 1 }
+        { category: 'accessory', tier: 4, weight: 1 }
     ]
 };

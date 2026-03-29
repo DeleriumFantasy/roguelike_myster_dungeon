@@ -43,7 +43,7 @@ class GameInputController {
         const key = event.key;
         const lowerKey = key.toLowerCase();
 
-        if (this.game.inventoryOpen && key !== 'Escape') {
+        if (this.game.inventoryOpen && key !== 'Escape' && lowerKey !== 'i') {
             return;
         }
 
@@ -87,8 +87,7 @@ class GameInputController {
                 if (this.game.inventoryOpen) {
                     this.game.ui.closeInventory();
                     this.game.ui.canvas.focus();
-                } else if (this.game.ui.mapOpen) {
-                    this.game.ui.closeMap();
+                } else if (this.game.ui.closeAuxiliaryOverlays?.()) {
                     this.game.ui.canvas.focus();
                 }
                 break;
@@ -119,11 +118,22 @@ class GameInputController {
         const action = getInputActionForKey(lowerKey);
         switch (action) {
             case 'open-inventory':
-                this.game.ui.openInventory(this.game.player);
-                this.game.inventoryOpen = true;
+                if (this.game.inventoryOpen) {
+                    this.game.ui.closeInventory();
+                    this.game.ui.canvas.focus();
+                } else {
+                    this.game.ui.openInventory(this.game.player);
+                    this.game.inventoryOpen = true;
+                }
                 return true;
             case 'toggle-map':
                 this.game.ui.toggleMap(this.game.world, this.game.player);
+                return true;
+            case 'toggle-stats':
+                this.game.ui.toggleStatsOverlay?.();
+                return true;
+            case 'toggle-messages':
+                this.game.ui.toggleMessagesOverlay?.();
                 return true;
             default:
                 return false;

@@ -1,5 +1,37 @@
 // Game setup and floor population helpers
 
+const FLOOR_EVENT_DISPLAY = {
+    'food-party': {
+        title: () => 'Random Event: Food Party',
+        objective: ({ turnsRemaining }) => `Spawned food disappears in ${turnsRemaining} turns.`,
+        appendTurnsRemaining: false
+    },
+    'throwing-challenge': {
+        title: () => 'Random Event: Throwing Challenge',
+        objective: ({ currentKills, requiredKills }) => `Defeat enemies with thrown items (${currentKills}/${requiredKills}).`
+    },
+    'catacombs-hoard': {
+        title: () => 'Random Event: Burial Hoard',
+        objective: () => 'Be careful, the hoard is protected.'
+    }
+};
+
+function getFloorEventDisplayData(eventType, context = {}) {
+    const eventDisplay = FLOOR_EVENT_DISPLAY[eventType] || {};
+    const titleValue = eventDisplay.title;
+    const objectiveValue = eventDisplay.objective;
+    const appendTurnsRemaining = eventDisplay.appendTurnsRemaining !== false;
+
+    const title = typeof titleValue === 'function'
+        ? titleValue(context)
+        : (typeof titleValue === 'string' ? titleValue : 'Random Event Active');
+    const objective = typeof objectiveValue === 'function'
+        ? objectiveValue(context)
+        : (typeof objectiveValue === 'string' ? objectiveValue : 'Complete the event objective.');
+
+    return { title, objective, appendTurnsRemaining };
+}
+
 Object.assign(Game.prototype, {
     getFloorRandomEventChance() {
         return 0.02;
@@ -13,8 +45,19 @@ Object.assign(Game.prototype, {
         return 40;
     },
 
+    createFloorEventDisplayData(eventType, context = {}) {
+        return getFloorEventDisplayData(eventType, context);
+    },
+
+    shouldGuaranteeCatacombsHoardEvent(floorIndex = this.world.currentFloor) {
+        return floorIndex === 1 && this.canActivateCatacombsHoardEvent();
+    },
+
     rollRandomFloorEventType(rng) {
         const eventTypes = ['food-party', 'throwing-challenge'];
+        if (this.canActivateCatacombsHoardEvent()) {
+            eventTypes.push('catacombs-hoard');
+        }
         return pickRandom(eventTypes, rng);
     },
 
@@ -23,6 +66,11 @@ Object.assign(Game.prototype, {
         floor.meta = floor.meta || {};
 
         if (floor.meta.activeEvent) {
+            return;
+        }
+
+        if (this.shouldGuaranteeCatacombsHoardEvent(this.world.currentFloor)) {
+            this.activateCatacombsHoardEvent(rng, floorIndex);
             return;
         }
 
@@ -38,7 +86,219 @@ Object.assign(Game.prototype, {
 
         if (eventType === 'throwing-challenge') {
             this.activateThrowingChallengeEvent();
+            return;
         }
+
+        if (eventType === 'catacombs-hoard') {
+            this.activateCatacombsHoardEvent(rng, floorIndex);
+        }
+    },
+
+    roomContainsPosition(room, x, y) {
+        if (!room) {
+            return false;
+        }
+
+        return x >= room.x
+            && x < room.x + room.width
+            && y >= room.y
+            && y < room.y + room.height;
+    },
+
+    isPositionAdjacentToRoom(room, x, y, distance = 1) {
+        if (!room) {
+            return false;
+        }
+
+        const d = Math.max(0, Math.floor(distance));
+        return x >= room.x - d
+            && x < room.x + room.width + d
+            && y >= room.y - d
+            && y < room.y + room.height + d;
+    },
+
+    getRoomArea(room) {
+        if (!room) {
+            return 0;
+        }
+
+        return Math.max(0, Number(room.width) || 0) * Math.max(0, Number(room.height) || 0);
+    },
+
+    getRoomTiles(room) {
+        const tiles = [];
+        if (!room) {
+            return tiles;
+        }
+
+        for (let y = room.y; y < room.y + room.height; y++) {
+            for (let x = room.x; x < room.x + room.width; x++) {
+                tiles.push({ x, y });
+            }
+        }
+
+        return tiles;
+    },
+
+    shuffleTiles(rng, tiles) {
+        const shuffled = [...tiles];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = getRngRandomInt(rng, 0, i);
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+
+        return shuffled;
+    },
+
+    getCatacombsHoardBlockedKeys(floor) {
+        const blockedKeys = new Set();
+        const stairs = floor?.meta?.stairPositions;
+        if (stairs?.up) {
+            blockedKeys.add(toGridKey(stairs.up.x, stairs.up.y));
+        }
+        if (stairs?.down) {
+            blockedKeys.add(toGridKey(stairs.down.x, stairs.down.y));
+        }
+
+        return blockedKeys;
+    },
+
+    getEligibleCatacombsHoardRooms(floor = this.world.getCurrentFloor()) {
+        const rooms = Array.isArray(floor?.meta?.catacombsRooms) ? floor.meta.catacombsRooms : [];
+        const blockedKeys = this.getCatacombsHoardBlockedKeys(floor);
+
+        return rooms.filter((room) => {
+            if (this.getRoomArea(room) < 25) {
+                return false;
+            }
+
+            const roomHasBlockedTile = Array.from(blockedKeys).some((key) => {
+                const [x, y] = fromGridKey(key);
+                return this.roomContainsPosition(room, x, y);
+            });
+
+            return !roomHasBlockedTile;
+        });
+    },
+
+    canActivateCatacombsHoardEvent() {
+        if (this.world.getAreaType() !== AREA_TYPES.CATACOMBS) {
+            return false;
+        }
+
+        return this.getEligibleCatacombsHoardRooms().length > 0;
+    },
+
+    getCatacombsHoardEnemyCount(room) {
+        return clamp(Math.floor(this.getRoomArea(room) * 0.3), 5, 10);
+    },
+
+    getCatacombsHoardItemCount(room) {
+        return clamp(Math.floor(this.getRoomArea(room) * 0.2), 4, 8);
+    },
+
+    chooseCatacombsHoardRoom(rng, floor = this.world.getCurrentFloor()) {
+        const eligibleRooms = this.getEligibleCatacombsHoardRooms(floor)
+            .sort((left, right) => this.getRoomArea(right) - this.getRoomArea(left));
+        if (eligibleRooms.length === 0) {
+            return null;
+        }
+
+        const candidatePool = eligibleRooms.slice(0, Math.min(3, eligibleRooms.length));
+        const chosenRoom = pickRandom(candidatePool, rng, candidatePool[0]);
+        return chosenRoom ? { ...chosenRoom } : null;
+    },
+
+    getCatacombsHoardEnemySpawnTiles(room, rng) {
+        const tiles = this.getRoomTiles(room).filter((tile) => this.world.canEnemyOccupy(tile.x, tile.y, this.player));
+        return this.shuffleTiles(rng, tiles);
+    },
+
+    getCatacombsHoardItemSpawnTiles(room, rng) {
+        const tiles = this.getRoomTiles(room).filter((tile) => this.world.canSpawnItemAt(tile.x, tile.y, this.player));
+        return this.shuffleTiles(rng, tiles);
+    },
+
+    createCatacombsHoardEnemy(enemyTypeKey, floorIndex) {
+        const enemy = this.createEnemyForType(0, 0, enemyTypeKey, floorIndex);
+        if (!enemy) {
+            return null;
+        }
+
+        enemy.addCondition(CONDITIONS.SLEEP, Infinity);
+        enemy.sleepLockedUntilPlayerEntry = true;
+        return enemy;
+    },
+
+    activateCatacombsHoardEvent(rng, floorIndex) {
+        const floor = this.world.getCurrentFloor();
+        floor.meta = floor.meta || {};
+
+        const room = this.chooseCatacombsHoardRoom(rng, floor);
+        if (!room) {
+            return false;
+        }
+
+        const enemyEntries = this.getEnemySpawnEntriesForFloor(floorIndex)
+            .filter((entry) => !this.isDungeonNpcTypeKey(entry.key));
+        if (enemyEntries.length === 0) {
+            return false;
+        }
+
+        const enemyTiles = this.getCatacombsHoardEnemySpawnTiles(room, rng);
+        const sleepingEnemies = [];
+        const spawnedItems = [];
+        const enemyCount = Math.min(enemyTiles.length, this.getCatacombsHoardEnemyCount(room));
+
+        for (let i = 0; i < enemyCount; i++) {
+            const chosenEntry = this.chooseWeightedEntry(rng, enemyEntries);
+            if (!chosenEntry) {
+                continue;
+            }
+
+            const enemy = this.createCatacombsHoardEnemy(chosenEntry.key, floorIndex);
+            if (!enemy) {
+                continue;
+            }
+
+            const spawnTile = enemyTiles[i];
+            this.assignActorPosition(enemy, spawnTile);
+            this.addEnemyIfMissing(enemy);
+            sleepingEnemies.push(enemy);
+        }
+
+        const itemTiles = this.getCatacombsHoardItemSpawnTiles(room, rng);
+        const itemCount = Math.min(itemTiles.length, this.getCatacombsHoardItemCount(room));
+
+        for (let i = 0; i < itemCount; i++) {
+            const item = this.createRandomItemForFloor(rng, floorIndex);
+            if (!item) {
+                continue;
+            }
+
+            const spawnTile = itemTiles[i];
+            const placementResult = this.world.addItem(spawnTile.x, spawnTile.y, item);
+            if (!placementResult?.placed) {
+                continue;
+            }
+
+            spawnedItems.push({ item, x: placementResult.x, y: placementResult.y });
+        }
+
+        if (sleepingEnemies.length === 0 && spawnedItems.length === 0) {
+            return false;
+        }
+
+        floor.meta.activeEvent = {
+            type: 'catacombs-hoard',
+            room,
+            sleepingEnemies,
+            spawnedItems,
+            awakened: false,
+            display: this.createFloorEventDisplayData('catacombs-hoard')
+        };
+
+        return true;
     },
 
     activateFoodPartyEvent(rng, floorIndex) {
@@ -70,10 +330,11 @@ Object.assign(Game.prototype, {
         floor.meta.activeEvent = {
             type: 'food-party',
             turnsRemaining: this.getFoodPartyEventTurnLimit(),
-            spawnedItems
+            spawnedItems,
+            display: this.createFloorEventDisplayData('food-party', {
+                turnsRemaining: this.getFoodPartyEventTurnLimit()
+            })
         };
-
-        this.ui.addMessage(`Random event! Food party begins. Grab the food within ${this.getFoodPartyEventTurnLimit()} turns.`);
     },
 
     activateThrowingChallengeEvent() {
@@ -85,10 +346,12 @@ Object.assign(Game.prototype, {
             requiredKills: 5,
             currentKills: 0,
             turnsRemaining: this.getThrowingChallengeTurnLimit(),
-            rewardGranted: false
+            rewardGranted: false,
+            display: this.createFloorEventDisplayData('throwing-challenge', {
+                currentKills: 0,
+                requiredKills: 5
+            })
         };
-
-        this.ui.addMessage(`Random event! Throwing challenge: defeat 5 enemies using thrown items in ${this.getThrowingChallengeTurnLimit()} turns.`);
     },
 
     cleanupFoodPartyEventItems(activeEvent) {
@@ -122,6 +385,12 @@ Object.assign(Game.prototype, {
 
         const remainingTurns = Math.max(0, Math.floor(Number(activeEvent.turnsRemaining) - 1));
         activeEvent.turnsRemaining = remainingTurns;
+        if (activeEvent.type === 'food-party') {
+            activeEvent.display = this.createFloorEventDisplayData('food-party', {
+                turnsRemaining: remainingTurns
+            });
+        }
+
         if (remainingTurns > 0) {
             return;
         }
@@ -129,14 +398,37 @@ Object.assign(Game.prototype, {
         if (activeEvent.type === 'food-party') {
             this.cleanupFoodPartyEventItems(activeEvent);
             floor.meta.activeEvent = null;
-            this.ui.addMessage('Food party has ended. Remaining event food disappears.');
             return;
         }
 
         if (activeEvent.type === 'throwing-challenge') {
             floor.meta.activeEvent = null;
-            this.ui.addMessage('Throwing challenge failed. Time is up.');
         }
+    },
+
+    tryWakeCatacombsHoardEvent() {
+        const floor = this.world.getCurrentFloor();
+        const activeEvent = floor?.meta?.activeEvent;
+        if (!activeEvent || activeEvent.type !== 'catacombs-hoard' || activeEvent.awakened) {
+            return;
+        }
+
+        if (!this.isPositionAdjacentToRoom(activeEvent.room, this.player.x, this.player.y, 1)) {
+            return;
+        }
+
+        const sleepingEnemies = Array.isArray(activeEvent.sleepingEnemies) ? activeEvent.sleepingEnemies : [];
+        for (const enemy of sleepingEnemies) {
+            if (!enemy?.isAlive?.()) {
+                continue;
+            }
+
+            enemy.sleepLockedUntilPlayerEntry = false;
+            enemy.removeCondition?.(CONDITIONS.SLEEP);
+        }
+
+        activeEvent.awakened = true;
+        floor.meta.activeEvent = null;
     },
 
     handleFloorEventEnemyDefeat(enemy, options = {}) {
@@ -160,7 +452,10 @@ Object.assign(Game.prototype, {
         }
 
         activeEvent.currentKills = Math.max(0, Math.floor(Number(activeEvent.currentKills) || 0) + 1);
-        this.ui.addMessage(`Throwing challenge progress: ${activeEvent.currentKills}/${activeEvent.requiredKills}.`);
+        activeEvent.display = this.createFloorEventDisplayData('throwing-challenge', {
+            currentKills: activeEvent.currentKills,
+            requiredKills: activeEvent.requiredKills
+        });
 
         if (activeEvent.currentKills < activeEvent.requiredKills) {
             return;
@@ -170,9 +465,6 @@ Object.assign(Game.prototype, {
         const rewardItem = this.createThrowingChallengeRewardItem(rewardRng, this.getDungeonDepthIndex(this.world.currentFloor));
         if (rewardItem) {
             this.player.addItem(rewardItem);
-            this.ui.addMessage(`Throwing challenge complete! You receive ${getItemLabel(rewardItem)}.`);
-        } else {
-            this.ui.addMessage('Throwing challenge complete!');
         }
 
         activeEvent.rewardGranted = true;

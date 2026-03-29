@@ -261,10 +261,82 @@ Object.assign(Enemy.prototype, {
         };
     },
 
+    tickUnreachableItemTargetCooldowns() {
+        if (!(this.unreachableItemTargets instanceof Map) || this.unreachableItemTargets.size === 0) {
+            return;
+        }
+
+        for (const [targetKey, turnsRemaining] of this.unreachableItemTargets.entries()) {
+            if (turnsRemaining <= 1) {
+                this.unreachableItemTargets.delete(targetKey);
+                continue;
+            }
+
+            this.unreachableItemTargets.set(targetKey, turnsRemaining - 1);
+        }
+    },
+
+    rememberUnreachableItemTarget(x, y, turns = 8) {
+        if (!(this.unreachableItemTargets instanceof Map)) {
+            this.unreachableItemTargets = new Map();
+        }
+
+        this.unreachableItemTargets.set(toGridKey(x, y), turns);
+    },
+
+    isUnreachableItemTarget(x, y) {
+        if (!(this.unreachableItemTargets instanceof Map) || this.unreachableItemTargets.size === 0) {
+            return false;
+        }
+
+        return this.unreachableItemTargets.has(toGridKey(x, y));
+    },
+
+    findNearestReachableTarget(world, candidates) {
+        if (!world || !Array.isArray(candidates) || candidates.length === 0) {
+            return null;
+        }
+
+        const sortedCandidates = candidates
+            .slice()
+            .sort((left, right) => distance(this.x, this.y, left.x, left.y) - distance(this.x, this.y, right.x, right.y));
+
+        for (const candidate of sortedCandidates) {
+            if (!candidate || !Number.isFinite(candidate.x) || !Number.isFinite(candidate.y)) {
+                continue;
+            }
+
+            if (this.isUnreachableItemTarget(candidate.x, candidate.y)) {
+                continue;
+            }
+
+            if (candidate.x === this.x && candidate.y === this.y) {
+                return candidate;
+            }
+
+            const path = this.findPath(world, candidate.x, candidate.y, { avoidDamagingTiles: true });
+            if (Array.isArray(path) && path.length > 1) {
+                return candidate;
+            }
+
+            this.rememberUnreachableItemTarget(candidate.x, candidate.y);
+        }
+
+        return null;
+    },
+
     takeTurn(world, player) {
+        this.tickUnreachableItemTargetCooldowns();
         this.resetTurnCache();
 
         if (this.conditions.has(CONDITIONS.SLEEP)) {
+            if (this.sleepLockedUntilPlayerEntry) {
+                const sleepResult = { type: 'sleep' };
+                this.regenerateOnNonAttackTurn(sleepResult);
+                this.applyEnvironmentEffects(world);
+                return sleepResult;
+            }
+
             this.tickConditions();
             const sleepResult = { type: 'sleep' };
             this.regenerateOnNonAttackTurn(sleepResult);
@@ -331,6 +403,11 @@ Object.assign(Enemy.prototype, {
         if (this.isNeutralNpc()) {
             this.lastResolvedAi = AI_TYPES.WANDER;
             return this.performWanderAction(world, player);
+        }
+
+        if (this.isPassiveQuestEscort()) {
+            this.lastResolvedAi = AI_TYPES.GUARD;
+            return this.performPassiveQuestEscortAction(world, player);
         }
 
         if (this.conditions.has(CONDITIONS.BLIND)) {
@@ -459,7 +536,7 @@ Object.assign(Enemy.prototype, {
             candidates.push({ x, y, item: items[0] });
         }
 
-        const nearest = getNearestByDistance(this.x, this.y, candidates);
+        const nearest = this.findNearestReachableTarget(world, candidates);
 
         if (this.turnCache) {
             this.turnCache.nearestVisibleGroundItem = nearest;
@@ -481,12 +558,8 @@ Object.assign(Enemy.prototype, {
             ? world.getDisposalTiles()
             : [];
 
-        const nearest = getNearestByDistance(
-            this.x,
-            this.y,
-            disposalTiles,
-            (disposalTile) => this.canSeePosition(world, disposalTile.x, disposalTile.y)
-        );
+        const visibleDisposalTiles = disposalTiles.filter((disposalTile) => this.canSeePosition(world, disposalTile.x, disposalTile.y));
+        const nearest = this.findNearestReachableTarget(world, visibleDisposalTiles);
 
         if (this.turnCache) {
             this.turnCache.nearestVisibleDisposalTile = nearest;
@@ -760,6 +833,100 @@ Object.assign(Enemy.prototype, {
         const distanceToAlly = distance(this.x, this.y, followTarget.x, followTarget.y);
         if (distanceToAlly > 1.5) {
             return this.tryMoveTowardTarget(world, followTarget.x, followTarget.y, player);
+        }
+
+        return { type: 'wait' };
+    },
+
+    isPassiveQuestEscort() {
+        return Boolean(this.isAlly && this.questEscortPassive && Number.isFinite(this.questEscortId));
+    },
+
+    getAdjacentQuestEscortThreats(world) {
+        if (!world || typeof world.getEnemies !== 'function') {
+            return [];
+        }
+
+        const threats = [];
+        for (const enemy of world.getEnemies()) {
+            if (!enemy || enemy === this || !enemy.isAlive?.() || enemy.isAlly || this.isNeutralNpcActor(enemy)) {
+                continue;
+            }
+
+            if (distance(this.x, this.y, enemy.x, enemy.y) <= 1.5) {
+                threats.push(enemy);
+            }
+        }
+
+        return threats;
+    },
+
+    performQuestEscortRetreat(world, player, threats) {
+        const hostileThreats = Array.isArray(threats) ? threats : [];
+        if (hostileThreats.length === 0) {
+            return { type: 'wait' };
+        }
+
+        const currentMinDistance = hostileThreats.reduce((nearest, threat) => {
+            return Math.min(nearest, distance(this.x, this.y, threat.x, threat.y));
+        }, Infinity);
+
+        let bestStep = null;
+        for (const avoidDamagingTiles of [true, false]) {
+            for (const step of shuffle(getNeighbors(this.x, this.y).slice())) {
+                if (!this.canOccupyTile(world, step.x, step.y, player, { avoidDamagingTiles })) {
+                    continue;
+                }
+
+                const nearestThreatDistance = hostileThreats.reduce((nearest, threat) => {
+                    return Math.min(nearest, distance(step.x, step.y, threat.x, threat.y));
+                }, Infinity);
+                const distanceToPlayer = player ? distance(step.x, step.y, player.x, player.y) : Infinity;
+                const stepScore = {
+                    x: step.x,
+                    y: step.y,
+                    nearestThreatDistance,
+                    distanceToPlayer
+                };
+
+                if (!bestStep
+                    || stepScore.nearestThreatDistance > bestStep.nearestThreatDistance
+                    || (stepScore.nearestThreatDistance === bestStep.nearestThreatDistance
+                        && stepScore.distanceToPlayer < bestStep.distanceToPlayer)) {
+                    bestStep = stepScore;
+                }
+            }
+
+            if (bestStep) {
+                break;
+            }
+        }
+
+        if (!bestStep || bestStep.nearestThreatDistance <= currentMinDistance) {
+            return { type: 'wait' };
+        }
+
+        world.moveEnemy(this, bestStep.x, bestStep.y);
+        return { type: 'move' };
+    },
+
+    performPassiveQuestEscortAction(world, player) {
+        if (this.conditions.has(CONDITIONS.BOUND)) {
+            return { type: 'wait' };
+        }
+
+        const adjacentThreats = this.getAdjacentQuestEscortThreats(world);
+        if (adjacentThreats.length > 0) {
+            return this.performQuestEscortRetreat(world, player, adjacentThreats);
+        }
+
+        if (!player || !player.isAlive?.()) {
+            return { type: 'wait' };
+        }
+
+        const distanceToPlayer = distance(this.x, this.y, player.x, player.y);
+        if (distanceToPlayer > 1.5) {
+            return this.tryMoveTowardTarget(world, player.x, player.y, player);
         }
 
         return { type: 'wait' };

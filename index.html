@@ -14,34 +14,56 @@
             overflow: hidden;
         }
         #game-container {
-            display: flex;
+            position: relative;
             width: 100vw;
             height: 100vh;
-            align-items: flex-start;
+            overflow: hidden;
         }
         #canvas {
             display: block;
-            flex: 0 0 auto;
             border: none;
             image-rendering: pixelated;
         }
         #info-panel {
-            flex: 0 0 clamp(180px, 20vw, 240px);
-            width: clamp(180px, 20vw, 240px);
-            height: 100vh;
-            margin-left: auto;
-            box-sizing: border-box;
-            padding: 10px;
-            background-color: #111;
-            border-left: 1px solid #333;
-            overflow-y: auto;
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 850;
         }
-        @media (max-width: 900px) {
-            #info-panel {
-                flex-basis: 180px;
-                width: 180px;
-                padding: 8px;
-            }
+        #stats,
+        #messages {
+            position: fixed;
+            box-sizing: border-box;
+            padding: 12px 14px;
+            background: rgba(10, 10, 10, 0.84);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(2px);
+        }
+        #stats {
+            top: 12px;
+            right: 12px;
+            width: min(320px, calc(100vw - 24px));
+            max-height: min(70vh, 640px);
+            overflow: hidden;
+        }
+        #messages {
+            left: 50%;
+            bottom: 12px;
+            transform: translateX(-50%);
+            width: min(720px, calc(100vw - 24px));
+            max-height: min(30vh, 220px);
+            overflow: hidden;
+        }
+        #stats h3,
+        #messages h3 {
+            margin: 0 0 8px;
+            font-size: 16px;
+        }
+        #stats p,
+        #messages p {
+            margin: 0 0 4px;
+            line-height: 1.25;
         }
         #inventory-modal {
             display: none;
@@ -89,6 +111,19 @@
         }
         .inventory-item:hover {
             background-color: #333;
+        }
+        @media (max-width: 900px) {
+            #stats {
+                top: 8px;
+                right: 8px;
+                width: min(280px, calc(100vw - 16px));
+                padding: 10px 12px;
+            }
+            #messages {
+                bottom: 8px;
+                width: calc(100vw - 16px);
+                padding: 10px 12px;
+            }
         }
     </style>
 </head>

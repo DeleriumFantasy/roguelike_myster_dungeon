@@ -1,11 +1,54 @@
 // Item creation and transformation helpers
 
-function createItemFromDefinition(definition) {
+function applyConfiguredSpawnImprovements(item, rng = null) {
+    if (!item || !item.properties) {
+        return item;
+    }
+
+    const minImprovement = Number(item.properties.spawnImprovementMin);
+    const maxImprovement = Number(item.properties.spawnImprovementMax);
+    delete item.properties.spawnImprovementMin;
+    delete item.properties.spawnImprovementMax;
+
+    if (!Number.isFinite(minImprovement) || !Number.isFinite(maxImprovement) || maxImprovement <= 0) {
+        return item;
+    }
+
+    const safeMin = Math.max(0, Math.floor(Math.min(minImprovement, maxImprovement)));
+    const safeMax = Math.max(safeMin, Math.floor(Math.max(minImprovement, maxImprovement)));
+    const improvementCount = getRngRandomInt(rng, safeMin, safeMax);
+    if (improvementCount <= 0) {
+        return item;
+    }
+
+    item.properties.improvementLevel = Number(item.properties.improvementLevel || 0) + improvementCount;
+
+    if (item.type === ITEM_TYPES.WEAPON) {
+        item.properties.power = Number(item.properties.power || 0) + improvementCount;
+        item.properties.improvementPowerBonus = Number(item.properties.improvementPowerBonus || 0) + improvementCount;
+    } else if (item.type === ITEM_TYPES.ARMOR || item.type === ITEM_TYPES.SHIELD) {
+        item.properties.armor = Number(item.properties.armor || 0) + improvementCount;
+        item.properties.improvementArmorBonus = Number(item.properties.improvementArmorBonus || 0) + improvementCount;
+    } else if (item.type === ITEM_TYPES.ACCESSORY) {
+        if (Number(item.properties.power || 0) > 0) {
+            item.properties.power = Number(item.properties.power || 0) + improvementCount;
+            item.properties.improvementPowerBonus = Number(item.properties.improvementPowerBonus || 0) + improvementCount;
+        } else {
+            item.properties.armor = Number(item.properties.armor || 0) + improvementCount;
+            item.properties.improvementArmorBonus = Number(item.properties.improvementArmorBonus || 0) + improvementCount;
+        }
+    }
+
+    return item;
+}
+
+function createItemFromDefinition(definition, rng = null) {
     if (!definition) {
         return null;
     }
 
-    return new Item(definition.name, definition.type, { ...definition.properties });
+    const item = new Item(definition.name, definition.type, { ...definition.properties });
+    return applyConfiguredSpawnImprovements(item, rng);
 }
 
 function getTieredItemMatch(item) {
@@ -45,7 +88,8 @@ function copyItemPersistentState(sourceItem, targetItem, options = {}) {
         preserveEnchantments = true,
         preserveCurse = true,
         preserveKnowledgeState = true,
-        preserveQuantity = true
+        preserveQuantity = true,
+        preserveImprovements = false
     } = options;
 
     if (preserveEnchantments) {
@@ -72,7 +116,40 @@ function copyItemPersistentState(sourceItem, targetItem, options = {}) {
         targetItem.knowledgeState = sourceItem.knowledgeState;
     }
 
+    if (preserveImprovements) {
+        const improvementLevel = Number(sourceItem?.properties?.improvementLevel || 0);
+        const powerBonus = Number(sourceItem?.properties?.improvementPowerBonus || 0);
+        const armorBonus = Number(sourceItem?.properties?.improvementArmorBonus || 0);
+
+        if (improvementLevel > 0) {
+            targetItem.properties.improvementLevel = Math.floor(improvementLevel);
+        }
+
+        if (powerBonus > 0) {
+            targetItem.properties.power = Number(targetItem.properties.power || 0) + Math.floor(powerBonus);
+            targetItem.properties.improvementPowerBonus = Math.floor(powerBonus);
+        }
+
+        if (armorBonus > 0) {
+            targetItem.properties.armor = Number(targetItem.properties.armor || 0) + Math.floor(armorBonus);
+            targetItem.properties.improvementArmorBonus = Math.floor(armorBonus);
+        }
+    }
+
     return targetItem;
+}
+
+function itemHasEnchantment(item, enchantmentId) {
+    if (!item || typeof enchantmentId !== 'string' || enchantmentId.length === 0) {
+        return false;
+    }
+
+    if (typeof item.getEnchantments === 'function') {
+        return item.getEnchantments().includes(enchantmentId);
+    }
+
+    return Array.isArray(item.properties?.enchantments)
+        && item.properties.enchantments.includes(enchantmentId);
 }
 
 function createLowerTierVersionOfItem(item) {
@@ -92,11 +169,13 @@ function createLowerTierVersionOfItem(item) {
     }
 
     const transformedItem = createItemFromDefinition(chosenDefinition || match.definition);
+    const preserveImprovements = itemHasEnchantment(item, 'gilded');
     return copyItemPersistentState(item, transformedItem, {
         preserveEnchantments: true,
         preserveCurse: true,
         preserveKnowledgeState: true,
-        preserveQuantity: true
+        preserveQuantity: true,
+        preserveImprovements
     });
 }
 
@@ -130,12 +209,12 @@ function canEnemyDropItem(item, enemy) {
     return item.properties.dropOnlyEnemyTypes.some((enemyType) => enemy.hasEnemyType(enemyType));
 }
 
-function createTieredItem(category, tier) {
+function createTieredItem(category, tier, rng = null) {
     let definition = TIERED_ITEM_DEFINITIONS[category]?.[tier] || null;
     if (Array.isArray(definition)) {
-        definition = pickRandom(definition);
+        definition = pickRandom(definition, rng);
     }
-    return createItemFromDefinition(definition);
+    return createItemFromDefinition(definition, rng);
 }
 
 function createStatusConsumable(condition) {
@@ -160,7 +239,7 @@ function createStatusConsumable(condition) {
             ...chosenDefinition.properties,
             condition: normalizedCondition
         }
-    });
+    }, null);
 }
 
 function getWeightedItemEntriesForTier(tier) {
@@ -169,7 +248,7 @@ function getWeightedItemEntriesForTier(tier) {
 
     return entries.map((entry) => ({
         weight: entry.weight,
-        create: () => createTieredItem(entry.category, entry.tier)
+        create: (rng = null) => createTieredItem(entry.category, entry.tier, rng)
     }));
 }
 
@@ -177,6 +256,14 @@ function createAllStatusConsumables() {
     const conditions = [...new Set(getStatusConsumableDefinitions().map((definition) => definition.properties.condition))];
     return conditions
         .map((condition) => createStatusConsumable(condition))
+        .filter((item) => Boolean(item));
+}
+
+function createAllImprovementScrolls() {
+    const improvementScrollDefinitions = normalizeTierDefinitions(TIERED_ITEM_DEFINITIONS.scroll?.[4])
+        .filter((definition) => Array.isArray(definition?.properties?.improvesItemTypes));
+    return improvementScrollDefinitions
+        .map((definition) => createItemFromDefinition(definition))
         .filter((item) => Boolean(item));
 }
 

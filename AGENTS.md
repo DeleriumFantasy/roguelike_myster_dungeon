@@ -38,9 +38,9 @@
 - `player-combat.js`: damage, attacks, conditions.
 - `player-inventory.js`: equipment, inventory, throwables, ally item handling.
 - `player-progression.js`: level and EXP handling.
-- `enemy.js`: base enemy shell and core type helpers.
-- `enemy-item-behaviors.js`: thief, vandal, fuser, carried-item logic.
-- `enemy-ai.js`: perception, target choice, movement, turn AI.
+- `enemy.js`: base enemy shell, core type helpers, and persistent enemy-side state flags.
+- `enemy-item-behaviors.js`: thief, vandal, fuser, and carried-item logic.
+- `enemy-ai.js`: perception, target choice, movement, turn AI, and passive escort behavior.
 - `enemy-progression.js`: ally progression and tier helpers.
 - `enemy-combat.js`: attacks, damage, line of sight.
 - `item.js`: base item shell.
@@ -52,7 +52,7 @@
 - Rendering and UI-specific logic only.
 - `ui.js`: base UI shell.
 - `ui-rendering.js`: main scene rendering, camera logic, fog threshold behavior, and transient combat effects.
-- `ui-panels.js`: stats panel and message log helpers.
+- `ui-panels.js`: stats and message overlay helpers.
 - `ui-inventory.js`: inventory modal helpers.
 - `ui-map.js`: map overlay helpers.
 
@@ -72,7 +72,7 @@
 - `game-player-turns.js`: player turn resolution.
 - `game-enemy-turns.js`: enemy turn resolution, defeat handling, EXP.
 - `game-combat-helpers.js`: shared combat helpers used across turn files.
-- `game-npc-interactions.js`: NPC interaction flow (merchant, banker, starving/homebound/shaman one-time services).
+- `game-npc-interactions.js`: NPC interaction flow (merchant, banker, questgiver, handler, escort tasks, and one-time service NPCs).
 
 ## Load Order Rules
 
@@ -85,6 +85,7 @@
   - `player.js` before player extension files
   - `enemy.js` before enemy extension files
   - `game-input.js` and `game-turn-results.js` after `game.js` and before turn-processing files
+  - `game-npc-interactions.js` after `game.js`/`game-turn-results.js` and before turn-processing files that call NPC helpers
   - `game-content-utils.js` and `game-content-registry.js` before `game-enemy-content.js` and `game-item-generation.js`
   - `game-item-state.js` before `game-item-interactions.js`
 
@@ -118,4 +119,5 @@
 - For item issues: check `game-item-generation.js`, `game-item-state.js`, `game-item-interactions.js`, then item entity files.
 - For enemy behavior issues: check `enemy-ai.js`, `enemy-item-behaviors.js`, `enemy-combat.js`, then `game-enemy-turns.js`.
 - For map or rendering issues: check `ui-rendering.js`, `ui-map.js`, and `engine/fov.js`.
-- For floor spawning issues: check `game-content.js`, `game-enemy-content.js` (including `ENEMY_FAMILY_SPAWN_BALANCING` and NPC placement/filtering), `game-item-generation.js` (count bands and tier weighting), and `engine/world-generation.js`.
+- For NPC or quest issues: check `game-npc-interactions.js`, `game-enemy-content.js`, and `entities/enemy-ai.js` if escort or passive ally behavior is involved.
+- For floor spawning issues: check `game-content.js`, `game-enemy-content.js` (including `ENEMY_FAMILY_SPAWN_BALANCING`, zero-weight filtering, and NPC placement/filtering), `game-item-generation.js` (count bands and tier weighting), and `engine/world-generation.js`.

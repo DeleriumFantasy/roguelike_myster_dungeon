@@ -52,6 +52,7 @@ Game.prototype.trySwapPlayerWithAlly = function(targetX, targetY) {
     this.player.x = targetX;
     this.player.y = targetY;
     this.clearFailedMoveRecord();
+    this.tryWakeCatacombsHoardEvent?.();
     this.pickupItemsAfterMove(targetX, targetY);
     return this.createPlayerMoveResult({
         consumed: true,
@@ -79,6 +80,7 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
     this.applyPlayerTrapAtCurrentPosition();
 
     if (this.world.currentFloor === floorBeforeMove) {
+        this.tryWakeCatacombsHoardEvent?.();
         this.pickupItemsAfterMove(targetX, targetY);
     }
 
@@ -146,6 +148,9 @@ Game.prototype.processPlayerThrowTurn = function(input) {
 Game.prototype.createAttackPassSummary = function() {
     return {
         attackedAnyEnemyInPass: false,
+        destroyedAnyWallInPass: false,
+        destroyedWallCount: 0,
+        lostPickaxeImprovementCount: 0,
         revealedAnyTrapInPass: false,
         ruinedAnyTrapInPass: false
     };
@@ -232,15 +237,51 @@ Game.prototype.resolvePlayerAttackAgainstEnemy = function(enemy, hasKnockback) {
     }
 };
 
+Game.prototype.getPlayerMiningWeapon = function() {
+    const weapon = this.player?.equipment?.get(EQUIPMENT_SLOTS.WEAPON) || null;
+    return weapon?.properties?.breaksWalls ? weapon : null;
+};
+
+Game.prototype.tryBreakWallWithPickaxe = function(targetX, targetY, weapon) {
+    if (!weapon || this.world.getTile(targetX, targetY) !== TILE_TYPES.WALL) {
+        return { destroyed: false, lostImprovement: 0 };
+    }
+
+    this.world.setTile(targetX, targetY, TILE_TYPES.FLOOR);
+    this.fovCache = null;
+
+    const hasMinerAccessory = typeof this.player?.hasEquippedEnchantment === 'function'
+        ? this.player.hasEquippedEnchantment('miner')
+        : false;
+    const degradationChance = hasMinerAccessory ? 0.05 : 0.6;
+
+    return {
+        destroyed: true,
+        lostImprovement: typeof weapon.tryLoseImprovement === 'function'
+            ? weapon.tryLoseImprovement(degradationChance, 1, getRngRoll)
+            : 0
+    };
+};
+
 Game.prototype.combineAttackPassSummaries = function(baseSummary, nextSummary) {
     return {
         attackedAnyEnemyInPass: baseSummary.attackedAnyEnemyInPass || nextSummary.attackedAnyEnemyInPass,
+        destroyedAnyWallInPass: baseSummary.destroyedAnyWallInPass || nextSummary.destroyedAnyWallInPass,
+        destroyedWallCount: baseSummary.destroyedWallCount + nextSummary.destroyedWallCount,
+        lostPickaxeImprovementCount: baseSummary.lostPickaxeImprovementCount + nextSummary.lostPickaxeImprovementCount,
         revealedAnyTrapInPass: baseSummary.revealedAnyTrapInPass || nextSummary.revealedAnyTrapInPass,
         ruinedAnyTrapInPass: baseSummary.ruinedAnyTrapInPass || nextSummary.ruinedAnyTrapInPass
     };
 };
 
 Game.prototype.announcePlayerAttackPassSummary = function(passSummary) {
+    if (passSummary.destroyedAnyWallInPass) {
+        this.ui.addMessage(`You break ${passSummary.destroyedWallCount} wall(s) with the Pickaxe.`);
+        if (passSummary.lostPickaxeImprovementCount > 0) {
+            this.ui.addMessage(`The Pickaxe loses ${passSummary.lostPickaxeImprovementCount} improvement.`);
+        }
+    }
+
     if (passSummary.revealedAnyTrapInPass) {
         this.ui.addMessage('You reveal a hidden trap.');
     }
@@ -249,7 +290,7 @@ Game.prototype.announcePlayerAttackPassSummary = function(passSummary) {
         this.ui.addMessage('You destroy a trap with Ruin traps.');
     }
 
-    if (!passSummary.attackedAnyEnemyInPass) {
+    if (!passSummary.attackedAnyEnemyInPass && !passSummary.destroyedAnyWallInPass) {
         this.ui.addMessage('You swing at empty space.');
     }
 };
@@ -258,6 +299,7 @@ Game.prototype.executePlayerAttackPass = function(offsets, options = {}) {
     const { hasKnockback = false, hasRuinTraps = false } = options;
     const attackedEnemyKeys = new Set();
     const passSummary = this.createAttackPassSummary();
+    const miningWeapon = this.getPlayerMiningWeapon();
 
     for (const offset of offsets) {
         const attackTarget = this.getPlayerAttackTarget(offset);
@@ -268,6 +310,14 @@ Game.prototype.executePlayerAttackPass = function(offsets, options = {}) {
         const trapOutcome = this.applyAttackPassTrapEffects(attackTarget.x, attackTarget.y, hasRuinTraps);
         passSummary.revealedAnyTrapInPass = passSummary.revealedAnyTrapInPass || trapOutcome.revealedTrap;
         passSummary.ruinedAnyTrapInPass = passSummary.ruinedAnyTrapInPass || trapOutcome.ruinedTrap;
+
+        const wallBreakResult = this.tryBreakWallWithPickaxe(attackTarget.x, attackTarget.y, miningWeapon);
+        if (wallBreakResult.destroyed) {
+            passSummary.destroyedAnyWallInPass = true;
+            passSummary.destroyedWallCount += 1;
+            passSummary.lostPickaxeImprovementCount += wallBreakResult.lostImprovement;
+            continue;
+        }
 
         const enemyOnTarget = this.getAttackableEnemyAt(attackTarget.x, attackTarget.y, attackedEnemyKeys);
         if (!enemyOnTarget) {
@@ -344,6 +394,7 @@ Game.prototype.processPlayerBerserkTurn = function() {
     const moved = this.player.move(next.x - this.player.x, next.y - this.player.y, this.world);
     if (moved) {
         this.applyPlayerTrapAtCurrentPosition();
+        this.tryWakeCatacombsHoardEvent?.();
         this.pickupItemsAfterMove(next.x, next.y);
         return this.createPlayerTurnResult({ consumed: true, applyEnvironmentAfterAction: false, actionType: 'berserk-move' });
     }
