@@ -9,9 +9,9 @@
 
 ## Main Runtime Objects
 
-- `World`: floor state, actor occupancy, tile state, traversal, and generation.
+- `World`: floor state, actor occupancy (enemies and NPCs separated), tile state, traversal, and generation.
 - `Player`: base player state, then combat, inventory, and progression helpers in separate files.
-- `Enemy`: base enemy state, then item behavior, AI, progression, and combat helpers in separate files.
+- `Enemy`: base enemy state, then item behavior, AI, progression, and combat helpers in separate files. Hostile enemies only (NPCs are a separate type).
 - `UI`: base UI object, then rendering, panels, inventory, and map helpers in separate files.
 - `Game`: bootstrap and turn flow, then content, combat, NPC, item, and turn-resolution helpers in separate files.
 
@@ -35,6 +35,7 @@
 
 - Class shells plus responsibility-based prototype extensions.
 - `player.js`: base player shell.
+- `combat-utils.js`: shared combat application helpers that mutate actor state (`applyDamageToActor`, `applyStandardAttackToTarget`).
 - `player-combat.js`: damage, attacks, conditions.
 - `player-inventory.js`: equipment, inventory, throwables, ally item handling.
 - `player-progression.js`: level and EXP handling.
@@ -45,7 +46,7 @@
 - `enemy-combat.js`: attacks, damage, line of sight.
 - `item.js`: base item shell.
 - `item-data.js`: item definitions and shared item helpers.
-- `item-factories.js`: item creation and transformation helpers.
+- `item-factories.js`: item creation and transformation helpers, including world enchant/curse rolls.
 
 ### `ui/`
 
@@ -62,7 +63,7 @@
 - `game.js`: game bootstrap and main loop.
 - `game-input.js`: browser keyboard input and held-move orchestration.
 - `game-turn-results.js`: shared structured turn-result factories.
-- `game-content.js`: setup and floor population flow.
+- `game-content.js`: setup and floor population flow, including floor event lifecycle.
 - `game-content-utils.js`: shared content-selection helpers such as weighted rolls.
 - `game-content-registry.js`: content-registry helpers for enemy templates and weighted item entry selection.
 - `game-enemy-content.js`: enemy spawn tables, family-balancing curves, enemy creation, promotion, and overworld NPC roster placement.
@@ -71,6 +72,7 @@
 - `game-item-interactions.js`: item-related announcements and coordination helpers.
 - `game-player-turns.js`: player turn resolution.
 - `game-enemy-turns.js`: enemy turn resolution, defeat handling, EXP.
+- `game-explore.js`: auto-explore tick loop, sticky target tracking, forced-detour breakout logic, no-progress watchdog, cheater mode, and descent logic wired to `game.settings`.
 - `game-combat-helpers.js`: shared combat helpers used across turn files.
 - `game-npc-interactions.js`: NPC interaction flow (merchant, banker, questgiver, handler, escort tasks, and one-time service NPCs).
 
@@ -88,6 +90,7 @@
   - `game-npc-interactions.js` after `game.js`/`game-turn-results.js` and before turn-processing files that call NPC helpers
   - `game-content-utils.js` and `game-content-registry.js` before `game-enemy-content.js` and `game-item-generation.js`
   - `game-item-state.js` before `game-item-interactions.js`
+  - `game-explore.js` loads last among `game/` files because it depends on all turn and world helpers
 
 ## Editing Rules
 
@@ -116,8 +119,13 @@
 
 - Start at `index.html` to understand dependency order.
 - Read the base class file first, then its prototype extension files.
-- For item issues: check `game-item-generation.js`, `game-item-state.js`, `game-item-interactions.js`, then item entity files.
-- For enemy behavior issues: check `enemy-ai.js`, `enemy-item-behaviors.js`, `enemy-combat.js`, then `game-enemy-turns.js`.
+- For item issues: check `game-item-generation.js`, `game-item-state.js`, `game-item-interactions.js`, then item entity files (`item.js` display naming and `item-factories.js` world roll behavior).
+- For enemy behavior issues: check `enemy-ai.js` (including A* pathfinding with hostile-tile cost routing), `enemy-item-behaviors.js`, `enemy-combat.js`, then `game-enemy-turns.js`.
+- For enemy pathfinding issues: check `entities/enemy-ai.js` `findPath`, `canTraverseTileForPathfinding`, and cost-based routing logic. Enemies prefer safe routes but route through hostile tiles (water/lava/spike) at cost 50 rather than getting stuck.
 - For map or rendering issues: check `ui-rendering.js`, `ui-map.js`, and `engine/fov.js`.
 - For NPC or quest issues: check `game-npc-interactions.js`, `game-enemy-content.js`, and `entities/enemy-ai.js` if escort or passive ally behavior is involved.
+- For auto-explore issues: check `game-explore.js` (tick loop, sticky targets, oscillation breakout, forced detours, no-progress watchdog, damage-tile avoidance, BLIND/CONFUSED random movement, descent setting), `game-input.js` (any keypress stops explore), and `game.js` (`game.settings.autoExploreDescendImmediately`).
+- For settings menu issues: check `ui/ui-panels.js` (`openSettings`, `closeSettings`, `settingsOpen`), `game-input.js` (Escape toggles settings), `index.html` (`#settings-modal`), and `game.js` (`this.settings` object).
+- For inventory UI issues: check `ui/ui-inventory.js` (unified equipped/backpack list, ally equipment entries, hover details panel, unknown-item redaction), and `index.html` (`#inventory-item-details`).
+- For stair/item ordering issues: check `game/game-player-turns.js` and `entities/player.js` (deferred hazard/stair trigger so pickup happens first).
 - For floor spawning issues: check `game-content.js`, `game-enemy-content.js` (including `ENEMY_FAMILY_SPAWN_BALANCING`, zero-weight filtering, and NPC placement/filtering), `game-item-generation.js` (count bands and tier weighting), and `engine/world-generation.js`.
