@@ -137,7 +137,7 @@ Object.assign(World.prototype, {
                 continue;
             }
 
-            const occupant = this.getEnemyAt(candidate.x, candidate.y);
+            const occupant = this.getActorAt(candidate.x, candidate.y);
             if (!occupant) {
                 player.x = candidate.x;
                 player.y = candidate.y;
@@ -406,7 +406,7 @@ Object.assign(World.prototype, {
             return false;
         }
 
-        if (this.getEnemyAt(x, y)) {
+        if (this.getActorAt(x, y)) {
             return false;
         }
 

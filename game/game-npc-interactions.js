@@ -16,9 +16,9 @@ const QUESTGIVER_QUEST_POOLS = {
         { targetTypeKey: 'floatingTier1', minFloor: 1, rewardMoney: 105, rewardTier: 2 }
     ],
     escort: [
-        { minFloor: 1, targetAdvanceMin: 0, targetAdvanceMax: 1, rewardMoney: 90, rewardTier: 1 },
-        { minFloor: 3, targetAdvanceMin: 1, targetAdvanceMax: 2, rewardMoney: 135, rewardTier: 2 },
-        { minFloor: 6, targetAdvanceMin: 1, targetAdvanceMax: 2, rewardMoney: 200, rewardTier: 3 }
+        { minFloor: 1, targetAdvanceMin: 2, targetAdvanceMax: 3, rewardMoney: 90, rewardTier: 1 },
+        { minFloor: 3, targetAdvanceMin: 3, targetAdvanceMax: 4, rewardMoney: 135, rewardTier: 2 },
+        { minFloor: 6, targetAdvanceMin: 4, targetAdvanceMax: 5, rewardMoney: 200, rewardTier: 3 }
     ]
 };
 
@@ -716,7 +716,7 @@ Object.assign(Game.prototype, {
     tryTalkToFacingNpc(facing) {
         const targetX = this.player.x + (Number(facing?.dx) || 0);
         const targetY = this.player.y + (Number(facing?.dy) || 0);
-        const enemy = this.world.getEnemyAt(targetX, targetY);
+        const enemy = this.world.getActorAt(targetX, targetY);
         if (!this.isNeutralNpcEnemy(enemy)) {
             return false;
         }

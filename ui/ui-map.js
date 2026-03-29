@@ -98,7 +98,7 @@ Object.assign(UI.prototype, {
             });
         }
 
-        for (const enemy of world.getEnemies()) {
+        for (const enemy of world.getAllActors?.() || world.getEnemies?.() || []) {
             const shouldShowEnemy = revealEnemiesOnMap
                 ? this.shouldRenderEnemy(enemy, () => true)
                 : this.isEnemyVisibleInFov(enemy, mapFov);

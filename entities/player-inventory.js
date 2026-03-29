@@ -231,13 +231,26 @@ Object.assign(Player.prototype, {
         if (!this.allies.includes(ally)) {
             return { success: false, reason: 'ally is not bound to player' };
         }
-        if (typeof ally.equipItem !== 'function') {
-            return { success: false, reason: 'ally equipment is not implemented' };
+        if (!item || !Object.values(EQUIPMENT_SLOTS).includes(item.type)) {
+            return { success: false, reason: 'item cannot be equipped' };
         }
-        const equipped = ally.equipItem(item);
+
+        const replacedItem = ally.equipment?.get?.(item.type) || null;
+        const equipped = typeof ally.equipItem === 'function' ? ally.equipItem(item) : false;
+        if (equipped) {
+            if (typeof item.identify === 'function') {
+                item.identify();
+            }
+
+            if (replacedItem && replacedItem !== item) {
+                this.addItem(replacedItem);
+            }
+        }
+
         return {
             success: Boolean(equipped),
-            reason: equipped ? 'ok' : 'ally cannot equip item'
+            reason: equipped ? 'ok' : 'ally cannot equip item',
+            replacedItem
         };
     },
 

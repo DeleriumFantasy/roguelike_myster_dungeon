@@ -78,6 +78,55 @@
             max-height: 80vh;
             overflow-y: auto;
         }
+        #inventory-item-details {
+            display: none;
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            width: min(320px, 42vw);
+            max-width: calc(100vw - 24px);
+            box-sizing: border-box;
+            background: rgba(12, 12, 12, 0.95);
+            border: 1px solid #555;
+            padding: 12px;
+            z-index: 1200;
+            pointer-events: none;
+        }
+        #inventory-item-details h4 {
+            margin: 0 0 8px;
+            font-size: 14px;
+        }
+        #inventory-item-details p {
+            margin: 0 0 4px;
+            line-height: 1.25;
+        }
+        #settings-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #222;
+            border: 1px solid #555;
+            padding: 20px;
+            z-index: 1000;
+            min-width: 320px;
+        }
+        #settings-modal h3 {
+            margin: 0 0 16px;
+            font-size: 16px;
+        }
+        #settings-modal label {
+            display: block;
+            margin-bottom: 12px;
+            cursor: pointer;
+        }
+        #settings-modal input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        #settings-modal button {
+            margin-top: 8px;
+        }
         #map-overlay {
             display: none;
             position: fixed;
@@ -124,6 +173,9 @@
                 width: calc(100vw - 16px);
                 padding: 10px 12px;
             }
+            #inventory-item-details {
+                width: min(320px, calc(100vw - 24px));
+            }
         }
     </style>
 </head>
@@ -139,6 +191,22 @@
         <h3>Inventory</h3>
         <div id="inventory-list"></div>
         <button id="close-inventory">Close</button>
+    </div>
+    <div id="inventory-item-details" aria-live="polite">
+        <h4>Item Details</h4>
+        <div id="inventory-item-details-content"></div>
+    </div>
+    <div id="settings-modal">
+        <h3>Settings</h3>
+        <label>
+            <input type="checkbox" id="setting-descend-immediately">
+            Auto-explore: descend stairs immediately
+        </label>
+        <label>
+            <input type="checkbox" id="setting-allies-passive">
+            Allies: passive mode (flee enemies instead of attacking)
+        </label>
+        <button id="close-settings">Close</button>
     </div>
     <div id="map-overlay" aria-hidden="true">
         <h3>Map</h3>
@@ -166,6 +234,7 @@
     <script src="entities/item-data.js"></script>
     <script src="entities/item-factories.js"></script>
     <script src="entities/player.js"></script>
+    <script src="entities/combat-utils.js"></script>
     <script src="entities/player-combat.js"></script>
     <script src="entities/player-inventory.js"></script>
     <script src="entities/player-progression.js"></script>
@@ -190,8 +259,10 @@
     <script src="game/game-enemy-content.js"></script>
     <script src="game/game-item-generation.js"></script>
     <script src="game/game-item-state.js"></script>
+    <script src="game/game-inventory-actions.js"></script>
     <script src="game/game-item-interactions.js"></script>
     <script src="game/game-player-turns.js"></script>
     <script src="game/game-enemy-turns.js"></script>
+    <script src="game/game-explore.js"></script>
 </body>
 </html>

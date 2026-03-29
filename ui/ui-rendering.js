@@ -219,7 +219,7 @@ Object.assign(UI.prototype, {
             }
         }
 
-        for (const enemy of world.getEnemies()) {
+        for (const enemy of world.getAllActors?.() || world.getEnemies?.() || []) {
             if (!this.isInCameraBounds(enemy.x, enemy.y)) continue;
             if (!this.isEnemyVisibleInFov(enemy, fov)) continue;
             this.renderEnemy(enemy);

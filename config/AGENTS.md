@@ -7,13 +7,13 @@
 
 ## File Roles
 
-- `constants.js`: core enums, status rules, tile rules, and shared constant tables.
+- `constants.js`: core enums, status rules, tile rules, and shared constant tables. `CONDITIONS` includes `BLIND`, `CONFUSED`, and all other status effects.
 - `rules.js`: read-only helpers for interpreting condition, hazard, and traversal rule tables.
 - `terrain-constants.js`: tile visuals, autotiling helpers, and terrain lookups.
 - `input-constants.js`: key bindings and input interpretation helpers.
-- `generation-constants.js`: area generation rules and generation data.
+- `generation-constants.js`: area generation rules and generation data, including area-selection and catacombs-generation tuning tables.
 - `enemy-definitions.js`: enemy templates and spawn-related enemy metadata.
-- `combat-rules.js`: shared combat math and EXP progression helpers.
+- `combat-rules.js`: shared pure combat math and EXP progression helpers (no actor state mutation).
 
 ## Editing Rules
 

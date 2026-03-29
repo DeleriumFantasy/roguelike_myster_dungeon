@@ -18,6 +18,10 @@ class Game {
         this.inventoryOpen = false;
         this.fovCache = null;
         this.persistentOverworldNpcs = [];
+        this.settings = {
+            autoExploreDescendImmediately: false,
+            alliesPassive: false
+        };
         this.inputController = new GameInputController(this);
 
         this.inputController.attach();
@@ -63,6 +67,20 @@ class Game {
 
     isNeutralNpcEnemy(enemy) {
         return isNeutralNpcActor(enemy);
+    }
+
+    applySettingsChanges(changes = {}) {
+        if (!this.settings || !changes || typeof changes !== 'object') {
+            return;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(changes, 'autoExploreDescendImmediately')) {
+            this.settings.autoExploreDescendImmediately = Boolean(changes.autoExploreDescendImmediately);
+        }
+
+        if (Object.prototype.hasOwnProperty.call(changes, 'alliesPassive')) {
+            this.settings.alliesPassive = Boolean(changes.alliesPassive);
+        }
     }
 
     beginThrowMode(item) {
@@ -115,6 +133,15 @@ class Game {
     performTurn(input) {
         if (this.isGameOver) {
             return;
+        }
+
+        // Handle auto-explore
+        if (this.autoExploreActive && !input) {
+            const autoMoveInput = this.performAutoExploreTurn();
+            if (!autoMoveInput) {
+                return;
+            }
+            input = autoMoveInput;
         }
 
         const startFloor = this.world.currentFloor;

@@ -8,7 +8,8 @@ const FLOOR_EVENT_DISPLAY = {
     },
     'throwing-challenge': {
         title: () => 'Random Event: Throwing Challenge',
-        objective: ({ currentKills, requiredKills }) => `Defeat enemies with thrown items (${currentKills}/${requiredKills}).`
+        objective: ({ currentKills, requiredKills }) => `Defeat enemies with thrown items (${currentKills}/${requiredKills}).`,
+        appendTurnsRemaining: false
     },
     'catacombs-hoard': {
         title: () => 'Random Event: Burial Hoard',
@@ -39,10 +40,6 @@ Object.assign(Game.prototype, {
 
     getFoodPartyEventTurnLimit() {
         return 50;
-    },
-
-    getThrowingChallengeTurnLimit() {
-        return 40;
     },
 
     createFloorEventDisplayData(eventType, context = {}) {
@@ -345,7 +342,6 @@ Object.assign(Game.prototype, {
             type: 'throwing-challenge',
             requiredKills: 5,
             currentKills: 0,
-            turnsRemaining: this.getThrowingChallengeTurnLimit(),
             rewardGranted: false,
             display: this.createFloorEventDisplayData('throwing-challenge', {
                 currentKills: 0,
@@ -383,27 +379,22 @@ Object.assign(Game.prototype, {
             return;
         }
 
+        if (activeEvent.type !== 'food-party') {
+            return;
+        }
+
         const remainingTurns = Math.max(0, Math.floor(Number(activeEvent.turnsRemaining) - 1));
         activeEvent.turnsRemaining = remainingTurns;
-        if (activeEvent.type === 'food-party') {
-            activeEvent.display = this.createFloorEventDisplayData('food-party', {
-                turnsRemaining: remainingTurns
-            });
-        }
+        activeEvent.display = this.createFloorEventDisplayData('food-party', {
+            turnsRemaining: remainingTurns
+        });
 
         if (remainingTurns > 0) {
             return;
         }
 
-        if (activeEvent.type === 'food-party') {
-            this.cleanupFoodPartyEventItems(activeEvent);
-            floor.meta.activeEvent = null;
-            return;
-        }
-
-        if (activeEvent.type === 'throwing-challenge') {
-            floor.meta.activeEvent = null;
-        }
+        this.cleanupFoodPartyEventItems(activeEvent);
+        floor.meta.activeEvent = null;
     },
 
     tryWakeCatacombsHoardEvent() {
@@ -413,7 +404,13 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        if (!this.isPositionAdjacentToRoom(activeEvent.room, this.player.x, this.player.y, 1)) {
+        const isNearRoom = (x, y) => this.isPositionAdjacentToRoom(activeEvent.room, x, y, 1);
+
+        const playerIsNear = isNearRoom(this.player.x, this.player.y);
+        const allyIsNear = !playerIsNear && typeof this.world?.getEnemies === 'function'
+            && this.world.getEnemies().some((e) => e?.isAlly && e.isAlive?.() && isNearRoom(e.x, e.y));
+
+        if (!playerIsNear && !allyIsNear) {
             return;
         }
 

@@ -70,7 +70,7 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
     this.player.tickConditions();
 
     const floorBeforeMove = this.world.currentFloor;
-    const moved = this.player.move(input.dx, input.dy, this.world);
+    const moved = this.player.move(input.dx, input.dy, this.world, { applyHazards: false });
     if (!moved) {
         this.recordFailedMove(input);
         return this.createPlayerMoveResult({ consumed: false, moved: false });
@@ -78,10 +78,11 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
 
     this.clearFailedMoveRecord();
     this.applyPlayerTrapAtCurrentPosition();
+    this.pickupItemsAfterMove(targetX, targetY);
+    this.player.checkHazards(this.world);
 
     if (this.world.currentFloor === floorBeforeMove) {
         this.tryWakeCatacombsHoardEvent?.();
-        this.pickupItemsAfterMove(targetX, targetY);
     }
 
     return this.createPlayerMoveResult({
@@ -391,11 +392,17 @@ Game.prototype.processPlayerBerserkTurn = function() {
     }
 
     const next = path[1];
-    const moved = this.player.move(next.x - this.player.x, next.y - this.player.y, this.world);
+    const moveDx = next.x - this.player.x;
+    const moveDy = next.y - this.player.y;
+    const floorBeforeMove = this.world.currentFloor;
+    const moved = this.player.move(moveDx, moveDy, this.world, { applyHazards: false });
     if (moved) {
         this.applyPlayerTrapAtCurrentPosition();
-        this.tryWakeCatacombsHoardEvent?.();
         this.pickupItemsAfterMove(next.x, next.y);
+        this.player.checkHazards(this.world);
+        if (this.world.currentFloor === floorBeforeMove) {
+            this.tryWakeCatacombsHoardEvent?.();
+        }
         return this.createPlayerTurnResult({ consumed: true, applyEnvironmentAfterAction: false, actionType: 'berserk-move' });
     }
 

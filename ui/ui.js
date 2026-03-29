@@ -24,6 +24,7 @@ class UI {
         this.statsOpen = true;
         this.messagesOpen = true;
         this.mapOpen = false;
+        this.settingsOpen = false;
         this.mapTileSize = 8;
         this.cameraBounds = {
             minX: 0,

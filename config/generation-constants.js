@@ -6,6 +6,26 @@ const OVERWORLD_GENERATION_CONFIG = {
     cornerInset: 3
 };
 
+const CATACOMBS_GENERATION_CONFIG = {
+    roomPlacementAttempts: 320,
+    minRoomCount: 16,
+    targetRoomCountRatio: 0.5,
+    roomMinSize: 4,
+    roomMaxSize: 8,
+    roomPadding: 1,
+    hallwayHazardChance: 0.2,
+    hallwayHazardTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER, TILE_TYPES.SPIKE]
+};
+
+const AREA_SELECTION_RULES = {
+    floatingModulo: 9,
+    floatingRemainder: 8,
+    swampModulo: 7,
+    swampRemainder: 5,
+    dungeonModulo: 5,
+    dungeonRemainder: 2
+};
+
 const AREA_GENERATION_RULES = {
     [AREA_TYPES.OVERWORLD]: {
         boundaryTile: TILE_TYPES.WALL,

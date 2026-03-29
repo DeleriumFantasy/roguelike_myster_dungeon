@@ -74,10 +74,6 @@ class Enemy {
         return this.hasEnemyType(ENEMY_TYPES.NPC);
     }
 
-    isNeutralNpcActor(actor) {
-        return isNeutralNpcActor(actor);
-    }
-
     isVandal() {
         return this.hasEnemyType(ENEMY_TYPES.VANDAL);
     }

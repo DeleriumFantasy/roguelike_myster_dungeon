@@ -15,7 +15,8 @@ const INPUT_ACTION_BINDINGS = {
     i: 'open-inventory',
     n: 'toggle-messages',
     m: 'toggle-map',
-    p: 'toggle-stats'
+    p: 'toggle-stats',
+    x: 'toggle-auto-explore'
 };
 
 const INVENTORY_ACTIONS_BY_TYPE = {

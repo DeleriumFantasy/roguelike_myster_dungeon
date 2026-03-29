@@ -127,7 +127,7 @@ Object.assign(Enemy.prototype, {
             (enemy) => enemy
                 && enemy !== this
                 && isActorAlive(enemy)
-                && !this.isNeutralNpcActor(enemy)
+                && !isNeutralNpcActor(enemy)
                 && !enemy.isAlly
         );
     },
@@ -140,7 +140,7 @@ Object.assign(Enemy.prototype, {
                 return;
             }
 
-            if (this.isNeutralNpcActor(target)) {
+            if (isNeutralNpcActor(target)) {
                 return;
             }
 
@@ -184,7 +184,7 @@ Object.assign(Enemy.prototype, {
             target
             && target !== this
             && isActorAlive(target)
-            && !this.isNeutralNpcActor(target)
+            && !isNeutralNpcActor(target)
         );
     },
 
@@ -348,7 +348,12 @@ Object.assign(Enemy.prototype, {
 
         if (!this.isAlive()) return;
 
-        const actionResult = this.performAction(world, player);
+        let actionResult = this.performAction(world, player);
+        const emergencyMoveResult = this.tryMoveOffLethalTile(world, player);
+        if (emergencyMoveResult) {
+            actionResult = emergencyMoveResult;
+        }
+
         this.regenerateOnNonAttackTurn(actionResult);
 
         this.applyEnvironmentEffects(world);
@@ -690,7 +695,7 @@ Object.assign(Enemy.prototype, {
     },
 
     applyEnvironmentEffects(world) {
-        const { tile, hazard, tileDamage, hazardDamage } = this.getEnvironmentalDamageProfile(world, this.x, this.y);
+        const { tile, hazard, tileDamage, hazardDamage } = world.getEnvironmentalDamageProfile(this.x, this.y);
 
         if (tileDamage > 0 && !isActorImmuneToTileEffect(tile, this.creatureTypes)) {
             const armorEffectiveness =
@@ -706,17 +711,60 @@ Object.assign(Enemy.prototype, {
         }
     },
 
-    getEnvironmentalDamageProfile(world, x, y) {
-        const tile = world.getTile(x, y);
-        const hazard = typeof world.getHazard === 'function' ? world.getHazard(x, y) : null;
-        const tileDamage = getEnvironmentalDamageForTile(tile, 0);
-        const hazardDamage = getEnvironmentalDamageForHazard(hazard, 0);
+    estimateMitigatedIncomingDamage(incomingDamage, armorEffectiveness = 1) {
+        const normalizedIncomingDamage = Math.max(0, Number(incomingDamage) || 0);
+        if (normalizedIncomingDamage <= 0) {
+            return 0;
+        }
 
-        return { tile, hazard, tileDamage, hazardDamage };
+        const activeConditions = Array.from(this.conditions?.keys?.() || []);
+        if (activeConditions.some((condition) => conditionPreventsDamage(condition))) {
+            return 0;
+        }
+
+        const mitigationMultiplier = this.getIncomingDamageMultiplierAgainst(null);
+        const adjustedIncomingDamage = Math.max(1, Math.round(normalizedIncomingDamage * mitigationMultiplier));
+        const effectiveArmor = (this.getEffectiveArmor?.() || 0) * clamp(Number(armorEffectiveness) || 0, 0, 1);
+        const defenseMultiplier = 100 / (100 + Math.max(0, effectiveArmor));
+        return Math.max(1, Math.round(adjustedIncomingDamage * defenseMultiplier));
+    },
+
+    getProjectedEnvironmentalDamageAt(world, x, y) {
+        const { tile, hazard, tileDamage, hazardDamage } = world.getEnvironmentalDamageProfile(x, y);
+        let projectedDamage = 0;
+
+        if (tileDamage > 0 && !isActorImmuneToTileEffect(tile, this.creatureTypes)) {
+            const armorEffectiveness =
+                tile === TILE_TYPES.WATER || tile === TILE_TYPES.LAVA ? 0
+                    : tile === TILE_TYPES.SPIKE ? 0.5
+                        : 1;
+            projectedDamage += this.estimateMitigatedIncomingDamage(tileDamage, armorEffectiveness);
+        }
+
+        if (hazardDamage > 0) {
+            const armorEffectiveness = hazard === HAZARD_TYPES.STEAM ? 0.5 : 1;
+            projectedDamage += this.estimateMitigatedIncomingDamage(hazardDamage, armorEffectiveness);
+        }
+
+        return projectedDamage;
+    },
+
+    isLethalEnvironmentalPosition(world, x, y) {
+        const projectedDamage = this.getProjectedEnvironmentalDamageAt(world, x, y);
+        if (projectedDamage <= 0) {
+            return false;
+        }
+
+        const activeConditions = Array.from(this.conditions?.keys?.() || []);
+        if (activeConditions.some((condition) => conditionSurvivesFatalDamage(condition))) {
+            return false;
+        }
+
+        return projectedDamage >= this.health;
     },
 
     isDamagingPosition(world, x, y) {
-        const { tile, tileDamage, hazardDamage } = this.getEnvironmentalDamageProfile(world, x, y);
+        const { tile, tileDamage, hazardDamage } = world.getEnvironmentalDamageProfile(x, y);
 
         if (hazardDamage > 0) {
             return true;
@@ -725,14 +773,10 @@ Object.assign(Enemy.prototype, {
         return tileDamage > 0 && !isActorImmuneToTileEffect(tile, this.creatureTypes);
     },
 
-    isWithinBounds(x, y) {
-        return x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE;
-    },
-
     canOccupyTile(world, x, y, player = null, options = {}) {
-        const { avoidDamagingTiles = false } = options;
+        const { avoidDamagingTiles = false, avoidLethalTiles = true } = options;
 
-        if (!this.isWithinBounds(x, y)) {
+        if (!world.isWithinBounds(x, y)) {
             return false;
         }
 
@@ -741,6 +785,11 @@ Object.assign(Enemy.prototype, {
         }
 
         if (world.getEnemyAt(x, y, this)) {
+            return false;
+        }
+
+        const npcAtTile = typeof world.getNpcAt === 'function' ? world.getNpcAt(x, y) : null;
+        if (npcAtTile && npcAtTile !== this) {
             return false;
         }
 
@@ -753,7 +802,34 @@ Object.assign(Enemy.prototype, {
             return false;
         }
 
+        if (avoidLethalTiles && this.isLethalEnvironmentalPosition(world, x, y)) {
+            return false;
+        }
+
         return true;
+    },
+
+    tryMoveOffLethalTile(world, player = null) {
+        if (!this.isLethalEnvironmentalPosition(world, this.x, this.y)) {
+            return null;
+        }
+
+        if (this.conditions.has(CONDITIONS.BOUND)) {
+            return null;
+        }
+
+        for (const avoidDamagingTiles of [true, false]) {
+            for (const neighbor of shuffle(getNeighbors(this.x, this.y).slice())) {
+                if (!this.canOccupyTile(world, neighbor.x, neighbor.y, player, { avoidDamagingTiles, avoidLethalTiles: true })) {
+                    continue;
+                }
+
+                world.moveEnemy(this, neighbor.x, neighbor.y);
+                return { type: 'move' };
+            }
+        }
+
+        return null;
     },
 
     performWanderAction(world, player) {
@@ -810,7 +886,46 @@ Object.assign(Enemy.prototype, {
         return { type: 'wait' };
     },
 
+    getVisibleHostileThreats(world) {
+        if (!world || typeof world.getEnemies !== 'function') {
+            return [];
+        }
+
+        const threats = [];
+        for (const enemy of world.getEnemies()) {
+            if (!enemy || enemy === this || !enemy.isAlive?.() || enemy.isAlly || isNeutralNpcActor(enemy)) {
+                continue;
+            }
+
+            if (this.canSeeActor(world, enemy)) {
+                threats.push(enemy);
+            }
+        }
+
+        return threats;
+    },
+
     performGuardAction(world, player) {
+        // Passive mode: only retreat from adjacent threats, otherwise stick to follow target
+        if (typeof game !== 'undefined' && game?.settings?.alliesPassive) {
+            const adjacentThreats = this.getAdjacentQuestEscortThreats(world);
+            if (adjacentThreats.length > 0) {
+                return this.performQuestEscortRetreat(world, player, adjacentThreats);
+            }
+
+            const followTarget = this.getGuardFollowTarget(world, player);
+            if (!followTarget) {
+                return { type: 'wait' };
+            }
+
+            const distToFollow = distance(this.x, this.y, followTarget.x, followTarget.y);
+            if (distToFollow > 1.5) {
+                return this.tryMoveTowardTarget(world, followTarget.x, followTarget.y, player);
+            }
+
+            return { type: 'wait' };
+        }
+
         const visibleEnemy = this.getNearestVisibleGuardEnemy(world, player);
         if (visibleEnemy) {
             const targetDistance = distance(this.x, this.y, visibleEnemy.x, visibleEnemy.y);
@@ -849,7 +964,7 @@ Object.assign(Enemy.prototype, {
 
         const threats = [];
         for (const enemy of world.getEnemies()) {
-            if (!enemy || enemy === this || !enemy.isAlive?.() || enemy.isAlly || this.isNeutralNpcActor(enemy)) {
+            if (!enemy || enemy === this || !enemy.isAlive?.() || enemy.isAlly || isNeutralNpcActor(enemy)) {
                 continue;
             }
 
@@ -956,7 +1071,7 @@ Object.assign(Enemy.prototype, {
         }
 
         const blockingEnemy = world.getEnemyAt(neighbor.x, neighbor.y, this);
-        if (blockingEnemy && !this.isNeutralNpcActor(blockingEnemy) && (isBerserk || this.isAlly !== blockingEnemy.isAlly)) {
+        if (blockingEnemy && !isNeutralNpcActor(blockingEnemy) && (isBerserk || this.isAlly !== blockingEnemy.isAlly)) {
             return this.createAttackEnemyResult(blockingEnemy);
         }
 
@@ -1054,13 +1169,20 @@ Object.assign(Enemy.prototype, {
             return true;
         }
 
-        return Boolean(world.getEnemyAt(x, y, this));
+        if (world.getEnemyAt(x, y, this)) {
+            return true;
+        }
+
+        const npcAtTile = typeof world.getNpcAt === 'function' ? world.getNpcAt(x, y) : null;
+        return Boolean(npcAtTile && npcAtTile !== this);
     },
 
-    tryDirectMoveTowardTarget(world, targetX, targetY, player = null) {
+    tryDirectMoveTowardTarget(world, targetX, targetY, player = null, options = {}) {
+        const { allowDamagingTilesPass = true } = options;
         const candidateSteps = this.getPreferredMoveSteps(targetX, targetY);
+        const avoidDamagingTilesPasses = allowDamagingTilesPass ? [true, false] : [true];
 
-        for (const avoidDamagingTiles of [true, false]) {
+        for (const avoidDamagingTiles of avoidDamagingTilesPasses) {
             for (const step of candidateSteps) {
                 if (this.shouldNeutralNpcYieldToOccupiedStep(world, player, step.x, step.y)) {
                     return { type: 'wait' };
@@ -1098,7 +1220,7 @@ Object.assign(Enemy.prototype, {
             return { type: 'wait' };
         }
 
-        const directMove = this.tryDirectMoveTowardTarget(world, targetX, targetY, player);
+        const directMove = this.tryDirectMoveTowardTarget(world, targetX, targetY, player, { allowDamagingTilesPass: false });
         if (directMove) {
             return directMove;
         }
@@ -1122,8 +1244,11 @@ Object.assign(Enemy.prototype, {
                 return { type: 'blocked' };
             }
 
-            if (!this.canOccupyTile(world, next.x, next.y, player, { avoidDamagingTiles: true })
-                && !this.canOccupyTile(world, next.x, next.y, player, { avoidDamagingTiles: false })) {
+            // Try safe path first, then hostile path (water/lava/spike)
+            const canMoveSafely = this.canOccupyTile(world, next.x, next.y, player, { avoidDamagingTiles: true });
+            const canMoveHostile = canMoveSafely || this.canCrossHostileTileForPath(world, next.x, next.y, player);
+            
+            if (!canMoveHostile) {
                 return { type: 'blocked' };
             }
 
@@ -1158,14 +1283,78 @@ Object.assign(Enemy.prototype, {
         return { type: 'blocked' };
     },
 
+    canTraverseTileForPathfinding(tile) {
+        // Walls are physically impassable for all non-ghost enemies.
+        if (tile === TILE_TYPES.WALL) {
+            return this.canTraverseTile(tile);
+        }
+
+        // Pits are a hard block unless the enemy can fly/ghost (falling into a pit
+        // warps to a different floor which is not a valid pathfinding step).
+        if (tile === TILE_TYPES.PIT) {
+            return this.canTraverseTile(tile);
+        }
+
+        // Water, lava, and spike: enemies that would normally be blocked (land creatures)
+        // can still wade through them at high cost rather than becoming stuck.
+        if (tile === TILE_TYPES.WATER || tile === TILE_TYPES.LAVA || tile === TILE_TYPES.SPIKE) {
+            return true;
+        }
+
+        // Floor is always traversable
+        return tile === TILE_TYPES.FLOOR;
+    },
+
+    canCrossHostileTileForPath(world, x, y, player = null) {
+        // Permissive check used when executing an A* path step onto a hostile tile
+        // (water/lava) that normal canOccupyTile would reject.
+        if (!world.isWithinBounds(x, y)) {
+            return false;
+        }
+
+        if (player && player.x === x && player.y === y) {
+            return false;
+        }
+
+        if (world.getEnemyAt(x, y, this)) {
+            return false;
+        }
+
+        const npcAtTile = typeof world.getNpcAt === 'function' ? world.getNpcAt(x, y) : null;
+        if (npcAtTile && npcAtTile !== this) {
+            return false;
+        }
+
+        if (this.isLethalEnvironmentalPosition(world, x, y)) {
+            return false;
+        }
+
+        return this.canTraverseTileForPathfinding(world.getTile(x, y));
+    },
+
     findPath(world, targetX, targetY, options = {}) {
-        const { avoidDamagingTiles = false } = options;
-        const edgeCostFn = avoidDamagingTiles
-            ? (nx, ny) => this.canOccupyTile(world, nx, ny, null, { avoidDamagingTiles: true }) ? 1 : 20
-            : null;
+        // Always use edge costs: cost 1 for safe tiles, cost 50 for hostile tiles
+        // (water, lava, etc.) so enemies strongly prefer dry routes but can still
+        // cross hostile terrain as a last resort instead of becoming permanently stuck.
+        const edgeCostFn = (nx, ny) => {
+            if (this.canOccupyTile(world, nx, ny, null, { avoidDamagingTiles: true })) {
+                return 1;
+            }
+
+            return 50;
+        };
+
         return findPathAStar(this.x, this.y, targetX, targetY, (nx, ny, isGoal) => {
-            if (isGoal) return true;
-            return !!this.canOccupyTile(world, nx, ny, null, { avoidDamagingTiles: false });
+            if (isGoal) {
+                return true;
+            }
+
+            if (!world.isWithinBounds(nx, ny)) {
+                return false;
+            }
+
+            return this.canTraverseTileForPathfinding(world.getTile(nx, ny))
+                && !world.getEnemyAt(nx, ny, this);
         }, edgeCostFn);
     }
 });

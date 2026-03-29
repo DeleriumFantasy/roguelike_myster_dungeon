@@ -20,6 +20,9 @@ class GameInputController {
         document.addEventListener('keyup', (event) => this.handleKeyUp(event));
         window.addEventListener('resize', this.handleWindowResize);
         this.bindCloseButton('close-inventory', () => this.game.ui.closeInventory());
+        this.bindCloseButton('close-settings', () => {
+            this.game.ui.closeSettings();
+        });
     }
 
     bindCloseButton(buttonId, closeAction) {
@@ -44,6 +47,17 @@ class GameInputController {
         const lowerKey = key.toLowerCase();
 
         if (this.game.inventoryOpen && key !== 'Escape' && lowerKey !== 'i') {
+            return;
+        }
+
+        if (this.game.ui.settingsOpen && key !== 'Escape') {
+            return;
+        }
+
+        // Stop auto-explore on any key press
+        if (this.game.autoExploreActive) {
+            this.game.stopAutoExplore();
+            event.preventDefault();
             return;
         }
 
@@ -84,11 +98,11 @@ class GameInputController {
                 this.game.handleFacingAttackInput();
                 break;
             case 'Escape':
-                if (this.game.inventoryOpen) {
-                    this.game.ui.closeInventory();
+                if (this.game.ui.settingsOpen) {
+                    this.game.ui.closeSettings();
                     this.game.ui.canvas.focus();
-                } else if (this.game.ui.closeAuxiliaryOverlays?.()) {
-                    this.game.ui.canvas.focus();
+                } else {
+                    this.game.ui.openSettings();
                 }
                 break;
             default:
@@ -134,6 +148,13 @@ class GameInputController {
                 return true;
             case 'toggle-messages':
                 this.game.ui.toggleMessagesOverlay?.();
+                return true;
+            case 'toggle-auto-explore':
+                if (this.game.autoExploreActive) {
+                    this.game.stopAutoExplore();
+                } else {
+                    this.game.startAutoExplore();
+                }
                 return true;
             default:
                 return false;

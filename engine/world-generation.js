@@ -27,6 +27,7 @@ Object.assign(World.prototype, {
             revealedTraps: new Set(),
             items: new Map(),
             enemies: [],
+            npcs: [],
             fov: new FOV(grid),
             meta: {
                 areaType,

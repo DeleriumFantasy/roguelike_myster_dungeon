@@ -41,6 +41,36 @@ Object.assign(UI.prototype, {
         return closedAny;
     },
 
+    openSettings() {
+        const modal = document.getElementById('settings-modal');
+        if (!modal) return;
+        const cb = document.getElementById('setting-descend-immediately');
+        if (cb && this.game?.settings) {
+            cb.checked = this.game.settings.autoExploreDescendImmediately;
+        }
+        const cbPassive = document.getElementById('setting-allies-passive');
+        if (cbPassive && this.game?.settings) {
+            cbPassive.checked = this.game.settings.alliesPassive;
+        }
+        modal.style.display = 'block';
+        this.settingsOpen = true;
+    },
+
+    closeSettings() {
+        const modal = document.getElementById('settings-modal');
+        if (!modal) return;
+        const cb = document.getElementById('setting-descend-immediately');
+        const cbPassive = document.getElementById('setting-allies-passive');
+
+        this.game?.applySettingsChanges?.({
+            autoExploreDescendImmediately: Boolean(cb?.checked),
+            alliesPassive: Boolean(cbPassive?.checked)
+        });
+
+        modal.style.display = 'none';
+        this.settingsOpen = false;
+    },
+
     updateInfoPanel(player, world, fov) {
         const areaType = world.getAreaType(world.currentFloor);
         const playerBlind = this.isActorBlind(player);
@@ -48,6 +78,9 @@ Object.assign(UI.prototype, {
         const conditionText = conditionEntries.length > 0
             ? conditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
             : 'none';
+        const allies = Array.isArray(player?.allies)
+            ? player.allies.filter((ally) => ally?.isAlive?.())
+            : [];
         const visibleEnemyLines = [];
         if (!playerBlind) {
             for (const enemy of world.getEnemies()) {
@@ -63,6 +96,17 @@ Object.assign(UI.prototype, {
         const enemyDebugHtml = visibleEnemyLines.length > 0
             ? visibleEnemyLines.map((line) => `<p>${line}</p>`).join('')
             : '<p>(none visible)</p>';
+        const allyDebugHtml = allies.length > 0
+            ? allies.map((ally) => {
+                const allyConditionEntries = Array.from(ally.conditions?.entries?.() || []);
+                const allyConditionText = allyConditionEntries.length > 0
+                    ? allyConditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
+                    : 'none';
+                const allyPower = typeof ally.getAttackPower === 'function' ? ally.getAttackPower() : ally.power;
+                const allyArmor = typeof ally.getEffectiveArmor === 'function' ? ally.getEffectiveArmor() : ally.armor;
+                return `<p>${ally.name}: HP ${ally.health}/${ally.maxHealth}, LV ${ally.allyLevel}, EXP ${ally.allyExp}/${ally.allyExpToNextLevel}, POW ${allyPower}, ARM ${allyArmor}, Conditions ${allyConditionText}</p>`;
+            }).join('')
+            : '<p>(none)</p>';
 
         const floorLabel = typeof this.game?.getDisplayFloorLabel === 'function'
             ? this.game.getDisplayFloorLabel(world.currentFloor)
@@ -86,9 +130,11 @@ Object.assign(UI.prototype, {
             <p>Conditions: ${conditionText}</p>
             <p>Floor: ${floorLabel}</p>
             <p>Area: ${areaType}</p>
-            <p>Allies: ${player.allies.length}</p>
+            <p>Allies: ${allies.length}</p>
             <p>Position: ${player.x}, ${player.y}</p>
             <p>Quest: ${activeQuestText}</p>
+            <h3>Allies</h3>
+            ${allyDebugHtml}
             <h3>Visible Enemies</h3>
             ${enemyDebugHtml}
         `;
@@ -102,6 +148,6 @@ Object.assign(UI.prototype, {
     },
 
     renderMessages() {
-        this.messagesDiv.innerHTML = '<h3>Messages</h3>' + this.messages.slice(-10).map((msg) => `<p>${msg}</p>`).join('');
+        this.messagesDiv.innerHTML = '<h3>Messages</h3>' + this.messages.slice(-10).reverse().map((msg) => `<p>${msg}</p>`).join('');
     }
 });

@@ -153,10 +153,11 @@ Object.assign(Enemy.prototype, {
         }
 
         const heldItem = this.getHeldItem();
-        if (heldItem?.type === ITEM_TYPES.MONEY) {
-            const currentValue = Math.max(0, Math.floor(Number(heldItem?.properties?.value) || 0));
-            heldItem.properties = heldItem.properties || {};
-            heldItem.properties.value = currentValue + normalizedAmount;
+        if (heldItem && heldItem.type === ITEM_TYPES.MONEY) {
+            const heldProperties = heldItem.properties || {};
+            const currentValue = Math.max(0, Math.floor(Number(heldProperties.value) || 0));
+            heldProperties.value = currentValue + normalizedAmount;
+            heldItem.properties = heldProperties;
             return;
         }
 

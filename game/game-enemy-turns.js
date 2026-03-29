@@ -235,13 +235,26 @@ Game.prototype.processEnemyTurn = function(enemy) {
         });
     }
 
+    if (enemy.isAlly && result?.type === 'move') {
+        this.tryWakeCatacombsHoardEvent?.();
+    }
+
     return this.resolveEnemyActionResult(enemy, result);
 };
 
 Game.prototype.processEnemyTurns = function() {
     let processedEnemies = 0;
+    const isOverworld = typeof this.isOverworldFloor === 'function'
+        ? this.isOverworldFloor(this.world.currentFloor)
+        : false;
+    const npcs = isOverworld ? [] : [...(this.world.getNpcs?.() || [])];
+    const actors = [...this.world.getEnemies(), ...npcs];
 
-    for (const enemy of [...this.world.getEnemies()]) {
+    for (const enemy of actors) {
+        if (!enemy?.isAlive?.()) {
+            continue;
+        }
+
         const actionsToTake = enemy.consumeActionTurns(this.player);
         for (let actionIndex = 0; actionIndex < actionsToTake; actionIndex++) {
             const turnResult = this.processEnemyTurn(enemy);

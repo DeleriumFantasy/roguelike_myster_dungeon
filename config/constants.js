@@ -45,6 +45,7 @@ const CONDITIONS = {
     SLEEP: 'sleep',
     FRIGHTENED: 'frightened',
     BLIND: 'blind',
+    CONFUSED: 'confused',
     INVISIBLE: 'invisible',
     BERSERK: 'berserk',
     BOUND: 'bound',
@@ -269,26 +270,6 @@ const THROW_FOOD_TAMING_RULES = {
     itemTierBonusPerTier: 0.03,
     playerLevelBonusPerLevel: 0.007,
     playerLevelBonusCap: 0.1
-};
-
-const CATACOMBS_GENERATION_CONFIG = {
-    roomPlacementAttempts: 320,
-    minRoomCount: 16,
-    targetRoomCountRatio: 0.5,
-    roomMinSize: 4,
-    roomMaxSize: 8,
-    roomPadding: 1,
-    hallwayHazardChance: 0.2,
-    hallwayHazardTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER, TILE_TYPES.SPIKE]
-};
-
-const AREA_SELECTION_RULES = {
-    floatingModulo: 9,
-    floatingRemainder: 8,
-    swampModulo: 7,
-    swampRemainder: 5,
-    dungeonModulo: 5,
-    dungeonRemainder: 2
 };
 
 // Combat and progression constants

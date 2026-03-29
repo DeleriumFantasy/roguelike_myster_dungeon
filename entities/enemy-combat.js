@@ -149,7 +149,7 @@ Object.assign(Enemy.prototype, {
             return 0;
         }
 
-        if (this.isNeutralNpcActor(targetEnemy)) {
+        if (isNeutralNpcActor(targetEnemy)) {
             return 0;
         }
 
@@ -176,7 +176,7 @@ Object.assign(Enemy.prototype, {
         let y = y0;
 
         while (true) {
-            if (!this.isWithinBounds(x, y)) {
+            if (!world.isWithinBounds(x, y)) {
                 return false;
             }
 

@@ -344,7 +344,7 @@ function getEnchantmentPoolForItem(item) {
         .map(([key]) => key);
 }
 
-function applyWorldEnchantmentRoll(item, rng = null, chance = 0.15) {
+function applyWorldEnchantmentRoll(item, rng = null, chance = 0.05, rollCount = 3) {
     const rollableItem = prepareRollableEquipmentItem(item);
     if (!rollableItem) {
         return item;
@@ -355,32 +355,26 @@ function applyWorldEnchantmentRoll(item, rng = null, chance = 0.15) {
         return rollableItem;
     }
 
-    const roll = getRngRoll(rng);
-    if (roll >= chance) {
-        return rollableItem;
-    }
-
-    const pool = getEnchantmentPoolForItem(rollableItem);
-    if (pool.length === 0) {
-        return rollableItem;
-    }
-
-    const availableEnchantments = [...pool];
-    const maxSelectableEnchantments = Math.min(maxEnchantmentCount, availableEnchantments.length);
-    const desiredCountRoll = getRngRoll(rng);
-    const desiredCount = Math.max(1, Math.ceil(desiredCountRoll * maxSelectableEnchantments));
-
-    const chosenEnchantments = [];
-    while (chosenEnchantments.length < desiredCount && availableEnchantments.length > 0) {
-        const index = getRngRandomInt(rng, 0, availableEnchantments.length - 1);
-        const [chosen] = availableEnchantments.splice(index, 1);
-        if (typeof chosen === 'string') {
-            chosenEnchantments.push(chosen);
+    for (let rollIndex = 0; rollIndex < Math.max(0, Math.floor(Number(rollCount) || 0)); rollIndex++) {
+        if (getRngRoll(rng) >= chance) {
+            continue;
         }
-    }
 
-    if (chosenEnchantments.length > 0) {
-        rollableItem.properties.enchantments = chosenEnchantments;
+        if (rollableItem.getEnchantments().length >= maxEnchantmentCount) {
+            break;
+        }
+
+        const availableEnchantments = getEnchantmentPoolForItem(rollableItem)
+            .filter((enchantmentId) => !rollableItem.hasEnchantment(enchantmentId));
+        if (availableEnchantments.length === 0) {
+            break;
+        }
+
+        const index = getRngRandomInt(rng, 0, availableEnchantments.length - 1);
+        const chosenEnchantment = availableEnchantments[index];
+        if (typeof chosenEnchantment === 'string') {
+            rollableItem.addEnchantment(chosenEnchantment);
+        }
     }
 
     return rollableItem;

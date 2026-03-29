@@ -34,7 +34,8 @@ class Player {
         this.updateStats();
     }
 
-    move(dx, dy, world) {
+    move(dx, dy, world, options = {}) {
+        const { applyHazards = true } = options;
         const newX = this.x + dx;
         const newY = this.y + dy;
 
@@ -42,7 +43,9 @@ class Player {
             this.lastMoveDirection = normalizeDirection(dx, dy, this.lastMoveDirection);
             this.x = newX;
             this.y = newY;
-            this.checkHazards(world);
+            if (applyHazards) {
+                this.checkHazards(world);
+            }
             return true;
         }
         return false;

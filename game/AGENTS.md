@@ -7,21 +7,23 @@
 
 ## File Roles
 
-- `game.js`: bootstrap and high-level turn loop.
-- `game-input.js`: browser keyboard input and held-move orchestration.
+- `game.js`: bootstrap and high-level turn loop. Processes only hostile enemies, not NPCs. Holds `this.settings` object (e.g. `autoExploreDescendImmediately`).
+- `game-input.js`: browser keyboard input and held-move orchestration. Any keydown stops auto-explore. Escape exclusively toggles the settings modal.
 - `game-turn-results.js`: shared structured turn-result factories.
-- `game-content.js`: setup and floor population flow.
+- `game-content.js`: setup, floor population flow, and floor event lifecycle (hoard room wake mechanics, event activation/progression/cleanup).
 - `game-content-utils.js`: shared content-selection helpers like weighted picks and floor content RNG.
 - `game-content-registry.js`: content-registry helpers for enemy templates and weighted item entry selection.
 - `game-enemy-content.js`: enemy spawning, configurable family-balancing (`ENEMY_FAMILY_SPAWN_BALANCING`), creation, promotion, and explicit overworld NPC placement.
 - `game-item-generation.js`: floor-banded item spawn counts, floor-scaled item-tier weighting, premade item placement, starter loadout, and event-reward item helpers.
 - `game-item-state.js`: throw resolution, pickup/drop mutation, and defeat drop state changes.
+- `game-inventory-actions.js`: inventory action resolution that mutates gameplay state (use/equip/unequip/drop orchestration, floor-effect scroll outcomes, and inventory target helpers).
 - `game-item-interactions.js`: item announcements and interaction coordination.
 - `game-player-turns.js`: player turn resolution.
 - `game-enemy-turns.js`: enemy turn resolution and defeat/EXP handling.
+- `game-explore.js`: auto-explore tick loop (`queueAutoExploreTick`/`runAutoExploreTick`), sticky target tracking, oscillation detection, forced-detour breakout, no-progress watchdog, damage-tile path avoidance via `findPathForAutoExplore`, BLIND/CONFUSED → random movement, cheater-equipment auto-attack mode, and descent logic controlled by `game.settings.autoExploreDescendImmediately`.
 - `game-combat-helpers.js`: shared combat coordination helpers.
 - `game-npc-interactions.js`: NPC interaction flow (merchant shop, banker services, handler ally storage, questgiver tasks including escort quests, and one-time starving/homebound/shaman services).
-- Random floor event lifecycle (roll/activation/progression/cleanup) belongs in `game-content.js`.
+- Random floor event lifecycle (roll/activation/progression/cleanup) belongs in `game-content.js`. `throwing-challenge` is objective-based and has no turn countdown.
 
 ## Editing Rules
 
@@ -36,15 +38,18 @@
 - Throw/drop/pickup resolution belongs in `game-item-state.js`.
 - If a method mainly adds messages, prefer `game-item-interactions.js` or another interaction-oriented file.
 - Input event plumbing should stay in `game-input.js`, not in `game.js`.
+- If behavior depends on ordering between pickup and stair/hazard transitions, keep orchestration in `game-player-turns.js`.
 
 ## Fast Orientation
 
 - Start at `game.js` for lifecycle and phase flow.
 - Read `game-input.js` for keyboard and held-move behavior.
 - Read `game-player-turns.js` and `game-enemy-turns.js` for turn bugs.
+- For player movement ordering bugs (e.g., item on stairs), check `game-player-turns.js` and `entities/player.js` together.
 - Read `game-item-state.js` first for throw, pickup, and drop bugs.
 - Read `game-enemy-content.js` and `game-item-generation.js` for spawning/content bugs and floor-scaling balance issues.
 - Read `game-npc-interactions.js` for banker, handler, questgiver, escort, and other special NPC behavior.
+- For hoard room issues (wake distance, ally detection): check `game-content.js` `tryWakeCatacombsHoardEvent`, `isPositionAdjacentToRoom`, and the calls in `game-player-turns.js` and `game-enemy-turns.js`.
 
 ## Common Mistakes
 

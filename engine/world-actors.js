@@ -89,12 +89,17 @@ Object.assign(World.prototype, {
             return;
         }
 
-        if (this.getEnemyAt(enemy.x, enemy.y)) {
+        if (this.getActorAt(enemy.x, enemy.y)) {
             return;
         }
 
-        this.getCurrentFloor().enemies.push(enemy);
-        this.indexEnemy(enemy);
+        // Route NPCs to NPC collection, enemies to enemy collection
+        if (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc()) {
+            this.addNpc(enemy);
+        } else {
+            this.getCurrentFloor().enemies.push(enemy);
+            this.indexEnemy(enemy);
+        }
     },
 
     removeEnemy(enemy) {
@@ -107,6 +112,66 @@ Object.assign(World.prototype, {
 
     getEnemies() {
         return this.getCurrentFloor().enemies;
+    },
+
+    getHostileEnemies() {
+        const enemies = this.getCurrentFloor().enemies || [];
+        return enemies.filter((enemy) => enemy?.isAlive?.() && !enemy.isAlly);
+    },
+
+    getFriendlyActors() {
+        const enemies = this.getCurrentFloor().enemies || [];
+        const allies = enemies.filter((enemy) => enemy?.isAlive?.() && enemy.isAlly);
+        const npcs = (this.getCurrentFloor().npcs || []).filter((npc) => npc?.isAlive?.());
+        return [...allies, ...npcs];
+    },
+
+    addNpc(npc) {
+        if (npc) {
+            this.getCurrentFloor().npcs.push(npc);
+        }
+    },
+
+    removeNpc(npc) {
+        const index = this.getCurrentFloor().npcs.indexOf(npc);
+        if (index > -1) {
+            this.getCurrentFloor().npcs.splice(index, 1);
+        }
+    },
+
+    getNpcs() {
+        return this.getCurrentFloor().npcs;
+    },
+
+    getAllActors() {
+        const floor = this.getCurrentFloor();
+        return [...(floor.enemies || []), ...(floor.npcs || [])];
+    },
+
+    getNpcAt(x, y) {
+        if (!this.isWithinBounds(x, y)) {
+            return null;
+        }
+
+        const npcs = this.getCurrentFloor().npcs || [];
+        for (const npc of npcs) {
+            if (npc?.x === x && npc?.y === y && npc?.isAlive?.()) {
+                return npc;
+            }
+        }
+
+        return null;
+    },
+
+    getActorAt(x, y) {
+        // Check enemy occupancy first (faster via index)
+        const enemy = this.getEnemyAt(x, y);
+        if (enemy) {
+            return enemy;
+        }
+
+        // Check NPCs
+        return this.getNpcAt(x, y);
     },
 
     getEnemyAt(x, y, excludeEnemy = null) {
@@ -132,7 +197,7 @@ Object.assign(World.prototype, {
             return false;
         }
 
-        return !this.getEnemyAt(x, y);
+        return !this.getActorAt(x, y);
     },
 
     canEnemyOccupy(x, y, player, enemy, candidateEnemy = null) {
@@ -151,7 +216,17 @@ Object.assign(World.prototype, {
             }
         }
 
-        return !this.getEnemyAt(x, y, enemy);
+        const enemyAtTile = this.getEnemyAt(x, y, enemy);
+        if (enemyAtTile) {
+            return false;
+        }
+
+        const npcAtTile = this.getNpcAt(x, y);
+        if (npcAtTile && npcAtTile !== enemy) {
+            return false;
+        }
+
+        return true;
     },
 
     findRandomOpenTile(rng, player = null, attempts = 200, candidateEnemy = null) {

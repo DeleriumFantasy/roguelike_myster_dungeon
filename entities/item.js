@@ -51,7 +51,9 @@ class Item {
                 return `${this.name}${improvementSuffix}`;
             }
 
-            return `${this.name} [${enchantmentNames.join(', ')}]${improvementSuffix}`;
+            const enchantmentCount = enchantmentNames.length;
+            const enchantmentLabel = enchantmentCount === 1 ? 'enchantment' : 'enchantments';
+            return `${this.name} [${enchantmentCount} ${enchantmentLabel}]${improvementSuffix}`;
         }
         return this.properties.hiddenName || `unknown ${this.type}`;
     }

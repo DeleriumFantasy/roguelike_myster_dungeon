@@ -8,9 +8,9 @@
 ## World Split
 
 - `world.js`: base `World` shell, floor access, generic tile lookup, and generic random tile helpers.
-- `world-actors.js`: enemy collection, occupancy checks, indexed enemy lookup, and indexed enemy movement helpers.
-- `world-tile-state.js`: traps, hazards, item placement, and item spawn helpers.
-- `world-traversal.js`: stair transitions, hazard transitions, water crossing, and landing rules.
+- `world-actors.js`: enemy and NPC collections, occupancy checks, indexed enemy lookup, and indexed enemy movement helpers. NPCs are stored separately from hostile enemies. `getActorAt` checks both collections. `getHostileEnemies()` returns alive non-ally enemies; `getFriendlyActors()` returns alive allies plus alive NPCs.
+- `world-tile-state.js`: traps, hazards, item placement, item spawn helpers, and environmental damage profile lookups (`getEnvironmentalDamageProfile`).
+- `world-traversal.js`: stair transitions, hazard transitions, water crossing, and landing rules. Player stair transitions are typically triggered via `player.checkHazards(...)` after move orchestration in `game/game-player-turns.js`.
 - `world-generation.js`: floor generation, layout, and area building.
 
 ## Other Engine Files
@@ -18,7 +18,7 @@
 - `random.js`: RNG helpers.
 - `utils.js`: generic math/grid helpers.
 - `actor-helpers.js`: actor classification and shared label/direction helpers.
-- `pathfinding.js`: pathfinding and safe-tile search.
+- `pathfinding.js`: A* pathfinding with MinHeap priority queue. Supports `edgeCostFn` for cost-based routing (e.g., cost 1 for safe tiles, cost 50 for hostile tiles).
 - `fov.js`: field-of-view and explored-state logic.
 - `tileset.js`: sprite-sheet and tile rendering support.
 

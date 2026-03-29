@@ -1,6 +1,15 @@
 // World tile state, hazard state, and item placement helpers
 
 Object.assign(World.prototype, {
+    getEnvironmentalDamageProfile(x, y) {
+        const tile = this.getTile(x, y);
+        const hazard = typeof this.getHazard === 'function' ? this.getHazard(x, y) : null;
+        const tileDamage = getEnvironmentalDamageForTile(tile, 0);
+        const hazardDamage = getEnvironmentalDamageForHazard(hazard, 0);
+
+        return { tile, hazard, tileDamage, hazardDamage };
+    },
+
     getHazard(x, y) {
         const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
