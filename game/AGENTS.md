@@ -7,7 +7,10 @@
 
 ## File Roles
 
-- `game.js`: bootstrap and high-level turn loop. Processes only hostile enemies, not NPCs. Holds `this.settings` object (e.g. `autoExploreDescendImmediately`).
+	Also coordinates overworld dungeon path selection (`openDungeonSelectionFromOverworldStairs`) and applies selected descent transitions.
+- `game.js`: bootstrap, high-level turn loop, weather FOV modifier application, and trap handling. Processes only hostile enemies, not NPCs. Holds `this.settings` object (e.g. `autoExploreDescendImmediately`).
+	Also coordinates overworld dungeon path selection (`openDungeonSelectionFromOverworldStairs`) and applies selected descent transitions.
+	`getFovRangeForFloor()` reads floor weather and applies `WEATHER_DEFINITIONS` modifier. `applyPlayerTrapAtCurrentPosition()` handles `TRAP_TRIP` via `dropPlayerItems()` which drops equipped items first, then inventory if no equipped items.
 - `game-input.js`: browser keyboard input and held-move orchestration. Any keydown stops auto-explore. Escape exclusively toggles the settings modal.
 - `game-turn-results.js`: shared structured turn-result factories.
 - `game-content.js`: setup, floor population flow, and floor event lifecycle (hoard room wake mechanics, event activation/progression/cleanup).
@@ -19,10 +22,10 @@
 - `game-inventory-actions.js`: inventory action resolution that mutates gameplay state (use/equip/unequip/drop orchestration, floor-effect scroll outcomes, and inventory target helpers).
 - `game-item-interactions.js`: item announcements and interaction coordination.
 - `game-player-turns.js`: player turn resolution.
-- `game-enemy-turns.js`: enemy turn resolution and defeat/EXP handling.
+- `game-enemy-turns.js`: enemy turn resolution, defeat/EXP handling, and ally stalling. Defeated allies are automatically stalled with the handler via `stallAllyWithHandler()` if one exists on the overworld.
 - `game-explore.js`: auto-explore tick loop (`queueAutoExploreTick`/`runAutoExploreTick`), sticky target tracking, oscillation detection, forced-detour breakout, no-progress watchdog, damage-tile path avoidance via `findPathForAutoExplore`, BLIND/CONFUSED → random movement, cheater-equipment auto-attack mode, and descent logic controlled by `game.settings.autoExploreDescendImmediately`.
 - `game-combat-helpers.js`: shared combat coordination helpers.
-- `game-npc-interactions.js`: NPC interaction flow (merchant shop, banker services, handler ally storage, questgiver tasks including escort quests, and one-time starving/homebound/shaman services).
+- `game-npc-interactions.js`: NPC interaction flow (merchant shop, banker services, handler ally storage with health restoration, questgiver tasks including escort quests, and one-time starving/homebound/shaman services). Retrieved allies are restored to full health.
 - Random floor event lifecycle (roll/activation/progression/cleanup) belongs in `game-content.js`. `throwing-challenge` is objective-based and has no turn countdown.
 
 ## Editing Rules

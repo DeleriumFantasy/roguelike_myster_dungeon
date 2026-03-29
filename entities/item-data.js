@@ -366,6 +366,18 @@ const ENCHANTMENT_DEFINITIONS = {
         validItemTypes: [ITEM_TYPES.ACCESSORY],
         revealsItemsOnMap: true
     },
+    eagleEye: {
+        id: 'eagleEye',
+        name: 'Eagle eye',
+        validItemTypes: [ITEM_TYPES.ACCESSORY],
+        revealsTraps: true
+    },
+    counter: {
+        id: 'counter',
+        name: 'Counter',
+        validItemTypes: [ITEM_TYPES.ACCESSORY, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD],
+        counterReflectRatio: 0.1
+    },
     appraiser: {
         id: 'appraiser',
         name: 'Appraiser',
@@ -390,6 +402,17 @@ const CHEATER_WEAPON_ENCHANTMENTS = getAllEnchantmentIdsForItemType(ITEM_TYPES.W
 const CHEATER_ARMOR_ENCHANTMENTS = getAllEnchantmentIdsForItemType(ITEM_TYPES.ARMOR);
 const CHEATER_SHIELD_ENCHANTMENTS = getAllEnchantmentIdsForItemType(ITEM_TYPES.SHIELD);
 const CHEATER_ACCESSORY_ENCHANTMENTS = getAllEnchantmentIdsForItemType(ITEM_TYPES.ACCESSORY);
+
+const EQUIPMENT_SET_DEFINITIONS = {
+    warrior: {
+        id: 'warrior',
+        name: 'Warrior set',
+        bonuses: [
+            { pieces: 2, powerBonus: 5, armorBonus: 5 },
+            { pieces: 3, grantsCondition: CONDITIONS.HEAVY_HITTER, grantsConditionDuration: Infinity }
+        ]
+    }
+};
 
 const TIERED_ITEM_DEFINITIONS = {
     money: {
@@ -431,7 +454,7 @@ const TIERED_ITEM_DEFINITIONS = {
         2: { name: 'Bronze sword', type: ITEM_TYPES.WEAPON, properties: { power: 4, slots: 6, hiddenName: hiddenSword, burnable: false } },
         3: { name: 'Iron sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 5, hiddenName: hiddenSword, burnable: false } },
         4: [
-            { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 8, slots: 4, hiddenName: hiddenSword, burnable: false } },
+            { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 8, slots: 4, setId: 'warrior', hiddenName: hiddenSword, burnable: false } },
             { name: 'Pickaxe', type: ITEM_TYPES.WEAPON, properties: { power: 1, slots: 0, breaksWalls: true, spawnImprovementMin: 5, spawnImprovementMax: 10, hiddenName: hiddenSword, burnable: false } }
         ]
     },
@@ -440,14 +463,14 @@ const TIERED_ITEM_DEFINITIONS = {
         1: { name: 'Rags', type: ITEM_TYPES.ARMOR, properties: { armor: 3, slots: 7, hiddenName: hiddenArmor, burnable: true } },
         2: { name: 'Leather armor', type: ITEM_TYPES.ARMOR, properties: { armor: 4, slots: 6, hiddenName: hiddenArmor, burnable: true } },
         3: { name: 'Chainmail armor', type: ITEM_TYPES.ARMOR, properties: { armor: 6, slots: 5, hiddenName: hiddenArmor, burnable: false } },
-        4: { name: 'Plate armor', type: ITEM_TYPES.ARMOR, properties: { armor: 8, slots: 4, hiddenName: hiddenArmor, burnable: false } }
+        4: { name: 'Plate armor', type: ITEM_TYPES.ARMOR, properties: { armor: 8, slots: 4, setId: 'warrior', hiddenName: hiddenArmor, burnable: false } }
     },
     shield: {
         0: { name: 'Cheater shield', type: ITEM_TYPES.SHIELD, properties: { armor: 9999, slots: 80, enchantments: [...CHEATER_SHIELD_ENCHANTMENTS], hiddenName: hiddenShield, burnable: false } },
         1: { name: 'Rotten shield', type: ITEM_TYPES.SHIELD, properties: { armor: 3, slots: 7, hiddenName: hiddenShield, burnable: true } },
         2: { name: 'Wooden shield', type: ITEM_TYPES.SHIELD, properties: { armor: 4, slots: 6, hiddenName: hiddenShield, burnable: true } },
         3: { name: 'Kite shield', type: ITEM_TYPES.SHIELD, properties: { armor: 6, slots: 5, hiddenName: hiddenShield, burnable: false } },
-        4: { name: 'Tower shield', type: ITEM_TYPES.SHIELD, properties: { armor: 8, slots: 4, hiddenName: hiddenShield, burnable: false } }
+        4: { name: 'Tower shield', type: ITEM_TYPES.SHIELD, properties: { armor: 8, slots: 4, setId: 'warrior', hiddenName: hiddenShield, burnable: false } }
     },
     accessory: {
         0: { name: 'Cheater accessory', type: ITEM_TYPES.ACCESSORY, properties: { power: 9999, armor: 9999, slots: 80, enchantments: [...CHEATER_ACCESSORY_ENCHANTMENTS], hiddenName: hiddenAccessory, burnable: false } },
@@ -558,6 +581,14 @@ function applyEnemyTypeMultipliers(currentValue, actor, multiplierMap, applyMult
 
 function normalizeConditionKey(condition) {
     return Object.values(CONDITIONS).includes(condition) ? condition : null;
+}
+
+function getEquipmentSetDefinition(setId) {
+    if (typeof setId !== 'string' || setId.length === 0) {
+        return null;
+    }
+
+    return EQUIPMENT_SET_DEFINITIONS[setId] || null;
 }
 
 function resolveConditionDuration(properties) {

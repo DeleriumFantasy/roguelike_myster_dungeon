@@ -568,10 +568,15 @@ Object.assign(UI.prototype, {
     },
 
     getTileOverlayData(world, x, y) {
+        const playerHasTrapSight = typeof this.game?.player?.revealsTraps === 'function'
+            && this.game.player.revealsTraps();
+
         return {
             hazard: typeof world.getHazard === 'function' ? world.getHazard(x, y) : null,
             trapType: typeof world.getTrap === 'function' ? world.getTrap(x, y) : null,
-            trapRevealed: typeof world.isTrapRevealed === 'function' ? world.isTrapRevealed(x, y) : false
+            trapRevealed: playerHasTrapSight
+                ? true
+                : (typeof world.isTrapRevealed === 'function' ? world.isTrapRevealed(x, y) : false)
         };
     },
 

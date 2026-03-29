@@ -59,6 +59,12 @@ Object.assign(Player.prototype, {
             if (typeof item.getEnchantmentArmorBonus === 'function') this.armor += item.getEnchantmentArmorBonus();
         });
 
+        const setStatBonuses = typeof this.getEquipmentSetStatBonuses === 'function'
+            ? this.getEquipmentSetStatBonuses()
+            : { powerBonus: 0, armorBonus: 0 };
+        this.power += Math.max(0, Number(setStatBonuses.powerBonus || 0));
+        this.armor += Math.max(0, Number(setStatBonuses.armorBonus || 0));
+
         this.applyEquipmentGrantedConditions();
     },
 

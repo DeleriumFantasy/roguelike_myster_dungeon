@@ -30,13 +30,31 @@ Object.assign(World.prototype, {
         }
 
         if (tileType === TILE_TYPES.STAIRS_DOWN) {
+            if (this.getAreaType(this.currentFloor) === AREA_TYPES.OVERWORLD) {
+                return { requiresDungeonSelection: true };
+            }
+
+            const maxDepth = getDungeonPathMaxDepth(this.selectedDungeonPathId);
+            if (Number.isFinite(maxDepth) && this.currentFloor >= maxDepth) {
+                const completedPathId = this.selectedDungeonPathId;
+                this.currentFloor = 0;
+                // Place player in the middle of the overworld
+                player.x = Math.floor(GRID_SIZE / 2);
+                player.y = Math.floor(GRID_SIZE / 2);
+                return { returnedToOverworldFromPathEnd: true, completedPathId };
+            }
+
             this.descendFloor();
-            return this.moveActorToTile(player, TILE_TYPES.STAIRS_UP);
+            return {
+                transitioned: this.moveActorToTile(player, TILE_TYPES.STAIRS_UP)
+            };
         }
 
         if (tileType === TILE_TYPES.STAIRS_UP && this.currentFloor > 0) {
             this.ascendFloor();
-            return this.moveActorToTile(player, TILE_TYPES.STAIRS_DOWN);
+            return {
+                transitioned: this.moveActorToTile(player, TILE_TYPES.STAIRS_DOWN)
+            };
         }
 
         return false;

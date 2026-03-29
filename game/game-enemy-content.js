@@ -42,6 +42,37 @@ Object.assign(Game.prototype, {
         return ['npcBankerTier1', 'npcQuestgiverTier1', 'npcHandlerTier1'];
     },
 
+    shouldUnlockSecondQuestgiver() {
+        return this.world?.hasCompletedDungeonPath?.('graspingPillars')
+            && this.world?.hasCompletedDungeonPath?.('anomalousRuins');
+    },
+
+    ensureSecondQuestgiverAvailability() {
+        if (!Array.isArray(this.persistentOverworldNpcs)) {
+            this.persistentOverworldNpcs = [];
+        }
+
+        if (!this.shouldUnlockSecondQuestgiver()) {
+            this.persistentOverworldNpcs = this.persistentOverworldNpcs.filter((npc) => !npc?.isSecondQuestgiver);
+            return null;
+        }
+
+        const existingSecond = this.persistentOverworldNpcs.find((npc) => npc?.isSecondQuestgiver);
+        if (existingSecond) {
+            return existingSecond;
+        }
+
+        const secondQuestgiver = this.createEnemyForType(0, 0, 'npcQuestgiverTier1', 0);
+        if (!secondQuestgiver) {
+            return null;
+        }
+
+        secondQuestgiver.isSecondQuestgiver = true;
+        secondQuestgiver.name = 'Questgiver (second)';
+        this.persistentOverworldNpcs.push(secondQuestgiver);
+        return secondQuestgiver;
+    },
+
     isBankerTypeKey(enemyTypeKey) {
         return enemyTypeKey === 'npcBankerTier1';
     },
@@ -175,6 +206,8 @@ Object.assign(Game.prototype, {
                 .map((npcTypeKey) => this.createEnemyForType(0, 0, npcTypeKey, 0))
                 .filter(Boolean);
         }
+
+        this.ensureSecondQuestgiverAvailability();
 
         for (const npc of this.persistentOverworldNpcs) {
             if (!npc?.isAlive?.()) {

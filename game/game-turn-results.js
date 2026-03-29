@@ -15,6 +15,7 @@ Object.assign(Game.prototype, {
             consumed: Boolean(options.consumed),
             moved: Boolean(options.moved),
             swappedWithAlly: Boolean(options.swappedWithAlly),
+            skipEnemyPhase: Boolean(options.skipEnemyPhase),
             actionType: options.actionType || 'move'
         };
     },

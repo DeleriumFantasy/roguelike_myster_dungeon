@@ -23,6 +23,9 @@ class GameInputController {
         this.bindCloseButton('close-settings', () => {
             this.game.ui.closeSettings();
         });
+        this.bindCloseButton('close-dungeon-selection', () => {
+            this.game.ui.closeDungeonSelection();
+        });
     }
 
     bindCloseButton(buttonId, closeAction) {
@@ -51,6 +54,10 @@ class GameInputController {
         }
 
         if (this.game.ui.settingsOpen && key !== 'Escape') {
+            return;
+        }
+
+        if (this.game.ui.dungeonSelectionOpen && key !== 'Escape') {
             return;
         }
 
@@ -100,6 +107,9 @@ class GameInputController {
             case 'Escape':
                 if (this.game.ui.settingsOpen) {
                     this.game.ui.closeSettings();
+                    this.game.ui.canvas.focus();
+                } else if (this.game.ui.dungeonSelectionOpen) {
+                    this.game.ui.closeDungeonSelection();
                     this.game.ui.canvas.focus();
                 } else {
                     this.game.ui.openSettings();

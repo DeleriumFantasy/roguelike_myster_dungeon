@@ -13,6 +13,7 @@ Object.assign(Enemy.prototype, {
         const adjustedIncomingDamage = Math.max(1, Math.round(incomingDamage * mitigationMultiplier));
         const effectiveArmor = this.getEffectiveArmor() * armorEffectiveness;
         const damageDealt = applyDamageToActor(this, adjustedIncomingDamage, effectiveArmor);
+        applyCounterReflectDamage(this, attacker, damageDealt, options);
         return damageDealt;
     },
 
@@ -41,6 +42,22 @@ Object.assign(Enemy.prototype, {
         }
 
         return Math.max(0.1, multiplier);
+    },
+
+    getCounterReflectRatio() {
+        let total = 0;
+        for (const item of this.equipment.values()) {
+            if (typeof item?.getCounterReflectRatio !== 'function') {
+                continue;
+            }
+
+            const value = Number(item.getCounterReflectRatio() || 0);
+            if (Number.isFinite(value) && value > 0) {
+                total += value;
+            }
+        }
+
+        return Math.max(0, total);
     },
 
     addCondition(condition, duration = getConditionDuration(condition, 1)) {

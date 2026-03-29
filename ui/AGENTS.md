@@ -10,6 +10,7 @@
 - `ui.js`: base UI shell and shared DOM/canvas setup.
 - `ui-rendering.js`: scene rendering, tile drawing, camera, and visibility-based render decisions.
 - `ui-panels.js`: stats and message overlay updates, and settings modal (`openSettings`, `closeSettings`, `settingsOpen`). Settings changes are read from/written to `game.settings` on close. Message list renders newest-first. Ally stats are included in the stats overlay.
+	Dungeon selection modal presentation (`openDungeonSelection`, `closeDungeonSelection`) also belongs here.
 - `ui-inventory.js`: inventory modal presentation (lists, prompts, hover details panel with unknown-item redaction) and delegation of gameplay mutations to `game-inventory-actions.js`.
 - `ui-map.js`: minimap/map overlay rendering.
 

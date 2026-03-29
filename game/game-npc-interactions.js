@@ -10,10 +10,10 @@ const QUESTGIVER_QUEST_POOLS = {
         { targetTypeKey: 'pariahTier1', minFloor: 2, requiredCount: 2, rewardMoney: 120, rewardTier: 2 }
     ],
     allyRetrieval: [
-        { targetTypeKey: 'slimeTier1', minFloor: 1, rewardMoney: 65, rewardTier: 1 },
-        { targetTypeKey: 'beastTier1', minFloor: 1, rewardMoney: 85, rewardTier: 1 },
-        { targetTypeKey: 'aquaticTier1', minFloor: 1, rewardMoney: 95, rewardTier: 2 },
-        { targetTypeKey: 'floatingTier1', minFloor: 1, rewardMoney: 105, rewardTier: 2 }
+        { targetTypeKey: 'slimeTier1', minAllyLevel: 2, rewardMoney: 65, rewardTier: 1 },
+        { targetTypeKey: 'beastTier1', minAllyLevel: 2, rewardMoney: 85, rewardTier: 1 },
+        { targetTypeKey: 'aquaticTier1', minAllyLevel: 3, rewardMoney: 95, rewardTier: 2 },
+        { targetTypeKey: 'floatingTier1', minAllyLevel: 3, rewardMoney: 105, rewardTier: 2 }
     ],
     escort: [
         { minFloor: 1, targetAdvanceMin: 2, targetAdvanceMax: 3, rewardMoney: 90, rewardTier: 1 },
@@ -29,8 +29,13 @@ Object.assign(Game.prototype, {
                 activeQuest: null,
                 completedQuestCount: 0,
                 nextQuestId: 1,
-                deepestDungeonFloorReached: 0
+                deepestDungeonFloorReached: 0,
+                deepestDungeonFloorReachedByPath: {}
             };
+        }
+
+        if (!this.player.questgiverState.deepestDungeonFloorReachedByPath || typeof this.player.questgiverState.deepestDungeonFloorReachedByPath !== 'object') {
+            this.player.questgiverState.deepestDungeonFloorReachedByPath = {};
         }
 
         return this.player.questgiverState;
@@ -40,28 +45,58 @@ Object.assign(Game.prototype, {
         return ENEMY_TEMPLATES?.[enemyTypeKey]?.displayName || String(enemyTypeKey || 'target');
     },
 
-    getQuestgiverTargetProgressFloor() {
-        const questState = this.ensureQuestgiverState();
-        return Math.max(1, Math.floor(Number(questState.deepestDungeonFloorReached) || 0) + 1);
+    getQuestgiverTargetPathId(rng = createMathRng()) {
+        const options = this.world?.getDungeonPathOptions?.() || [];
+        const selectedPathId = this.world?.getSelectedDungeonPathId?.();
+        const validSelectedPath = typeof selectedPathId === 'string' && options.some((option) => option?.id === selectedPathId)
+            ? selectedPathId
+            : null;
+
+        if (!Array.isArray(options) || options.length === 0) {
+            return validSelectedPath || getDefaultDungeonPathId();
+        }
+
+        const pickedOption = pickRandom(options, rng, options[0]);
+        return pickedOption?.id || validSelectedPath || options[0].id;
     },
 
-    getQuestgiverEligibleEntries(poolKey) {
+    getQuestgiverTargetPathName(pathId) {
+        const definition = getDungeonPathDefinition(pathId);
+        return typeof definition?.name === 'string' ? definition.name : String(pathId || 'Unknown path');
+    },
+
+    getQuestgiverTargetProgressFloor(pathId = this.world?.getSelectedDungeonPathId?.()) {
+        const questState = this.ensureQuestgiverState();
+        const key = typeof pathId === 'string' ? pathId : this.world?.getSelectedDungeonPathId?.();
+        const byPath = questState.deepestDungeonFloorReachedByPath || {};
+        return Math.max(1, Math.floor(Number(byPath[key]) || 0) + 1);
+    },
+
+    getQuestgiverEligibleEntries(poolKey, pathId = this.world?.getSelectedDungeonPathId?.()) {
         const questPool = QUESTGIVER_QUEST_POOLS[poolKey] || [];
-        const progressFloor = this.getQuestgiverTargetProgressFloor();
+        const progressFloor = this.getQuestgiverTargetProgressFloor(pathId);
 
         return questPool.filter((entry) => progressFloor >= Math.max(1, Number(entry.minFloor) || 1));
     },
 
     buildQuestgiverHuntQuest(rng) {
-        const eligibleEntries = this.getQuestgiverEligibleEntries('hunt');
+        const targetPathId = this.getQuestgiverTargetPathId(rng);
+        const eligibleEntries = this.getQuestgiverEligibleEntries('hunt', targetPathId);
         const chosenEntry = pickRandom(eligibleEntries, rng, eligibleEntries[0]);
         if (!chosenEntry) {
             return null;
         }
 
+        const targetFloor = Math.max(
+            Math.max(1, Number(chosenEntry.minFloor) || 1),
+            this.getQuestgiverTargetProgressFloor(targetPathId)
+        );
+
         return {
             id: this.ensureQuestgiverState().nextQuestId++,
             type: 'hunt',
+            targetPathId,
+            targetFloor,
             targetTypeKey: chosenEntry.targetTypeKey,
             targetName: this.getQuestgiverTargetName(chosenEntry.targetTypeKey),
             requiredCount: Math.max(1, Math.floor(Number(chosenEntry.requiredCount) || 1)),
@@ -72,7 +107,7 @@ Object.assign(Game.prototype, {
     },
 
     buildQuestgiverAllyRetrievalQuest(rng) {
-        const eligibleEntries = this.getQuestgiverEligibleEntries('allyRetrieval');
+        const eligibleEntries = QUESTGIVER_QUEST_POOLS.allyRetrieval || [];
         const chosenEntry = pickRandom(eligibleEntries, rng, eligibleEntries[0]);
         if (!chosenEntry) {
             return null;
@@ -83,6 +118,7 @@ Object.assign(Game.prototype, {
             type: 'ally-retrieval',
             targetTypeKey: chosenEntry.targetTypeKey,
             targetName: this.getQuestgiverTargetName(chosenEntry.targetTypeKey),
+            minAllyLevel: Math.max(1, Math.floor(Number(chosenEntry.minAllyLevel) || 1)),
             rewardMoney: Math.max(0, Math.floor(Number(chosenEntry.rewardMoney) || 0)),
             rewardTier: Math.max(1, Math.floor(Number(chosenEntry.rewardTier) || 1))
         };
@@ -90,13 +126,17 @@ Object.assign(Game.prototype, {
 
     buildQuestgiverExploreQuest(rng) {
         const questState = this.ensureQuestgiverState();
-        const deepestReached = Math.max(0, Math.floor(Number(questState.deepestDungeonFloorReached) || 0));
-        const targetFloor = clamp(deepestReached + getRngRandomInt(rng, 1, 2), 1, 99);
+        const targetPathId = this.getQuestgiverTargetPathId(rng);
+        const deepestReached = Math.max(0, this.getQuestgiverTargetProgressFloor(targetPathId) - 1);
+        const pathMaxDepth = getDungeonPathMaxDepth(targetPathId);
+        const maxTargetFloor = Number.isFinite(pathMaxDepth) ? pathMaxDepth : 99;
+        const targetFloor = clamp(deepestReached + getRngRandomInt(rng, 1, 2), 1, maxTargetFloor);
         const rewardTier = clamp(Math.ceil(targetFloor / 3), 1, 4);
 
         return {
             id: questState.nextQuestId++,
             type: 'explore-floor',
+            targetPathId,
             targetFloor,
             rewardMoney: 50 + targetFloor * 15,
             rewardTier
@@ -104,23 +144,27 @@ Object.assign(Game.prototype, {
     },
 
     buildQuestgiverEscortQuest(rng) {
-        const eligibleEntries = this.getQuestgiverEligibleEntries('escort');
+        const targetPathId = this.getQuestgiverTargetPathId(rng);
+        const eligibleEntries = this.getQuestgiverEligibleEntries('escort', targetPathId);
         const chosenEntry = pickRandom(eligibleEntries, rng, eligibleEntries[0]);
         if (!chosenEntry) {
             return null;
         }
 
-        const progressFloor = this.getQuestgiverTargetProgressFloor();
+        const progressFloor = this.getQuestgiverTargetProgressFloor(targetPathId);
+        const pathMaxDepth = getDungeonPathMaxDepth(targetPathId);
         const targetAdvance = getRngRandomInt(
             rng,
             Math.max(0, Math.floor(Number(chosenEntry.targetAdvanceMin) || 0)),
             Math.max(0, Math.floor(Number(chosenEntry.targetAdvanceMax) || 0))
         );
-        const targetFloor = clamp(progressFloor + targetAdvance, 1, 99);
+        const maxTargetFloor = Number.isFinite(pathMaxDepth) ? pathMaxDepth : 99;
+        const targetFloor = clamp(progressFloor + targetAdvance, 1, maxTargetFloor);
 
         return {
             id: this.ensureQuestgiverState().nextQuestId++,
             type: 'escort-npc',
+            targetPathId,
             escortTypeKey: 'escortPassengerTier1',
             escortName: this.getQuestgiverTargetName('escortPassengerTier1'),
             targetFloor,
@@ -265,24 +309,29 @@ Object.assign(Game.prototype, {
             return 'No task available.';
         }
 
+        const targetPathId = quest.targetPathId || getDefaultDungeonPathId();
+        const targetPathName = this.getQuestgiverTargetPathName(targetPathId);
+        const targetFloor = Math.max(1, Math.floor(Number(quest.targetFloor) || 1));
+
         if (quest.type === 'hunt') {
-            return `Defeat ${quest.requiredCount} ${quest.targetName}${quest.requiredCount === 1 ? '' : 's'} (${quest.currentCount}/${quest.requiredCount}).`;
+            return `Defeat ${quest.requiredCount} ${quest.targetName}${quest.requiredCount === 1 ? '' : 's'} on ${targetPathName}, floor ${targetFloor}+ (${quest.currentCount}/${quest.requiredCount}).`;
         }
 
         if (quest.type === 'ally-retrieval') {
-            return `Bring me a loyal ${quest.targetName} ally from the dungeon.`;
+            const minAllyLevel = Math.max(1, Math.floor(Number(quest.minAllyLevel) || 1));
+            return `Bring me a loyal ${quest.targetName} ally at level ${minAllyLevel}+.`;
         }
 
         if (quest.type === 'explore-floor') {
-            return `Reach dungeon floor ${quest.targetFloor} and return alive.`;
+            return `Reach ${targetPathName}, floor ${targetFloor} and return alive.`;
         }
 
         if (quest.type === 'escort-npc') {
             if (quest.completed) {
-                return `${quest.escortName} reached dungeon floor ${quest.targetFloor}. Collect your reward.`;
+                return `${quest.escortName} reached ${targetPathName}, floor ${targetFloor}. Collect your reward.`;
             }
 
-            return `Escort ${quest.escortName} safely to dungeon floor ${quest.targetFloor}.`;
+            return `Escort ${quest.escortName} safely to ${targetPathName}, floor ${targetFloor}.`;
         }
 
         return 'Complete the assigned task.';
@@ -310,7 +359,11 @@ Object.assign(Game.prototype, {
         }
 
         if (quest.type === 'explore-floor') {
-            return Math.max(0, Math.floor(Number(this.ensureQuestgiverState().deepestDungeonFloorReached) || 0)) >= Math.max(1, Math.floor(Number(quest.targetFloor) || 1));
+            const questState = this.ensureQuestgiverState();
+            const byPath = questState.deepestDungeonFloorReachedByPath || {};
+            const targetPathId = quest.targetPathId || getDefaultDungeonPathId();
+            const reachedFloorOnPath = Math.max(0, Math.floor(Number(byPath[targetPathId]) || 0));
+            return reachedFloorOnPath >= Math.max(1, Math.floor(Number(quest.targetFloor) || 1));
         }
 
         if (quest.type === 'escort-npc') {
@@ -325,8 +378,16 @@ Object.assign(Game.prototype, {
             return null;
         }
 
+        const minAllyLevel = Math.max(1, Math.floor(Number(quest.minAllyLevel) || 1));
         const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
-        return allies.find((ally) => ally?.isAlive?.() && ally.monsterType === quest.targetTypeKey) || null;
+        return allies.find((ally) => {
+            if (!ally?.isAlive?.() || ally.monsterType !== quest.targetTypeKey) {
+                return false;
+            }
+
+            const allyLevel = Math.max(1, Math.floor(Number(ally?.allyLevel) || 1));
+            return allyLevel >= minAllyLevel;
+        }) || null;
     },
 
     consumeQuestgiverRetrievedAlly(quest) {
@@ -420,8 +481,19 @@ Object.assign(Game.prototype, {
             questState.deepestDungeonFloorReached = normalizedFloor;
         }
 
+        const currentPathId = this.world?.getSelectedDungeonPathId?.() || getDefaultDungeonPathId();
+        const byPath = questState.deepestDungeonFloorReachedByPath || {};
+        const currentPathDeepest = Math.max(0, Math.floor(Number(byPath[currentPathId]) || 0));
+        if (normalizedFloor > currentPathDeepest) {
+            byPath[currentPathId] = normalizedFloor;
+            questState.deepestDungeonFloorReachedByPath = byPath;
+        }
+
         const activeQuest = questState.activeQuest;
-        if (activeQuest?.type === 'escort-npc' && normalizedFloor >= Math.max(1, Math.floor(Number(activeQuest.targetFloor) || 1))) {
+        const activeQuestTargetPath = activeQuest?.targetPathId || getDefaultDungeonPathId();
+        if (activeQuest?.type === 'escort-npc'
+            && activeQuestTargetPath === currentPathId
+            && normalizedFloor >= Math.max(1, Math.floor(Number(activeQuest.targetFloor) || 1))) {
             this.finalizeEscortQuestFloorArrival(activeQuest);
         }
     },
@@ -443,6 +515,16 @@ Object.assign(Game.prototype, {
         }
 
         if (!activeQuest || activeQuest.type !== 'hunt') {
+            return;
+        }
+
+        const currentPathId = this.world?.getSelectedDungeonPathId?.() || getDefaultDungeonPathId();
+        const targetPathId = activeQuest.targetPathId || getDefaultDungeonPathId();
+        if (targetPathId !== currentPathId) {
+            return;
+        }
+
+        if (Math.max(0, Math.floor(Number(this.world?.currentFloor) || 0)) < Math.max(1, Math.floor(Number(activeQuest.targetFloor) || 1))) {
             return;
         }
 
@@ -604,12 +686,14 @@ Object.assign(Game.prototype, {
         stalledAllies.splice(allyIndex, 1);
         selectedAlly.isAlly = true;
         selectedAlly.tamedBy = this.player;
+        // Restore full health when retrieved
+        selectedAlly.health = selectedAlly.maxHealth || selectedAlly.health;
         this.player.addAlly(selectedAlly);
 
         const spawn = this.findSpawnNearPlayer(selectedAlly, createMathRng());
         this.assignActorPosition(selectedAlly, spawn);
         this.addEnemyIfMissing(selectedAlly);
-        this.ui.addMessage(`${enemy.name}: ${selectedAlly.name} is back by your side.`);
+        this.ui.addMessage(`${enemy.name}: ${selectedAlly.name} is back by your side, fully healed.`);
     },
 
     createNpcRewardEquipmentForTier(tier, rng = null) {

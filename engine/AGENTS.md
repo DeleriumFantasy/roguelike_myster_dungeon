@@ -7,11 +7,14 @@
 
 ## World Split
 
-- `world.js`: base `World` shell, floor access, generic tile lookup, and generic random tile helpers.
+	Overworld stairs-down now signal `{ requiresDungeonSelection: true }` so `game/` can open the UI modal and apply the chosen descent path.
+- `world.js`: base `World` shell, floor access, per-path floor storage, dungeon path unlock/completion tracking, generic tile lookup, and generic random tile helpers.
 - `world-actors.js`: enemy and NPC collections, occupancy checks, indexed enemy lookup, and indexed enemy movement helpers. NPCs are stored separately from hostile enemies. `getActorAt` checks both collections. `getHostileEnemies()` returns alive non-ally enemies; `getFriendlyActors()` returns alive allies plus alive NPCs.
 - `world-tile-state.js`: traps, hazards, item placement, item spawn helpers, and environmental damage profile lookups (`getEnvironmentalDamageProfile`).
 - `world-traversal.js`: stair transitions, hazard transitions, water crossing, and landing rules. Player stair transitions are typically triggered via `player.checkHazards(...)` after move orchestration in `game/game-player-turns.js`.
-- `world-generation.js`: floor generation, layout, and area building.
+	Overworld stairs-down now signal `{ requiresDungeonSelection: true }` so `game/` can open the UI modal and apply the chosen descent path.
+	Max-depth stairs-down spawn the player at the center of the overworld (GRID_SIZE/2, GRID_SIZE/2) and signal `{ returnedToOverworldFromPathEnd: true, completedPathId }` for completion handling.
+- `world-generation.js`: floor generation, layout, area building, and weather generation. Each floor generates with a chance for special weather (foggy weather reduces FOV) via `generateWeatherForFloor()`.
 
 ## Other Engine Files
 

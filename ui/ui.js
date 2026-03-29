@@ -25,6 +25,7 @@ class UI {
         this.messagesOpen = true;
         this.mapOpen = false;
         this.settingsOpen = false;
+        this.dungeonSelectionOpen = false;
         this.mapTileSize = 8;
         this.cameraBounds = {
             minX: 0,

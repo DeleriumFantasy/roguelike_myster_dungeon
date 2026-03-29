@@ -398,8 +398,8 @@ Game.prototype.handleEnemyDefeat = function(enemy, options = {}) {
     }
 
     const { announceDefeat = false, grantExp = true, killer = null, defeatSource = '' } = options;
-    if (enemy.isAlly && typeof enemy.untame === 'function') {
-        enemy.untame();
+    if (enemy.isAlly) {
+        this.stallAllyWithHandler(enemy);
     }
     this.removeEnemyFromCurrentFloor(enemy);
     this.trackQuestProgressForEnemyDefeat?.(enemy, { killer, defeatSource });
@@ -410,4 +410,32 @@ Game.prototype.handleEnemyDefeat = function(enemy, options = {}) {
     if (announceDefeat) {
         this.ui.addMessage(`${enemy.name} is defeated.`);
     }
+};
+
+Game.prototype.stallAllyWithHandler = function(ally) {
+    if (!ally?.isAlly) {
+        return;
+    }
+
+    const handler = this.getHandlerNpc();
+    if (!handler) {
+        if (typeof ally.untame === 'function') {
+            ally.untame();
+        }
+        return;
+    }
+
+    const stalledAllies = this.getHandlerStoredAllies(handler);
+    this.player.removeAlly(ally);
+    stalledAllies.push(ally);
+    this.ui.addMessage(`${handler.name} brings ${ally.name} to safety.`);
+};
+
+Game.prototype.getHandlerNpc = function() {
+    const floor = this.isOverworldFloor() ? this.world.getCurrentFloor() : null;
+    if (!floor || !Array.isArray(floor.enemies)) {
+        return null;
+    }
+
+    return floor.enemies.find((enemy) => enemy?.monsterType === 'npcHandlerTier1') || null;
 };

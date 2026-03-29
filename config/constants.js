@@ -27,6 +27,25 @@ const TILE_TYPES = {
     LAVA: 'lava'
 };
 
+// Weather types
+const WEATHER_TYPES = {
+    NONE: 'none',
+    FOGGY: 'foggy'
+};
+
+const WEATHER_DEFINITIONS = {
+    [WEATHER_TYPES.NONE]: {
+        name: 'Clear',
+        fovModifier: 0
+    },
+    [WEATHER_TYPES.FOGGY]: {
+        name: 'Foggy',
+        fovModifier: -3
+    }
+};
+
+const WEATHER_GENERATION_CHANCE = 0.3;
+
 // Hazard types
 const HAZARD_TYPES = {
     STEAM: 'steam',
@@ -34,7 +53,8 @@ const HAZARD_TYPES = {
     TRAP_SLEEP: 'trap_sleep',
     TRAP_BLIND: 'trap_blind',
     TRAP_BOUND: 'trap_bound',
-    TRAP_POISON: 'trap_poison'
+    TRAP_POISON: 'trap_poison',
+    TRAP_TRIP: 'trap_trip'
 };
 
 // Status conditions
@@ -47,6 +67,7 @@ const CONDITIONS = {
     BLIND: 'blind',
     CONFUSED: 'confused',
     INVISIBLE: 'invisible',
+    HEAVY_HITTER: 'heavy_hitter',
     BERSERK: 'berserk',
     BOUND: 'bound',
     BLESSED: 'blessed',
@@ -100,6 +121,9 @@ const CONDITION_RULES = {
     },
     [CONDITIONS.INVISIBLE]: {
         duration: 10
+    },
+    [CONDITIONS.HEAVY_HITTER]: {
+        duration: Infinity
     },
     [CONDITIONS.BERSERK]: {
         duration: 10
@@ -157,6 +181,11 @@ const HAZARD_DEFINITIONS = {
         condition: CONDITIONS.POISONED,
         message: 'You trigger a poison trap.',
         icon: 'P'
+    },
+    [HAZARD_TYPES.TRAP_TRIP]: {
+        category: 'trap',
+        message: 'You trigger a tripping trap and drop your items!',
+        icon: 'T'
     },
     [HAZARD_TYPES.STEAM]: {
         category: 'effect',

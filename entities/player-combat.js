@@ -12,7 +12,9 @@ Object.assign(Player.prototype, {
         const mitigationMultiplier = this.getIncomingDamageMultiplierAgainst(attacker);
         const adjustedIncomingDamage = Math.max(1, Math.round(incomingDamage * mitigationMultiplier));
         const effectiveArmor = this.armor * armorEffectiveness;
-        return applyDamageToActor(this, adjustedIncomingDamage, effectiveArmor);
+        const damageDealt = applyDamageToActor(this, adjustedIncomingDamage, effectiveArmor);
+        applyCounterReflectDamage(this, attacker, damageDealt, options);
+        return damageDealt;
     },
 
     attackEnemy(enemy) {
@@ -116,6 +118,14 @@ Object.assign(Player.prototype, {
 
     revealsItemsOnMap() {
         return this.someEquippedItem((item) => typeof item?.revealsItemsOnMap === 'function' && item.revealsItemsOnMap());
+    },
+
+    revealsTraps() {
+        return this.someEquippedItem((item) => typeof item?.revealsTraps === 'function' && item.revealsTraps());
+    },
+
+    getCounterReflectRatio() {
+        return Math.max(0, this.getEquipmentNumericSum('getCounterReflectRatio'));
     },
 
     identifiesItemsOnPickup() {
@@ -276,6 +286,83 @@ Object.assign(Player.prototype, {
         }
     },
 
+    getEquippedSetPieceCounts() {
+        const counts = new Map();
+
+        this.forEachEquippedItem((item) => {
+            const setId = typeof item?.properties?.setId === 'string'
+                ? item.properties.setId
+                : '';
+            if (!setId) {
+                return;
+            }
+
+            counts.set(setId, (counts.get(setId) || 0) + 1);
+        });
+
+        return counts;
+    },
+
+    getActiveEquipmentSetBonuses() {
+        const pieceCounts = this.getEquippedSetPieceCounts();
+        const activeBonuses = [];
+
+        for (const [setId, count] of pieceCounts.entries()) {
+            const setDefinition = getEquipmentSetDefinition(setId);
+            if (!setDefinition || !Array.isArray(setDefinition.bonuses)) {
+                continue;
+            }
+
+            for (const bonus of setDefinition.bonuses) {
+                const requiredPieces = Math.max(1, Math.floor(Number(bonus?.pieces) || 0));
+                if (count < requiredPieces) {
+                    continue;
+                }
+
+                activeBonuses.push(bonus);
+            }
+        }
+
+        return activeBonuses;
+    },
+
+    getEquipmentSetStatBonuses() {
+        const bonuses = this.getActiveEquipmentSetBonuses();
+        let powerBonus = 0;
+        let armorBonus = 0;
+
+        for (const bonus of bonuses) {
+            powerBonus += Math.max(0, Number(bonus?.powerBonus || 0));
+            armorBonus += Math.max(0, Number(bonus?.armorBonus || 0));
+        }
+
+        return { powerBonus, armorBonus };
+    },
+
+    getEquipmentSetGrantedConditionEntries() {
+        const entries = [];
+        const seenConditions = new Set();
+
+        for (const bonus of this.getActiveEquipmentSetBonuses()) {
+            const condition = bonus?.grantsCondition;
+            if (!condition || seenConditions.has(condition)) {
+                continue;
+            }
+
+            const fallbackDuration = Number.isFinite(bonus?.grantsConditionDuration)
+                ? bonus.grantsConditionDuration
+                : Infinity;
+
+            entries.push({
+                condition,
+                duration: getConditionDuration(condition, fallbackDuration)
+            });
+            seenConditions.add(condition);
+        }
+
+        return entries;
+    },
+
     getEquipmentGrantedConditionEntries() {
         const entries = [];
         const seenConditions = new Set();
@@ -302,6 +389,15 @@ Object.assign(Player.prototype, {
                 seenConditions.add(condition);
             }
         });
+
+        for (const entry of this.getEquipmentSetGrantedConditionEntries()) {
+            if (!entry?.condition || seenConditions.has(entry.condition)) {
+                continue;
+            }
+
+            entries.push(entry);
+            seenConditions.add(entry.condition);
+        }
 
         return entries;
     },

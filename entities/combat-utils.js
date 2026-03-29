@@ -56,3 +56,27 @@ function applyStandardAttackToTarget(target, attackPower, randomFn = Math.random
 
     return damage || 0;
 }
+
+function applyCounterReflectDamage(defender, attacker, damageTaken, options = {}) {
+    if (!defender || !attacker || options?.isReflectedDamage) {
+        return 0;
+    }
+
+    if (typeof attacker.isAlive === 'function' && !attacker.isAlive()) {
+        return 0;
+    }
+
+    const ratio = typeof defender.getCounterReflectRatio === 'function'
+        ? Math.max(0, Number(defender.getCounterReflectRatio() || 0))
+        : 0;
+    if (ratio <= 0) {
+        return 0;
+    }
+
+    const reflectedDamage = Math.max(1, Math.floor(Math.max(0, Number(damageTaken) || 0) * ratio));
+    if (reflectedDamage <= 0 || typeof attacker.takeDamage !== 'function') {
+        return 0;
+    }
+
+    return attacker.takeDamage(reflectedDamage, defender, { isReflectedDamage: true });
+}

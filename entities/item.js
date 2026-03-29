@@ -433,6 +433,10 @@ class Item {
         return this.hasEnchantmentFlag('revealsItemsOnMap');
     }
 
+    revealsTraps() {
+        return this.hasEnchantmentFlag('revealsTraps');
+    }
+
     identifiesItemsOnPickup() {
         return this.hasEnchantmentFlag('identifiesItemsOnPickup');
     }
@@ -561,6 +565,10 @@ class Item {
         }
 
         return Math.max(0.1, multiplier);
+    }
+
+    getCounterReflectRatio() {
+        return Math.max(0, this.getEnchantmentNumericSum('counterReflectRatio'));
     }
 
     getQuantity() {

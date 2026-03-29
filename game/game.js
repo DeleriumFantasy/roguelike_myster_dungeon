@@ -83,6 +83,80 @@ class Game {
         }
     }
 
+    handleCompletedDungeonPath(pathId) {
+        if (!pathId) {
+            return;
+        }
+
+        const definition = getDungeonPathDefinition(pathId);
+        if (!definition) {
+            return;
+        }
+
+        if (this.world.hasCompletedDungeonPath(pathId)) {
+            return;
+        }
+
+        this.world.markDungeonPathCompleted(pathId);
+        this.ui.addMessage(`Path completed: ${definition.name || pathId}.`);
+
+        if (pathId === 'waterfallPath') {
+            const newlyUnlocked = [];
+            if (this.world.unlockDungeonPath('graspingPillars')) {
+                newlyUnlocked.push(getDungeonPathDefinition('graspingPillars')?.name || 'graspingPillars');
+            }
+            if (this.world.unlockDungeonPath('anomalousRuins')) {
+                newlyUnlocked.push(getDungeonPathDefinition('anomalousRuins')?.name || 'anomalousRuins');
+            }
+            if (newlyUnlocked.length > 0) {
+                this.ui.addMessage(`New paths unlocked: ${newlyUnlocked.join(', ')}.`);
+            }
+        }
+
+        const advancedPathsCompleted = this.world.hasCompletedDungeonPath('graspingPillars')
+            && this.world.hasCompletedDungeonPath('anomalousRuins');
+        if (advancedPathsCompleted) {
+            const secondQuestgiver = this.ensureSecondQuestgiverAvailability?.();
+            if (secondQuestgiver && this.isOverworldFloor(this.world.currentFloor)) {
+                const spawnRng = this.getFloorContentRng?.(this.world.currentFloor + 424242) || createMathRng();
+                const spawn = this.world.findRandomOpenTile(spawnRng, this.player, 200, secondQuestgiver);
+                if (spawn) {
+                    this.assignActorPosition(secondQuestgiver, spawn);
+                    this.addEnemyIfMissing(secondQuestgiver);
+                }
+            }
+            this.ui.addMessage('A second Questgiver has appeared in the overworld.');
+        }
+    }
+
+    openDungeonSelectionFromOverworldStairs() {
+        if (this.ui?.dungeonSelectionOpen) {
+            return;
+        }
+
+        const options = this.world.getDungeonPathOptions();
+        if (!Array.isArray(options) || options.length === 0) {
+            this.ui.addMessage('No dungeon options are available.');
+            return;
+        }
+
+        this.ui.openDungeonSelection(options, (selectedPathId) => {
+            if (!this.world.setSelectedDungeonPath(selectedPathId)) {
+                this.ui.addMessage('Invalid dungeon selection.');
+                return;
+            }
+
+            const selectedOption = options.find((option) => option.id === selectedPathId) || null;
+            const previousFloor = this.world.currentFloor;
+            this.world.descendFloor();
+            this.world.moveActorToTile(this.player, TILE_TYPES.STAIRS_UP);
+            this.ui.addMessage(`You choose ${selectedOption?.name || 'a dungeon path'}.`);
+            this.handleFloorChange(previousFloor);
+            this.updateFOV();
+            this.ui.render(this.world, this.player, this.fov);
+        });
+    }
+
     beginThrowMode(item) {
         if (!item) return;
 
@@ -289,6 +363,34 @@ class Game {
         }
     }
 
+    dropPlayerItems() {
+        const itemsToDrop = [];
+
+        // Collect equipped items
+        if (typeof this.player?.getEquippedItems === 'function') {
+            const equippedItems = this.player.getEquippedItems();
+            for (const [slot, item] of equippedItems) {
+                if (item) {
+                    itemsToDrop.push(item);
+                    this.player.unequipItem(slot);
+                }
+            }
+        }
+
+        // If no equipped items, drop inventory instead
+        if (itemsToDrop.length === 0 && Array.isArray(this.player?.inventory)) {
+            itemsToDrop.push(...this.player.inventory);
+            this.player.inventory = [];
+        }
+
+        // Drop items near player
+        if (itemsToDrop.length > 0) {
+            this.dropItemsNearEnemy(this.player, itemsToDrop);
+        }
+
+        return itemsToDrop.length;
+    }
+
     applyPlayerTrapAtCurrentPosition() {
         const x = this.player.x;
         const y = this.player.y;
@@ -315,9 +417,16 @@ class Game {
             return;
         }
 
-        this.player.addCondition(trapDefinition.condition, getConditionDuration(trapDefinition.condition));
-        if (trapDefinition.message) {
-            this.ui.addMessage(trapDefinition.message);
+        if (trapType === HAZARD_TYPES.TRAP_TRIP) {
+            const itemsDropped = this.dropPlayerItems();
+            if (trapDefinition.message) {
+                this.ui.addMessage(trapDefinition.message);
+            }
+        } else {
+            this.player.addCondition(trapDefinition.condition, getConditionDuration(trapDefinition.condition));
+            if (trapDefinition.message) {
+                this.ui.addMessage(trapDefinition.message);
+            }
         }
     }
 
@@ -351,15 +460,27 @@ class Game {
     }
 
     getFovRangeForFloor(floorIndex = this.world.currentFloor) {
+        let fovRange;
+        
         if (this.isOverworldFloor(floorIndex)) {
-            return Math.max(FOV_RANGE, 14);
+            fovRange = Math.max(FOV_RANGE, 14);
+        } else {
+            const normalizedFloor = clamp(Math.floor(Number(floorIndex) || 1), 1, 99);
+            const easiestFov = 14;
+            const hardestFov = 4;
+            const progress = (normalizedFloor - 1) / 98;
+            fovRange = Math.round(easiestFov + (hardestFov - easiestFov) * progress);
         }
 
-        const normalizedFloor = clamp(Math.floor(Number(floorIndex) || 1), 1, 99);
-        const easiestFov = 14;
-        const hardestFov = 4;
-        const progress = (normalizedFloor - 1) / 98;
-        return Math.round(easiestFov + (hardestFov - easiestFov) * progress);
+        // Apply weather modifier
+        const currentFloor = this.world.getCurrentFloor();
+        const weather = currentFloor?.meta?.weather || WEATHER_TYPES.NONE;
+        const weatherDefinition = WEATHER_DEFINITIONS[weather];
+        if (weatherDefinition?.fovModifier) {
+            fovRange = Math.max(2, fovRange + weatherDefinition.fovModifier);
+        }
+
+        return fovRange;
     }
 }
 

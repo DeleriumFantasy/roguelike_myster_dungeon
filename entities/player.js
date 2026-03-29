@@ -29,7 +29,8 @@ class Player {
             activeQuest: null,
             completedQuestCount: 0,
             nextQuestId: 1,
-            deepestDungeonFloorReached: 0
+            deepestDungeonFloorReached: 0,
+            deepestDungeonFloorReachedByPath: {}
         };
         this.updateStats();
     }
@@ -71,8 +72,9 @@ class Player {
             this.takeDamage(getEnvironmentalDamageForTile(tile, 5), null, { armorEffectiveness });
         }
 
-        world.resolvePlayerHazardTransition(this, tile);
+        const hazardTransition = world.resolvePlayerHazardTransition(this, tile);
         this.applyEnvironmentEffects(world);
+        return hazardTransition;
     }
 
     applyEnvironmentEffects(world) {

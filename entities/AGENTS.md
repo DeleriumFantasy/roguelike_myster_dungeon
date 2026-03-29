@@ -20,6 +20,7 @@
 - `enemy-ai.js`: perception, targeting, movement (including A* pathfinding with cost-based routing around hostile tiles), turn decisions, passive escort behavior, lethal tile avoidance (`isLethalEnvironmentalPosition`, `tryMoveOffLethalTile`), and NPC occupancy blocking. Enemy AI reads tile/hazard damage profiles from `world.getEnvironmentalDamageProfile(...)`.
 - `enemy-progression.js`: ally progression and tier helpers.
 - `enemy-combat.js`: attacks, damage, status application, and line-of-sight combat helpers.
+ Defeated allies are stalled with handler and restored to full health on retrieval.
 
 ## Item Split
 

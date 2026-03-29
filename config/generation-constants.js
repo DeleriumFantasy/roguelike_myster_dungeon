@@ -26,6 +26,62 @@ const AREA_SELECTION_RULES = {
     dungeonRemainder: 2
 };
 
+// Edit dungeon choices and their floor area progression here.
+// - name: shown in the overworld stairs selection prompt.
+// - areaSequence: ordered area types encountered by dungeon depth.
+// - loopSequence: when true, repeats areaSequence after the last entry.
+// - maxDepth: maximum dungeon depth reachable for this path.
+// - disallowedTiles: tile types that are replaced during generation.
+
+// Weather spawn weights for different areas
+const WEATHER_SPAWN_WEIGHTS = {
+    [AREA_TYPES.OVERWORLD]: {
+        [WEATHER_TYPES.FOGGY]: 0.5
+    },
+    [AREA_TYPES.DUNGEON]: {
+        [WEATHER_TYPES.FOGGY]: 0.6
+    },
+    [AREA_TYPES.SWAMP]: {
+        [WEATHER_TYPES.FOGGY]: 0.8
+    },
+    [AREA_TYPES.CATACOMBS]: {
+        [WEATHER_TYPES.FOGGY]: 0.4
+    }
+};
+
+const DUNGEON_PATH_DEFINITIONS = {
+    waterfallPath: {
+        id: 'waterfallPath',
+        name: 'Waterfall path',
+        areaSequence: [
+            AREA_TYPES.SWAMP
+        ],
+        loopSequence: true,
+        maxDepth: 10,
+        disallowedTiles: [TILE_TYPES.LAVA, TILE_TYPES.SPIKE]
+    },
+    graspingPillars: {
+        id: 'graspingPillars',
+        name: 'Grasping Pillars',
+        areaSequence: [
+            AREA_TYPES.DUNGEON,
+        ],
+        loopSequence: true,
+        maxDepth: 15,
+        disallowedTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER]
+    },
+    anomalousRuins: {
+        id: 'anomalousRuins',
+        name: 'Anomalous Ruins',
+        areaSequence: [
+            AREA_TYPES.CATACOMBS,
+        ],
+        loopSequence: true,
+        maxDepth: 15,
+        disallowedTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER, TILE_TYPES.SPIKE]
+    }
+};
+
 const AREA_GENERATION_RULES = {
     [AREA_TYPES.OVERWORLD]: {
         boundaryTile: TILE_TYPES.WALL,
@@ -150,6 +206,59 @@ function getOverworldGenerationConfig() {
 
 function getAreaSelectionRules() {
     return AREA_SELECTION_RULES;
+}
+
+function getDungeonPathDefinitions() {
+    return DUNGEON_PATH_DEFINITIONS;
+}
+
+function getDefaultDungeonPathId() {
+    const pathIds = Object.keys(DUNGEON_PATH_DEFINITIONS);
+    return pathIds[0] || 'waterfallPath';
+}
+
+function getDungeonPathDefinition(pathId) {
+    const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+    return DUNGEON_PATH_DEFINITIONS[normalizedPathId] || null;
+}
+
+function getDungeonPathMaxDepth(pathId) {
+    const definition = getDungeonPathDefinition(pathId);
+    const maxDepth = Number(definition?.maxDepth);
+    if (!Number.isFinite(maxDepth) || maxDepth <= 0) {
+        return null;
+    }
+
+    return Math.floor(maxDepth);
+}
+
+function getDungeonPathDisallowedTiles(pathId) {
+    const definition = getDungeonPathDefinition(pathId);
+    const disallowed = Array.isArray(definition?.disallowedTiles)
+        ? definition.disallowedTiles
+        : [];
+    return disallowed.filter((tileType) => Object.values(TILE_TYPES).includes(tileType));
+}
+
+function getDungeonAreaTypeForDepth(pathId, dungeonDepthIndex) {
+    const definition = getDungeonPathDefinition(pathId);
+    if (!definition) {
+        return null;
+    }
+
+    const sequence = Array.isArray(definition.areaSequence)
+        ? definition.areaSequence.filter((areaType) => Object.values(AREA_TYPES).includes(areaType))
+        : [];
+    if (sequence.length === 0) {
+        return null;
+    }
+
+    const depthIndex = Math.max(0, Math.floor(Number(dungeonDepthIndex) || 0));
+    if (definition.loopSequence) {
+        return sequence[depthIndex % sequence.length];
+    }
+
+    return sequence[Math.min(depthIndex, sequence.length - 1)];
 }
 
 function getPremadeTerrainShape(shapeId) {

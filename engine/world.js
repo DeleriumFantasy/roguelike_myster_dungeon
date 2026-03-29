@@ -4,8 +4,62 @@ class World {
     constructor(seed) {
         this.baseSeed = seed;
         this.floors = [];
+        this.pathFloors = {};
         this.currentFloor = 0;
+        this.selectedDungeonPathId = getDungeonPathDefinition('waterfallPath')
+            ? 'waterfallPath'
+            : getDefaultDungeonPathId();
+        this.unlockedDungeonPathIds = new Set([this.selectedDungeonPathId]);
+        this.completedDungeonPathIds = new Set();
         this.generateFloor();
+    }
+
+    getDungeonPathSeedOffset(pathId = this.selectedDungeonPathId) {
+        const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+        let hash = 0;
+
+        for (let i = 0; i < normalizedPathId.length; i++) {
+            hash = ((hash * 31) + normalizedPathId.charCodeAt(i)) % 1000003;
+        }
+
+        return hash;
+    }
+
+    getPathFloors(pathId = this.selectedDungeonPathId, options = {}) {
+        const { createIfMissing = false } = options;
+        const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+        if (!normalizedPathId) {
+            return null;
+        }
+
+        if (!Array.isArray(this.pathFloors[normalizedPathId]) && createIfMissing) {
+            this.pathFloors[normalizedPathId] = [];
+        }
+
+        return Array.isArray(this.pathFloors[normalizedPathId])
+            ? this.pathFloors[normalizedPathId]
+            : null;
+    }
+
+    getFloorAt(floorIndex = this.currentFloor, pathId = this.selectedDungeonPathId) {
+        const normalizedFloorIndex = Math.max(0, Math.floor(Number(floorIndex) || 0));
+        if (normalizedFloorIndex === 0) {
+            return this.floors[0] || null;
+        }
+
+        const pathFloors = this.getPathFloors(pathId);
+        return pathFloors?.[normalizedFloorIndex] || null;
+    }
+
+    setFloorAt(floorIndex, floorData, pathId = this.selectedDungeonPathId) {
+        const normalizedFloorIndex = Math.max(0, Math.floor(Number(floorIndex) || 0));
+        if (normalizedFloorIndex === 0) {
+            this.floors[0] = floorData;
+            return;
+        }
+
+        const pathFloors = this.getPathFloors(pathId, { createIfMissing: true });
+        pathFloors[normalizedFloorIndex] = floorData;
     }
 
     isWithinBounds(x, y) {
@@ -25,7 +79,7 @@ class World {
     }
 
     getCurrentFloor() {
-        return this.floors[this.currentFloor];
+        return this.getFloorAt(this.currentFloor, this.selectedDungeonPathId);
     }
 
     getDisposalTiles() {
@@ -33,12 +87,65 @@ class World {
     }
 
     getAreaType(floorIndex = this.currentFloor) {
-        return this.floors[floorIndex]?.meta?.areaType || AREA_TYPES.DUNGEON;
+        return this.getFloorAt(floorIndex, this.selectedDungeonPathId)?.meta?.areaType || AREA_TYPES.DUNGEON;
+    }
+
+    getSelectedDungeonPathId() {
+        return this.selectedDungeonPathId;
+    }
+
+    isDungeonPathUnlocked(pathId) {
+        return this.unlockedDungeonPathIds.has(pathId);
+    }
+
+    unlockDungeonPath(pathId) {
+        if (!getDungeonPathDefinition(pathId)) {
+            return false;
+        }
+
+        this.unlockedDungeonPathIds.add(pathId);
+        return true;
+    }
+
+    hasCompletedDungeonPath(pathId) {
+        return this.completedDungeonPathIds.has(pathId);
+    }
+
+    markDungeonPathCompleted(pathId) {
+        if (!getDungeonPathDefinition(pathId)) {
+            return false;
+        }
+
+        this.completedDungeonPathIds.add(pathId);
+        this.unlockDungeonPath(pathId);
+        return true;
+    }
+
+    setSelectedDungeonPath(pathId) {
+        if (!getDungeonPathDefinition(pathId) || !this.isDungeonPathUnlocked(pathId)) {
+            return false;
+        }
+
+        this.selectedDungeonPathId = pathId;
+        return true;
+    }
+
+    getDungeonPathOptions() {
+        const definitions = getDungeonPathDefinitions();
+        return Object.keys(definitions)
+            .filter((pathId) => this.isDungeonPathUnlocked(pathId))
+            .map((pathId) => {
+                const definition = definitions[pathId] || {};
+                return {
+                    id: pathId,
+                    name: typeof definition.name === 'string' ? definition.name : pathId
+                };
+            });
     }
 
     descendFloor() {
         this.currentFloor++;
-        if (!this.floors[this.currentFloor]) {
+        if (!this.getFloorAt(this.currentFloor, this.selectedDungeonPathId)) {
             this.generateFloor();
         }
     }

@@ -2,7 +2,10 @@
 
 Object.assign(World.prototype, {
     generateFloor(areaType = this.selectAreaTypeForFloor(this.currentFloor)) {
-        const rng = new SeededRNG(this.baseSeed + this.currentFloor);
+        const pathSeedOffset = this.currentFloor > 0
+            ? this.getDungeonPathSeedOffset(this.selectedDungeonPathId)
+            : 0;
+        const rng = new SeededRNG(this.baseSeed + this.currentFloor + pathSeedOffset);
         const layout = this.generateGridForArea(areaType, rng);
         const grid = layout.grid;
         const stairPositions = this.placeStairs(grid, rng, layout);
@@ -11,6 +14,8 @@ Object.assign(World.prototype, {
             this.decorateCatacombsHallways(grid, rng, layout, stairPositions);
         }
 
+        this.applyDungeonPathTileRestrictions(grid, areaType);
+
         const hazards = areaType === AREA_TYPES.OVERWORLD
             ? new Map()
             : this.generateHazardsForGrid(grid, rng, areaType, layout);
@@ -18,8 +23,9 @@ Object.assign(World.prototype, {
             ? new Map()
             : this.generateTrapsForGrid(grid, rng, areaType, layout);
         const disposalTiles = this.collectTilesByType(grid, [TILE_TYPES.WATER, TILE_TYPES.LAVA]);
+        const weather = this.generateWeatherForFloor(rng, areaType);
 
-        this.floors[this.currentFloor] = {
+        this.setFloorAt(this.currentFloor, {
             grid,
             hazards,
             traps,
@@ -39,9 +45,62 @@ Object.assign(World.prototype, {
                 } : null,
                 premadeItemSpawns: Array.isArray(layout?.premadeItemSpawns) ? [...layout.premadeItemSpawns] : [],
                 premadeEnemySpawns: Array.isArray(layout?.premadeEnemySpawns) ? [...layout.premadeEnemySpawns] : [],
-                contentSpawned: false
+                contentSpawned: false,
+                weather
             }
-        };
+        }, this.selectedDungeonPathId);
+    },
+
+    generateWeatherForFloor(rng, areaType = AREA_TYPES.DUNGEON) {
+        if (getRngRoll() > WEATHER_GENERATION_CHANCE) {
+            return WEATHER_TYPES.NONE;
+        }
+
+        const weights = WEATHER_SPAWN_WEIGHTS[areaType] || {};
+        if (Object.keys(weights).length === 0) {
+            return WEATHER_TYPES.NONE;
+        }
+
+        const validWeathers = Object.entries(weights);
+        let totalWeight = 0;
+        for (const [_, weight] of validWeathers) {
+            totalWeight += weight;
+        }
+
+        let roll = getRngRoll() * totalWeight;
+        for (const [weather, weight] of validWeathers) {
+            roll -= weight;
+            if (roll <= 0) {
+                return weather;
+            }
+        }
+
+        return WEATHER_TYPES.NONE;
+    },
+
+    applyDungeonPathTileRestrictions(grid, areaType) {
+        if (!Array.isArray(grid) || areaType === AREA_TYPES.OVERWORLD || this.currentFloor <= 0) {
+            return;
+        }
+
+        const disallowedTiles = getDungeonPathDisallowedTiles(this.selectedDungeonPathId);
+        if (!Array.isArray(disallowedTiles) || disallowedTiles.length === 0) {
+            return;
+        }
+
+        const blockedTiles = new Set(disallowedTiles);
+        const replacementTile = blockedTiles.has(TILE_TYPES.WATER)
+            ? TILE_TYPES.FLOOR
+            : TILE_TYPES.WATER;
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                if (!blockedTiles.has(grid[y][x])) {
+                    continue;
+                }
+
+                grid[y][x] = replacementTile;
+            }
+        }
     },
 
     collectTilesByType(grid, tileTypes) {
@@ -556,7 +615,11 @@ Object.assign(World.prototype, {
             return { x: position.x, y: position.y };
         };
 
-        const down = place(TILE_TYPES.STAIRS_DOWN);
+        const maxDepth = getDungeonPathMaxDepth(this.selectedDungeonPathId);
+        const canPlaceDownStairs = this.currentFloor === 0
+            || !Number.isFinite(maxDepth)
+            || this.currentFloor <= maxDepth;
+        const down = canPlaceDownStairs ? place(TILE_TYPES.STAIRS_DOWN) : null;
         let up = null;
         if (this.currentFloor > 0) {
             up = place(TILE_TYPES.STAIRS_UP);
@@ -626,6 +689,11 @@ Object.assign(World.prototype, {
         }
 
         const dungeonFloorIndex = Math.max(0, floorIndex - 1);
+        const pathAreaType = getDungeonAreaTypeForDepth(this.selectedDungeonPathId, dungeonFloorIndex);
+        if (pathAreaType) {
+            return pathAreaType;
+        }
+
         const rules = getAreaSelectionRules();
 
         if (dungeonFloorIndex % rules.floatingModulo === rules.floatingRemainder) {

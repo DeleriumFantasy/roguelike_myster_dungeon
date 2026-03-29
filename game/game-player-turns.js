@@ -38,9 +38,11 @@ Game.prototype.getPlayerMoveTarget = function(input) {
     };
 };
 
-Game.prototype.trySwapPlayerWithAlly = function(targetX, targetY) {
-    const allyAtTarget = this.world.getEnemyAt(targetX, targetY);
-    if (!allyAtTarget || !allyAtTarget.isAlly) {
+Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY) {
+    const actorAtTarget = this.world.getActorAt(targetX, targetY);
+    const canSwapWithActor = actorAtTarget
+        && (actorAtTarget.isAlly || isNeutralNpcActor(actorAtTarget));
+    if (!canSwapWithActor) {
         return null;
     }
 
@@ -48,7 +50,14 @@ Game.prototype.trySwapPlayerWithAlly = function(targetX, targetY) {
 
     const prevPlayerX = this.player.x;
     const prevPlayerY = this.player.y;
-    this.world.moveEnemy(allyAtTarget, prevPlayerX, prevPlayerY);
+
+    if (actorAtTarget.isAlly) {
+        this.world.moveEnemy(actorAtTarget, prevPlayerX, prevPlayerY);
+    } else {
+        actorAtTarget.x = prevPlayerX;
+        actorAtTarget.y = prevPlayerY;
+    }
+
     this.player.x = targetX;
     this.player.y = targetY;
     this.clearFailedMoveRecord();
@@ -79,7 +88,26 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
     this.clearFailedMoveRecord();
     this.applyPlayerTrapAtCurrentPosition();
     this.pickupItemsAfterMove(targetX, targetY);
-    this.player.checkHazards(this.world);
+    const hazardTransition = this.player.checkHazards(this.world);
+
+    if (hazardTransition?.requiresDungeonSelection) {
+        this.openDungeonSelectionFromOverworldStairs();
+        return this.createPlayerMoveResult({
+            consumed: true,
+            moved: true,
+            skipEnemyPhase: true,
+            actionType: 'dungeon-selection'
+        });
+    }
+
+    if (hazardTransition?.returnedToOverworldFromPathEnd) {
+        this.handleCompletedDungeonPath?.(hazardTransition.completedPathId);
+        return this.createPlayerMoveResult({
+            consumed: true,
+            moved: true,
+            actionType: 'returned-overworld'
+        });
+    }
 
     if (this.world.currentFloor === floorBeforeMove) {
         this.tryWakeCatacombsHoardEvent?.();
@@ -97,12 +125,12 @@ Game.prototype.processPlayerMoveTurn = function(input) {
     }
 
     const moveTarget = this.getPlayerMoveTarget(input);
-    const allySwapResult = this.trySwapPlayerWithAlly(moveTarget.x, moveTarget.y);
-    if (allySwapResult) {
+    const swapResult = this.trySwapPlayerWithFriendlyActor(moveTarget.x, moveTarget.y);
+    if (swapResult) {
         return this.createPlayerTurnResult({
-            consumed: allySwapResult.consumed,
+            consumed: swapResult.consumed,
             applyEnvironmentAfterAction: false,
-            actionType: allySwapResult.actionType
+            actionType: swapResult.actionType
         });
     }
 
@@ -110,6 +138,7 @@ Game.prototype.processPlayerMoveTurn = function(input) {
     return this.createPlayerTurnResult({
         consumed: moveResult.consumed,
         applyEnvironmentAfterAction: false,
+        skipEnemyPhase: moveResult.skipEnemyPhase,
         actionType: moveResult.actionType
     });
 };
@@ -212,7 +241,18 @@ Game.prototype.getAttackableEnemyAt = function(targetX, targetY, attackedEnemyKe
 };
 
 Game.prototype.tryApplyPlayerAttackKnockback = function(enemy, damage, hasKnockback) {
-    if (!hasKnockback || damage <= 0 || !enemy.isAlive() || Math.random() >= 0.25) {
+    if (damage <= 0 || !enemy.isAlive()) {
+        return;
+    }
+
+    const hasHeavyHitter = typeof this.player?.hasCondition === 'function'
+        && this.player.hasCondition(CONDITIONS.HEAVY_HITTER);
+    const knockbackChance = Math.max(
+        hasKnockback ? 0.25 : 0,
+        hasHeavyHitter ? 0.2 : 0
+    );
+
+    if (knockbackChance <= 0 || Math.random() >= knockbackChance) {
         return;
     }
 
@@ -399,7 +439,24 @@ Game.prototype.processPlayerBerserkTurn = function() {
     if (moved) {
         this.applyPlayerTrapAtCurrentPosition();
         this.pickupItemsAfterMove(next.x, next.y);
-        this.player.checkHazards(this.world);
+        const hazardTransition = this.player.checkHazards(this.world);
+        if (hazardTransition?.requiresDungeonSelection) {
+            this.openDungeonSelectionFromOverworldStairs();
+            return this.createPlayerTurnResult({
+                consumed: true,
+                applyEnvironmentAfterAction: false,
+                skipEnemyPhase: true,
+                actionType: 'dungeon-selection'
+            });
+        }
+        if (hazardTransition?.returnedToOverworldFromPathEnd) {
+            this.handleCompletedDungeonPath?.(hazardTransition.completedPathId);
+            return this.createPlayerTurnResult({
+                consumed: true,
+                applyEnvironmentAfterAction: false,
+                actionType: 'returned-overworld'
+            });
+        }
         if (this.world.currentFloor === floorBeforeMove) {
             this.tryWakeCatacombsHoardEvent?.();
         }

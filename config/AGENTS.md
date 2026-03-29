@@ -7,11 +7,11 @@
 
 ## File Roles
 
-- `constants.js`: core enums, status rules, tile rules, and shared constant tables. `CONDITIONS` includes `BLIND`, `CONFUSED`, and all other status effects.
+- `constants.js`: core enums, status rules, tile rules, weather types, trap types, and shared constant tables. `CONDITIONS` includes `BLIND`, `CONFUSED`, and all other status effects. `WEATHER_TYPES` defines `NONE` and `FOGGY`. `WEATHER_DEFINITIONS` specify FOV modifiers per weather type. `HAZARD_TYPES` includes condition traps and the special `TRAP_TRIP` that drops items.
 - `rules.js`: read-only helpers for interpreting condition, hazard, and traversal rule tables.
 - `terrain-constants.js`: tile visuals, autotiling helpers, and terrain lookups.
 - `input-constants.js`: key bindings and input interpretation helpers.
-- `generation-constants.js`: area generation rules and generation data, including area-selection and catacombs-generation tuning tables.
+- `generation-constants.js`: area generation rules, generation data, weather spawn weights per area type, and dungeon path definitions.
 - `enemy-definitions.js`: enemy templates and spawn-related enemy metadata.
 - `combat-rules.js`: shared pure combat math and EXP progression helpers (no actor state mutation).
 

@@ -129,3 +129,7 @@
 - For inventory UI issues: check `ui/ui-inventory.js` (unified equipped/backpack list, ally equipment entries, hover details panel, unknown-item redaction), and `index.html` (`#inventory-item-details`).
 - For stair/item ordering issues: check `game/game-player-turns.js` and `entities/player.js` (deferred hazard/stair trigger so pickup happens first).
 - For floor spawning issues: check `game-content.js`, `game-enemy-content.js` (including `ENEMY_FAMILY_SPAWN_BALANCING`, zero-weight filtering, and NPC placement/filtering), `game-item-generation.js` (count bands and tier weighting), and `engine/world-generation.js`.
+- For trap issues: check `engine/world-tile-state.js` (trap state and reveal), `config/constants.js` (trap definitions), and `game/game.js` (`applyPlayerTrapAtCurrentPosition()` and `dropPlayerItems()` for trip traps).
+- For weather issues: check `config/constants.js` (weather types and definitions), `config/generation-constants.js` (spawn weights), `engine/world-generation.js` (weather generation), and `game/game.js` (`getFovRangeForFloor()` for fog effects).
+- For dungeon path return portal issues: check `engine/world-traversal.js` (max-depth stairs spawn player at center of overworld).
+- For ally defeat/stalling issues: check `game/game-enemy-turns.js` (`stallAllyWithHandler()`, `getHandlerNpc()`), `game/game-npc-interactions.js` (handler ally retrieval with health restoration).

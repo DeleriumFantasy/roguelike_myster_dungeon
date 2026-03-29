@@ -38,6 +38,11 @@ Object.assign(UI.prototype, {
             closedAny = true;
         }
 
+        if (this.dungeonSelectionOpen) {
+            this.closeDungeonSelection();
+            closedAny = true;
+        }
+
         return closedAny;
     },
 
@@ -54,6 +59,47 @@ Object.assign(UI.prototype, {
         }
         modal.style.display = 'block';
         this.settingsOpen = true;
+    },
+
+    openDungeonSelection(options = [], onSelect = null) {
+        const modal = document.getElementById('dungeon-selection-modal');
+        const list = document.getElementById('dungeon-selection-list');
+        if (!modal || !list) {
+            return;
+        }
+
+        const normalizedOptions = Array.isArray(options)
+            ? options.filter((option) => option && typeof option.id === 'string')
+            : [];
+
+        list.innerHTML = '';
+        for (const option of normalizedOptions) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'dungeon-selection-option';
+            button.textContent = String(option.name || option.id);
+            button.addEventListener('click', () => {
+                if (typeof onSelect === 'function') {
+                    onSelect(option.id);
+                }
+                this.closeDungeonSelection();
+                this.canvas.focus();
+            });
+            list.appendChild(button);
+        }
+
+        modal.style.display = 'block';
+        this.dungeonSelectionOpen = true;
+    },
+
+    closeDungeonSelection() {
+        const modal = document.getElementById('dungeon-selection-modal');
+        if (!modal) {
+            return;
+        }
+
+        modal.style.display = 'none';
+        this.dungeonSelectionOpen = false;
     },
 
     closeSettings() {
