@@ -12,7 +12,7 @@
 - `World`: floor state, actor occupancy (enemies and NPCs separated), tile state, traversal, and generation.
 - `Player`: base player state, then combat, inventory, and progression helpers in separate files.
 - `Enemy`: base enemy state, then item behavior, AI, progression, and combat helpers in separate files. Hostile enemies only (NPCs are a separate type).
-- `UI`: base UI object, then rendering, panels, inventory, and map helpers in separate files.
+- `UI`: base UI object, then rendering, panels, and inventory helpers in separate files.
 - `Game`: bootstrap and turn flow, then content, combat, NPC, item, and turn-resolution helpers in separate files.
 
 ## Folder Map
@@ -28,12 +28,11 @@
 - `world.js`: core `World` class shell and generic floor/tile helpers.
 - `world-actors.js`: enemy collection, occupancy helpers, and occupancy indexing.
 - `world-tile-state.js`: trap state, hazard state, item placement, and item spawn helpers.
-- `world-traversal.js`: hazard transitions, water crossing, and landing logic.
 - `world-generation.js`: floor generation and area layout helpers.
 
 ### `entities/`
 
-- Class shells plus responsibility-based prototype extensions.
+ // All canvas-specific helpers and fallback rendering have been removed. Only PixiJS is supported.
 - `player.js`: base player shell.
 - `combat-utils.js`: shared combat application helpers that mutate actor state (`applyDamageToActor`, `applyStandardAttackToTarget`).
 - `player-combat.js`: damage, attacks, conditions.
@@ -51,11 +50,14 @@
 ### `ui/`
 
 - Rendering and UI-specific logic only.
-- `ui.js`: base UI shell.
-- `ui-rendering.js`: main scene rendering, camera logic, fog threshold behavior, and transient combat effects.
+- `ui.js`: base UI shell, shared DOM/canvas setup, shared scene/view helpers (camera bounds, visibility predicates, display name/item/trap helpers), camera targeting, and scene-mode switching.
+- `ui-pixi-overlay.js`: PixiJS orchestrator (~210 lines), manages Pixi app and layer hierarchy.
+- `ui-pixi-sprites.js`: Procedural actor sprite generation (~220 lines).
+- `ui-pixi-layers.js`: Terrain, items, depth, shadows rendering (~220 lines).
+- `ui-pixi-actors.js`: Actor sprites with glows, health bars, labels (~130 lines).
+- `ui-pixi-effects.js`: Combat effects and event banners (~150 lines).
 - `ui-panels.js`: stats and message overlay helpers.
 - `ui-inventory.js`: inventory modal helpers.
-- `ui-map.js`: map overlay helpers.
 
 ### `game/`
 
@@ -86,6 +88,7 @@
   - `item.js` before `item-data.js` and `item-factories.js`
   - `player.js` before player extension files
   - `enemy.js` before enemy extension files
+  - Pixi CDN, then `ui-pixi-overlay.js`, `ui-pixi-sprites.js`, `ui-pixi-render-state.js`, `ui-pixi-layers.js`, `ui-pixi-actors.js`, `ui-pixi-effects.js`, then `ui.js`
   - `game-input.js` and `game-turn-results.js` after `game.js` and before turn-processing files
   - `game-npc-interactions.js` after `game.js`/`game-turn-results.js` and before turn-processing files that call NPC helpers
   - `game-content-utils.js` and `game-content-registry.js` before `game-enemy-content.js` and `game-item-generation.js`
@@ -122,7 +125,7 @@
 - For item issues: check `game-item-generation.js`, `game-item-state.js`, `game-item-interactions.js`, then item entity files (`item.js` display naming and `item-factories.js` world roll behavior).
 - For enemy behavior issues: check `enemy-ai.js` (including A* pathfinding with hostile-tile cost routing), `enemy-item-behaviors.js`, `enemy-combat.js`, then `game-enemy-turns.js`.
 - For enemy pathfinding issues: check `entities/enemy-ai.js` `findPath`, `canTraverseTileForPathfinding`, and cost-based routing logic. Enemies prefer safe routes but route through hostile tiles (water/lava/spike) at cost 50 rather than getting stuck.
-- For map or rendering issues: check `ui-rendering.js`, `ui-map.js`, and `engine/fov.js`.
+- For map or rendering issues: check `ui/ui-pixi-overlay.js` (orchestrator) and subsystems (`ui-pixi-sprites.js` for actor appearance, `ui-pixi-render-state.js` for per-frame shared state, `ui-pixi-layers.js` for tile/item/depth, `ui-pixi-actors.js` for health bars and labels, `ui-pixi-effects.js` for combat animations), then `engine/fov.js` for visibility logic.
 - For NPC or quest issues: check `game-npc-interactions.js`, `game-enemy-content.js`, and `entities/enemy-ai.js` if escort or passive ally behavior is involved.
 - For auto-explore issues: check `game-explore.js` (tick loop, sticky targets, oscillation breakout, forced detours, no-progress watchdog, damage-tile avoidance, BLIND/CONFUSED random movement, descent setting), `game-input.js` (any keypress stops explore), and `game.js` (`game.settings.autoExploreDescendImmediately`).
 - For settings menu issues: check `ui/ui-panels.js` (`openSettings`, `closeSettings`, `settingsOpen`), `game-input.js` (Escape toggles settings), `index.html` (`#settings-modal`), and `game.js` (`this.settings` object).

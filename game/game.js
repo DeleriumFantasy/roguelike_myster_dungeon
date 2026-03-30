@@ -9,7 +9,7 @@ class Game {
         this.infoPanel = document.getElementById('info-panel');
         this.resizeCanvas();
         this.inventoryModal = document.getElementById('inventory-modal');
-        this.ui = new UI(this.canvas, this.infoPanel, this.inventoryModal, this);
+        this.ui = new UI(this.infoPanel, this.inventoryModal, this);
         this.world = new World(this.seed);
         this.player = new Player(25, 25);
         this.fov = null; // will be set per floor
@@ -39,6 +39,7 @@ class Game {
 
         this.canvas.width = nextWidth;
         this.canvas.height = nextHeight;
+        this.ui?.handleCanvasResize?.();
     }
 
     lookTowards(dx, dy) {
@@ -99,9 +100,10 @@ class Game {
 
         this.world.markDungeonPathCompleted(pathId);
         this.ui.addMessage(`Path completed: ${definition.name || pathId}.`);
+        const newlyUnlocked = [];
+        let secondQuestgiverUnlocked = false;
 
         if (pathId === 'waterfallPath') {
-            const newlyUnlocked = [];
             if (this.world.unlockDungeonPath('graspingPillars')) {
                 newlyUnlocked.push(getDungeonPathDefinition('graspingPillars')?.name || 'graspingPillars');
             }
@@ -116,6 +118,7 @@ class Game {
         const advancedPathsCompleted = this.world.hasCompletedDungeonPath('graspingPillars')
             && this.world.hasCompletedDungeonPath('anomalousRuins');
         if (advancedPathsCompleted) {
+            secondQuestgiverUnlocked = true;
             const secondQuestgiver = this.ensureSecondQuestgiverAvailability?.();
             if (secondQuestgiver && this.isOverworldFloor(this.world.currentFloor)) {
                 const spawnRng = this.getFloorContentRng?.(this.world.currentFloor + 424242) || createMathRng();
@@ -127,6 +130,7 @@ class Game {
             }
             this.ui.addMessage('A second Questgiver has appeared in the overworld.');
         }
+
     }
 
     openDungeonSelectionFromOverworldStairs() {

@@ -7,27 +7,42 @@
 
 ## File Roles
 
-- `ui.js`: base UI shell and shared DOM/canvas setup.
-- `ui-rendering.js`: scene rendering, tile drawing, camera, and visibility-based render decisions.
+- `ui-pixi-overlay.js`: PixiJS class orchestrator (~210 lines). Manages Pixi application and scene hierarchy, and delegates rendering to subsystems. Main render() method coordinates terrain, items, actors, effects, and panel updates in draw order.
+- `ui-pixi-sprites.js`: Procedural sprite generation (~220 lines). Generates actor sprites (player with cloak, ally diamond, NPC rounded torso, enemy polygon) via Pixi Graphics→texture, caches by role+size. Includes color mixing, CSS color parsing, and Pixi hex color utilities.
+- `ui-pixi-render-state.js`: Shared per-frame render-state helpers. Builds camera/visibility state once per frame and centralizes layer clearing helpers used by the overlay orchestrator.
+- `ui-pixi-layers.js`: World layer rendering (~220 lines). Terrain sprite placement, tile overlays (steam hazards, trap icons), item indicators, wall depth cues, and actor shadows.
+- `ui-pixi-actors.js`: Actor sprite rendering (~130 lines). Places actor sprites with bob/breathe animations, renders acto glows, health bars (color-coded by ratio), player facing arrow, and enemy name labels.
+- `ui-pixi-effects.js`: Transient effects and banners (~150 lines). Melee strike trails, projectile throw paths with animated projectile circle, hit pulse overlays, and active-event banner rendering with objective + turn counter.
+- `ui.js`: base UI shell, shared DOM/canvas setup, shared scene/view helpers (camera bounds, visibility predicates, tile/item/enemy display helpers, banner data helpers), camera targeting, and scene view helpers.
 - `ui-panels.js`: stats and message overlay updates, and settings modal (`openSettings`, `closeSettings`, `settingsOpen`). Settings changes are read from/written to `game.settings` on close. Message list renders newest-first. Ally stats are included in the stats overlay.
 	Dungeon selection modal presentation (`openDungeonSelection`, `closeDungeonSelection`) also belongs here.
 - `ui-inventory.js`: inventory modal presentation (lists, prompts, hover details panel with unknown-item redaction) and delegation of gameplay mutations to `game-inventory-actions.js`.
-- `ui-map.js`: minimap/map overlay rendering.
 
 ## Editing Rules
 
 - Keep rendering decisions here; keep gameplay state mutation in `game/`, `entities/`, or `engine/`.
 - Inventory actions that mutate gameplay state (use/equip/unequip/drop) belong in `game-inventory-actions.js`; `ui-inventory.js` should only gather input and present results.
-- Shared render predicates should live in `ui-rendering.js` and be reused by panel/map rendering.
 - If a method only formats messages or DOM text, prefer `ui-panels.js`.
-- If a helper is canvas-specific and scene-specific, prefer `ui-rendering.js`.
+- If a helper is scene-render-specific and shared across Pixi subsystems, prefer `ui-pixi-render-state.js`.
 
 ## Fast Orientation
 
-- For on-screen actor/tile rendering, start in `ui-rendering.js`.
-- For the top-left overlay map, start in `ui-map.js`.
-- For stats or message overlay output, start in `ui-panels.js`.
-- For inventory detail hover panel issues, check `ui-inventory.js` and `index.html` (`#inventory-item-details`).
+**For Pixi scene rendering issues:**
+- Start in `ui-pixi-overlay.js` render() method to understand the draw order.
+- For sprite appearance issues: check `ui-pixi-sprites.js` (getActorSpriteTexture, color mixing).
+- For shared per-frame state issues: check `ui-pixi-render-state.js` (buildRenderState, visibility helpers, layer clearing).
+- For layer/depth/terrain issues: check `ui-pixi-layers.js` (renderTerrain, renderDepth, renderItems).
+- For actor/health-bar/label issues: check `ui-pixi-actors.js` (renderActors, renderHealthBar, renderEnemyLabel).
+- For effect animation issues: check `ui-pixi-effects.js` (renderMeleeStrikeEffect, renderThrowTrailEffect, renderHitPulseEffect).
+
+**For canvas/visibility predicate issues (used everywhere):**
+- Check `ui.js` for shared helpers: isTileRevealed, isEnemyVisibleInFov, shouldUseFogForFloor, getVisibilityAlpha, etc.
+
+**For stats/message/settings issues:**
+- Check `ui-panels.js`.
+
+**For inventory detail hover panel issues:**
+- Check `ui-inventory.js` and `index.html` (`#inventory-item-details`).
 
 ## Common Mistakes
 

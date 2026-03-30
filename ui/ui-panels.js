@@ -26,11 +26,6 @@ Object.assign(UI.prototype, {
     closeAuxiliaryOverlays() {
         let closedAny = false;
 
-        if (this.mapOpen) {
-            this.closeMap();
-            closedAny = true;
-        }
-
         if (this.statsOpen || this.messagesOpen) {
             this.statsOpen = false;
             this.messagesOpen = false;
@@ -83,7 +78,6 @@ Object.assign(UI.prototype, {
                     onSelect(option.id);
                 }
                 this.closeDungeonSelection();
-                this.canvas.focus();
             });
             list.appendChild(button);
         }
@@ -118,6 +112,7 @@ Object.assign(UI.prototype, {
     },
 
     updateInfoPanel(player, world, fov) {
+        if (!world) return;
         const areaType = world.getAreaType(world.currentFloor);
         const playerBlind = this.isActorBlind(player);
         const conditionEntries = Array.from(player.conditions.entries());
@@ -164,6 +159,15 @@ Object.assign(UI.prototype, {
                 : (activeQuest.display || 'Active quest'))
             : 'none';
         const statsDiv = this.statsDiv;
+        if (!statsDiv) return;
+        // Weather info
+        let weatherType = world.getCurrentFloor?.()?.meta?.weather || (world.currentFloorObj?.meta?.weather) || 'none';
+        let weatherName = weatherType;
+        if (typeof WEATHER_DEFINITIONS !== 'undefined' && WEATHER_DEFINITIONS[weatherType]) {
+            weatherName = WEATHER_DEFINITIONS[weatherType].name;
+        } else if (weatherType && weatherType.charAt) {
+            weatherName = weatherType.charAt(0).toUpperCase() + weatherType.slice(1);
+        }
         statsDiv.innerHTML = `
             <h3>Player Stats</h3>
             <p>Level: ${player.level}</p>
@@ -176,6 +180,7 @@ Object.assign(UI.prototype, {
             <p>Conditions: ${conditionText}</p>
             <p>Floor: ${floorLabel}</p>
             <p>Area: ${areaType}</p>
+            <p>Weather: ${weatherName}</p>
             <p>Allies: ${allies.length}</p>
             <p>Position: ${player.x}, ${player.y}</p>
             <p>Quest: ${activeQuestText}</p>

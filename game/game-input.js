@@ -151,7 +151,6 @@ class GameInputController {
                 }
                 return true;
             case 'toggle-map':
-                this.game.ui.toggleMap(this.game.world, this.game.player);
                 return true;
             case 'toggle-stats':
                 this.game.ui.toggleStatsOverlay?.();
