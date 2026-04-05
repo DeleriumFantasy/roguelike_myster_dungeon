@@ -46,6 +46,14 @@ class Item {
     getDisplayName() {
         if (this.isIdentified()) {
             const improvementSuffix = this.getImprovementSuffix();
+
+            if (this.type === ITEM_TYPES.POT) {
+                const remainingSpace = this.getRemainingPotSpace();
+                const capacity = this.getPotCapacity();
+                const storedSuffix = ` [space ${remainingSpace}/${capacity}]`;
+                return `${this.name}${storedSuffix}${improvementSuffix}`;
+            }
+
             const enchantmentNames = this.getVisibleEnchantmentNames();
             if (enchantmentNames.length === 0) {
                 return `${this.name}${improvementSuffix}`;
@@ -66,6 +74,115 @@ class Item {
     getImprovementSuffix() {
         const level = this.getImprovementLevel();
         return level > 0 ? ` +${level}` : '';
+    }
+
+    isPotItem() {
+        return this.type === ITEM_TYPES.POT;
+    }
+
+    getPotType() {
+        return typeof this.properties?.potType === 'string'
+            ? this.properties.potType
+            : 'basic';
+    }
+
+    getStoredItems() {
+        return Array.isArray(this.properties?.storedItems)
+            ? this.properties.storedItems.filter(Boolean)
+            : [];
+    }
+
+    getStoredItemCount() {
+        return this.getStoredItems().length;
+    }
+
+    getUsedPotSpace() {
+        if (!this.isPotItem()) {
+            return 0;
+        }
+
+        const explicitUsed = Number(this.properties?.usedPotSpace);
+        const storedCount = this.getStoredItemCount();
+        if (Number.isFinite(explicitUsed) && explicitUsed >= 0) {
+            return Math.max(storedCount, Math.floor(explicitUsed));
+        }
+
+        return storedCount;
+    }
+
+    getPotCapacity() {
+        if (!this.isPotItem()) {
+            return 0;
+        }
+
+        this.properties = this.properties || {};
+        const configuredCapacity = Number(this.properties.potCapacity);
+        if (Number.isFinite(configuredCapacity) && configuredCapacity > 0) {
+            return Math.max(1, Math.floor(configuredCapacity));
+        }
+
+        const minCapacity = Number(this.properties.minCapacity);
+        const maxCapacity = Number(this.properties.maxCapacity);
+        const safeMin = Number.isFinite(minCapacity) && minCapacity > 0
+            ? Math.floor(minCapacity)
+            : 1;
+        const safeMax = Number.isFinite(maxCapacity) && maxCapacity > 0
+            ? Math.max(safeMin, Math.floor(maxCapacity))
+            : safeMin;
+
+        const rolledCapacity = typeof getRngRandomInt === 'function'
+            ? getRngRandomInt(null, safeMin, safeMax)
+            : safeMin + Math.floor(Math.random() * (safeMax - safeMin + 1));
+        this.properties.potCapacity = Math.max(1, Math.floor(rolledCapacity));
+        return this.properties.potCapacity;
+    }
+
+    getRemainingPotSpace() {
+        return Math.max(0, this.getPotCapacity() - this.getUsedPotSpace());
+    }
+
+    consumePotSpace(amount = 1) {
+        if (!this.isPotItem()) {
+            return 0;
+        }
+
+        const capacity = this.getPotCapacity();
+        const used = this.getUsedPotSpace();
+        const nextUsed = clamp(used + Math.max(0, Math.floor(Number(amount) || 0)), 0, capacity);
+        this.properties = this.properties || {};
+        this.properties.usedPotSpace = nextUsed;
+        return nextUsed - used;
+    }
+
+    isPotFull() {
+        return this.isPotItem() && this.getRemainingPotSpace() <= 0;
+    }
+
+    storeItemInPot(item) {
+        if (!this.isPotItem() || !item || item === this) {
+            return { stored: false, reason: 'invalid-item' };
+        }
+
+        if (this.isPotFull()) {
+            return { stored: false, reason: 'full' };
+        }
+
+        this.properties = this.properties || {};
+        if (!Array.isArray(this.properties.storedItems)) {
+            this.properties.storedItems = [];
+        }
+
+        this.properties.storedItems.push(item);
+        this.consumePotSpace(1);
+        return { stored: true, item };
+    }
+
+    releaseStoredItems() {
+        const storedItems = this.getStoredItems();
+        if (this.properties && Object.prototype.hasOwnProperty.call(this.properties, 'storedItems')) {
+            delete this.properties.storedItems;
+        }
+        return storedItems;
     }
 
     hasEnchantment(enchantmentId) {
@@ -285,7 +402,8 @@ class Item {
     }
 
     canImproveEquipmentItem(item) {
-        if (!item || item.type === ITEM_TYPES.CONSUMABLE || item.type === ITEM_TYPES.THROWABLE) {
+        const equipmentTypes = [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY];
+        if (!item || !equipmentTypes.includes(item.type)) {
             return false;
         }
 
@@ -581,6 +699,16 @@ class Item {
 
     createSingleUseClone() {
         const clonedProperties = { ...this.properties };
+        if (Array.isArray(clonedProperties.enchantments)) {
+            clonedProperties.enchantments = [...clonedProperties.enchantments];
+        }
+        if (Array.isArray(clonedProperties.storedItems)) {
+            clonedProperties.storedItems = clonedProperties.storedItems
+                .map((storedItem) => typeof storedItem?.createSingleUseClone === 'function'
+                    ? storedItem.createSingleUseClone()
+                    : storedItem)
+                .filter(Boolean);
+        }
         if (Object.prototype.hasOwnProperty.call(clonedProperties, 'quantity')) {
             delete clonedProperties.quantity;
         }
@@ -657,14 +785,16 @@ class Item {
     }
 
     equip(user) {
-        if (this.type !== ITEM_TYPES.CONSUMABLE && this.type !== ITEM_TYPES.THROWABLE) {
-            const equipped = user.equipItem(this);
-            if (equipped) {
-                this.identify();
-            }
-            return equipped;
+        const equippableTypes = Object.values(EQUIPMENT_SLOTS);
+        if (!equippableTypes.includes(this.type)) {
+            return false;
         }
-        return false;
+
+        const equipped = user.equipItem(this);
+        if (equipped) {
+            this.identify();
+        }
+        return equipped;
     }
 
     unequip(user) {

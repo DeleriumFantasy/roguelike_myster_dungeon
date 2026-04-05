@@ -604,6 +604,7 @@ Object.assign(Game.prototype, {
             : this.getDungeonDepthIndex(floorIndex);
         const enemyFloorIndex = itemFloorIndex;
         const rng = this.getFloorContentRng(floorIndex);
+
         this.spawnPremadeLegendEnemies(rng, enemyFloorIndex);
         if (this.isOverworldFloor(floorIndex)) {
             this.spawnOverworldNpcs(rng);
@@ -612,10 +613,60 @@ Object.assign(Game.prototype, {
             this.spawnEnemiesForCurrentFloor(rng, dungeonDepthIndex);
             this.spawnItemsForCurrentFloor(rng, dungeonDepthIndex);
             this.spawnPremadeItemsForCurrentFloor(rng, itemFloorIndex);
+            this.populateDungeonShopIfPresent(rng, itemFloorIndex);
             this.tryActivateRandomFloorEvent(rng, dungeonDepthIndex);
         }
 
         floor.meta = floor.meta || {};
         floor.meta.contentSpawned = true;
+    },
+
+    populateDungeonShopIfPresent(rng, floorIndex) {
+        const floor = this.world.getCurrentFloor();
+        if (!floor || !floor.grid) {
+            return;
+        }
+
+        const shopTiles = [];
+        for (let y = 0; y < floor.grid.length; y++) {
+            for (let x = 0; x < floor.grid[y].length; x++) {
+                if (floor.grid[y][x] === TILE_TYPES.SHOP) {
+                    shopTiles.push({ x, y });
+                }
+            }
+        }
+
+        if (shopTiles.length === 0) {
+            return;
+        }
+
+        const shopkeeperTile = pickRandom(shopTiles, rng, shopTiles[0]);
+        const shopkeeper = this.createEnemyForType(shopkeeperTile.x, shopkeeperTile.y, 'npcTier1', 0);
+        if (shopkeeper) {
+            shopkeeper.name = 'Shopkeeper';
+            shopkeeper.isShopkeeper = true;
+            shopkeeper.aiType = AI_TYPES.GUARD;
+            shopkeeper.baseAiType = AI_TYPES.GUARD;
+            shopkeeper.isNeutralNpc = () => true;
+            this.world.addEnemy(shopkeeper);
+        }
+
+        for (const tile of shopTiles) {
+            if (tile.x === shopkeeperTile.x && tile.y === shopkeeperTile.y) {
+                continue;
+            }
+
+            if (rng.next() < 0.5) {
+                const item = this.createRandomItemForFloor(rng, floorIndex);
+                if (item) {
+                    item.properties = item.properties || {};
+                    item.properties.shopOwned = true;
+                    item.properties.shopUnpaid = false;
+                    item.properties.shopkeeperId = shopkeeper?.id || null;
+                    item.properties.shopPrice = this.getShopItemPrice?.(item) || 30;
+                    this.world.addItem(tile.x, tile.y, item);
+                }
+            }
+        }
     }
 });

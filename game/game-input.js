@@ -13,12 +13,16 @@ class GameInputController {
                 this.game.ui.render(this.game.world, this.game.player, this.game.fov);
             }
         };
+        this.handleWindowBlur = () => {
+            this.reset();
+        };
     }
 
     attach() {
         document.addEventListener('keydown', (event) => this.handleKeyDown(event));
         document.addEventListener('keyup', (event) => this.handleKeyUp(event));
         window.addEventListener('resize', this.handleWindowResize);
+        window.addEventListener('blur', this.handleWindowBlur);
         this.bindCloseButton('close-inventory', () => this.game.ui.closeInventory());
         this.bindCloseButton('close-settings', () => {
             this.game.ui.closeSettings();
@@ -35,9 +39,53 @@ class GameInputController {
         }
 
         button.addEventListener('click', () => {
-            closeAction();
-            this.game.ui.canvas.focus();
+            this.closeOverlayAndFocus(closeAction);
         });
+    }
+
+    focusPrimaryCanvas() {
+        if (typeof this.game?.ui?.focusGameSurface === 'function') {
+            this.game.ui.focusGameSurface();
+            return;
+        }
+
+        const focusTarget = this.game?.canvas || null;
+        if (focusTarget && typeof focusTarget.focus === 'function') {
+            focusTarget.focus();
+        }
+    }
+
+    closeOverlayAndFocus(closeAction) {
+        if (typeof closeAction === 'function') {
+            closeAction();
+        }
+
+        this.reset();
+        this.focusPrimaryCanvas();
+    }
+
+    handleEscapeKey() {
+        if (this.game.ui.settingsOpen) {
+            this.closeOverlayAndFocus(() => this.game.ui.closeSettings());
+            return;
+        }
+
+        if (this.game.ui.dungeonSelectionOpen) {
+            this.closeOverlayAndFocus(() => this.game.ui.closeDungeonSelection());
+            return;
+        }
+
+        this.game.ui.openSettings();
+    }
+
+    toggleInventory() {
+        if (this.game.inventoryOpen) {
+            this.closeOverlayAndFocus(() => this.game.ui.closeInventory());
+            return;
+        }
+
+        this.game.ui.openInventory(this.game.player);
+        this.game.inventoryOpen = true;
     }
 
     reset() {
@@ -105,15 +153,7 @@ class GameInputController {
                 this.game.handleFacingAttackInput();
                 break;
             case 'Escape':
-                if (this.game.ui.settingsOpen) {
-                    this.game.ui.closeSettings();
-                    this.game.ui.canvas.focus();
-                } else if (this.game.ui.dungeonSelectionOpen) {
-                    this.game.ui.closeDungeonSelection();
-                    this.game.ui.canvas.focus();
-                } else {
-                    this.game.ui.openSettings();
-                }
+                this.handleEscapeKey();
                 break;
             default:
                 handled = this.handleLetterKey(lowerKey);
@@ -142,13 +182,7 @@ class GameInputController {
         const action = getInputActionForKey(lowerKey);
         switch (action) {
             case 'open-inventory':
-                if (this.game.inventoryOpen) {
-                    this.game.ui.closeInventory();
-                    this.game.ui.canvas.focus();
-                } else {
-                    this.game.ui.openInventory(this.game.player);
-                    this.game.inventoryOpen = true;
-                }
+                this.toggleInventory();
                 return true;
             case 'toggle-map':
                 return true;

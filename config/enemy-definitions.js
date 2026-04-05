@@ -109,7 +109,7 @@ const ENEMY_FAMILY_DEFINITIONS = {
     escort: {
         defaults: { types: [], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.GUARD, fovRange: 8 },
         tiers: {
-            1: { key: 'escortPassengerTier1', displayName: 'Pilgrim', health: 24, power: 0, armor: 1, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 }
+            1: { key: 'escortPassengerTier1', displayName: 'Pilgrim', health: 50, power: 0, armor: 2, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 }
         }
     },
     npc: {

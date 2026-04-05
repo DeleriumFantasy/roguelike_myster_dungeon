@@ -24,7 +24,8 @@ const TILE_TYPES = {
     PIT: 'pit',
     WATER: 'water',
     SPIKE: 'spike',
-    LAVA: 'lava'
+    LAVA: 'lava',
+    SHOP: 'shop'
 };
 
 // Weather types
@@ -241,18 +242,22 @@ const EQUIPMENT_SLOTS = {
 };
 
 const ITEM_TYPES = {
+    MONEY: 'money',
     WEAPON: 'weapon',
     ARMOR: 'armor',
     SHIELD: 'shield',
     ACCESSORY: 'accessory',
     CONSUMABLE: 'consumable',
-    THROWABLE: 'throwable'
+    THROWABLE: 'throwable',
+    POT: 'pot'
 };
 
 // Item visuals and knowledge states
 const ITEM_TYPE_COLORS = {
+    [ITEM_TYPES.MONEY]: '#c9a227',
     [ITEM_TYPES.CONSUMABLE]: '#0614df',
     [ITEM_TYPES.THROWABLE]: '#ebff3a',
+    [ITEM_TYPES.POT]: '#8b5a2b',
     [ITEM_TYPES.WEAPON]: '#ff001e',
     [ITEM_TYPES.ARMOR]: '#02d625',
     [ITEM_TYPES.SHIELD]: '#e100ff',

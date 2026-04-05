@@ -42,12 +42,37 @@ function applyConfiguredSpawnImprovements(item, rng = null) {
     return item;
 }
 
+function applyConfiguredPotCapacity(item, rng = null) {
+    if (!item?.isPotItem?.()) {
+        return item;
+    }
+
+    item.properties = item.properties || {};
+    const existingCapacity = Number(item.properties.potCapacity);
+    if (Number.isFinite(existingCapacity) && existingCapacity > 0) {
+        return item;
+    }
+
+    const minCapacity = Number(item.properties.minCapacity);
+    const maxCapacity = Number(item.properties.maxCapacity);
+    const safeMin = Number.isFinite(minCapacity) && minCapacity > 0
+        ? Math.floor(minCapacity)
+        : 1;
+    const safeMax = Number.isFinite(maxCapacity) && maxCapacity > 0
+        ? Math.max(safeMin, Math.floor(maxCapacity))
+        : safeMin;
+
+    item.properties.potCapacity = getRngRandomInt(rng, safeMin, safeMax);
+    return item;
+}
+
 function createItemFromDefinition(definition, rng = null) {
     if (!definition) {
         return null;
     }
 
     const item = new Item(definition.name, definition.type, { ...definition.properties });
+    applyConfiguredPotCapacity(item, rng);
     return applyConfiguredSpawnImprovements(item, rng);
 }
 
@@ -192,6 +217,129 @@ function createBitterSeedsItemFrom(sourceItem = null) {
     return bitterSeeds;
 }
 
+function estimateItemTierFromValue(value) {
+    const numericValue = Math.max(0, Math.floor(Number(value) || 0));
+    if (numericValue >= 45) {
+        return 4;
+    }
+    if (numericValue >= 20) {
+        return 3;
+    }
+    if (numericValue >= 10) {
+        return 2;
+    }
+    return 1;
+}
+
+function chooseWeightedItemEntry(entries, rng = null) {
+    const validEntries = Array.isArray(entries)
+        ? entries.filter((entry) => Number(entry?.weight) > 0 && typeof entry?.create === 'function')
+        : [];
+    if (validEntries.length === 0) {
+        return null;
+    }
+
+    const totalWeight = validEntries.reduce((sum, entry) => sum + Number(entry.weight || 0), 0);
+    if (totalWeight <= 0) {
+        return validEntries[0] || null;
+    }
+
+    let roll = getRngRoll(rng) * totalWeight;
+    for (const entry of validEntries) {
+        roll -= Number(entry.weight || 0);
+        if (roll <= 0) {
+            return entry;
+        }
+    }
+
+    return validEntries[validEntries.length - 1] || null;
+}
+
+function createMoneyItemWithValue(value) {
+    const moneyItem = createTieredItem('money', 1);
+    if (!moneyItem) {
+        return null;
+    }
+
+    moneyItem.properties = moneyItem.properties || {};
+    moneyItem.properties.value = Math.max(1, Math.floor(Number(value) || 1));
+    return moneyItem;
+}
+
+function createFoodPotResultItem(sourceItem = null, rng = null) {
+    const match = getTieredItemMatch(sourceItem);
+    const tier = Number.isFinite(Number(match?.tier))
+        ? clamp(Math.floor(Number(match.tier)), 1, 4)
+        : estimateItemTierFromValue(getItemSellPrice(sourceItem));
+
+    return createTieredItem('food', tier, rng) || createBitterSeedsItemFrom(sourceItem);
+}
+
+function createRandomizedPotResultItem(sourceItem = null, rng = null, floorIndex = 0) {
+    const match = getTieredItemMatch(sourceItem);
+    if (match && getRngRoll(rng) < 0.65) {
+        const tierDefinitions = TIERED_ITEM_DEFINITIONS[match.category] || {};
+        const alternativeTiers = Object.keys(tierDefinitions)
+            .map((tier) => Number(tier))
+            .filter((tier) => Number.isFinite(tier) && tier !== match.tier)
+            .sort((left, right) => Math.abs(left - match.tier) - Math.abs(right - match.tier));
+        const preferredTiers = alternativeTiers.slice(0, Math.min(2, alternativeTiers.length));
+        const chosenTier = pickRandom(preferredTiers.length > 0 ? preferredTiers : alternativeTiers, rng, alternativeTiers[0]);
+
+        if (Number.isFinite(chosenTier)) {
+            const transformedItem = createTieredItem(match.category, chosenTier, rng);
+            if (transformedItem) {
+                if (sourceItem?.type === ITEM_TYPES.THROWABLE && transformedItem.type === ITEM_TYPES.THROWABLE) {
+                    transformedItem.setQuantity?.(sourceItem.getQuantity?.() || 1);
+                }
+                return transformedItem;
+            }
+        }
+    }
+
+    const fallbackTier = match
+        ? clamp(Math.floor(Number(match.tier) || 1), 1, 4)
+        : clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 4);
+    const weightedEntries = getWeightedItemEntriesForTier(fallbackTier)
+        .filter((entry) => entry?.category !== 'money');
+    const chosenEntry = chooseWeightedItemEntry(weightedEntries, rng);
+    const transformedItem = chosenEntry?.create?.(rng) || createTieredItem('food', fallbackTier, rng);
+
+    if (sourceItem?.type === ITEM_TYPES.THROWABLE && transformedItem?.type === ITEM_TYPES.THROWABLE) {
+        transformedItem.setQuantity?.(sourceItem.getQuantity?.() || 1);
+    }
+
+    return transformedItem;
+}
+
+function transformItemForPot(sourceItem, potItem, options = {}) {
+    if (!sourceItem || !potItem) {
+        return sourceItem || null;
+    }
+
+    const rng = options.rng || null;
+    const floorIndex = Number.isFinite(Number(options.floorIndex))
+        ? Math.floor(Number(options.floorIndex))
+        : 0;
+    const potType = typeof potItem?.getPotType === 'function'
+        ? potItem.getPotType()
+        : String(potItem?.properties?.potType || 'basic');
+
+    if (potType === 'money') {
+        return createMoneyItemWithValue(getItemSellPrice(sourceItem));
+    }
+
+    if (potType === 'food') {
+        return createFoodPotResultItem(sourceItem, rng);
+    }
+
+    if (potType === 'randomizer') {
+        return createRandomizedPotResultItem(sourceItem, rng, floorIndex) || sourceItem;
+    }
+
+    return sourceItem;
+}
+
 function isEnemyDropRestrictedItem(item) {
     const restrictedTypes = item?.properties?.dropOnlyEnemyTypes;
     return Array.isArray(restrictedTypes) && restrictedTypes.length > 0;
@@ -247,6 +395,8 @@ function getWeightedItemEntriesForTier(tier) {
     const entries = ITEM_SPAWN_POOL_BY_TIER[normalizedTier] || ITEM_SPAWN_POOL_BY_TIER[1];
 
     return entries.map((entry) => ({
+        category: entry.category,
+        tier: entry.tier,
         weight: entry.weight,
         create: (rng = null) => createTieredItem(entry.category, entry.tier, rng)
     }));

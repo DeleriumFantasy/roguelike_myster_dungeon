@@ -30,6 +30,7 @@ Object.assign(PixiSceneOverlay.prototype, {
                     sprite.y = screenPos.y - metrics.drawOffsetY;
                     sprite.width = tileSize;
                     sprite.height = metrics.drawHeight;
+                    sprite.tint = tile === TILE_TYPES.SHOP ? 0xd9485f : 0xffffff;
                     this.terrainLayer.addChild(sprite);
                 } else {
                     // Fallback: draw a red rectangle if no texture is found
@@ -38,6 +39,27 @@ Object.assign(PixiSceneOverlay.prototype, {
                     fallback.drawRect(screenPos.x, screenPos.y - metrics.drawOffsetY, tileSize, metrics.drawHeight);
                     fallback.endFill();
                     this.terrainLayer.addChild(fallback);
+                }
+
+                if (tile === TILE_TYPES.SHOP) {
+                    const shopOverlay = this.acquireGraphics();
+                    shopOverlay.lineStyle(Math.max(1, Math.round(tileSize * 0.08)), 0xffd166, isVisible ? 0.9 : 0.55);
+                    shopOverlay.beginFill(0x7f1d1d, isVisible ? 0.28 : 0.16);
+                    shopOverlay.drawRect(screenPos.x + 1, screenPos.y + 1, Math.max(2, tileSize - 2), Math.max(2, tileSize - 2));
+                    shopOverlay.endFill();
+                    this.terrainLayer.addChild(shopOverlay);
+
+                    const shopText = this.acquireText('shop-tile', {
+                        fontFamily: 'monospace',
+                        fontSize: Math.max(8, Math.floor(tileSize * 0.58)),
+                        fontWeight: '700',
+                        fill: '#ffe08a',
+                        align: 'center'
+                    }, '$');
+                    shopText.anchor.set(0.5, 0.5);
+                    shopText.x = screenPos.x + tileSize / 2;
+                    shopText.y = screenPos.y + tileSize / 2;
+                    this.terrainLayer.addChild(shopText);
                 }
 
                 this.renderTileOverlays(ui, overlays, screenPos.x, screenPos.y, tileSize);

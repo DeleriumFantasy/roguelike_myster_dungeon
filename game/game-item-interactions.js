@@ -164,6 +164,20 @@ Object.assign(Game.prototype, {
             } else {
                 this.ui.addMessage('The blink fails.');
             }
+        } else if (result.type === 'pot-shatter') {
+            if (result.enemy?.name) {
+                this.ui.addMessage(`${label} shatters on ${result.enemy.name}.`);
+                this.ui.playHitPulseEffect?.(result.x, result.y, { targetSide: 'enemy' });
+            } else {
+                this.ui.addMessage(`${label} shatters at ${result.x}, ${result.y}.`);
+            }
+
+            if (Array.isArray(result.drops) && result.drops.length > 0) {
+                this.ui.addMessage('Its contents spill onto the ground.');
+                this.announceSimpleDropList(result.drops, 'item');
+            } else {
+                this.ui.addMessage('It was empty.');
+            }
         } else if (result.type === 'burned') {
             this.ui.addMessage(`${label} burns up in lava.`);
         } else {

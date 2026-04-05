@@ -315,7 +315,7 @@ Object.assign(World.prototype, {
         const start = stairPositions?.up || this.findNearestFloorToCenter(grid);
         const end = stairPositions?.down;
         const protectedPath = start && end
-            ? this.findCardinalPathKeys(grid, start, end, (tile) => tile === TILE_TYPES.FLOOR || tile === TILE_TYPES.STAIRS_UP || tile === TILE_TYPES.STAIRS_DOWN)
+            ? this.findCardinalPathKeys(grid, start, end, (tile) => tile === TILE_TYPES.FLOOR || tile === TILE_TYPES.SHOP || tile === TILE_TYPES.STAIRS_UP || tile === TILE_TYPES.STAIRS_DOWN)
             : new Set();
 
         if (start) {
@@ -433,7 +433,14 @@ Object.assign(World.prototype, {
 
             const minCount = Number.isFinite(placementRule.minCount) ? Math.max(0, placementRule.minCount) : 0;
             const maxCount = Number.isFinite(placementRule.maxCount) ? Math.max(minCount, placementRule.maxCount) : minCount;
-            const targetCount = maxCount > minCount ? rng.randomInt(minCount, maxCount) : minCount;
+            if (maxCount <= 0) {
+                continue;
+            }
+
+            const effectiveMinCount = minCount === 0 ? 1 : minCount;
+            const targetCount = maxCount > effectiveMinCount
+                ? rng.randomInt(effectiveMinCount, maxCount)
+                : effectiveMinCount;
 
             for (let i = 0; i < targetCount; i++) {
                 this.placePremadeTerrainShapeRandom(grid, placementRule.shapeId, rng, 40, premadeItemSpawns, premadeEnemySpawns);

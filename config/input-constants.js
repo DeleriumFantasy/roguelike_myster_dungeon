@@ -21,6 +21,7 @@ const INPUT_ACTION_BINDINGS = {
 
 const INVENTORY_ACTIONS_BY_TYPE = {
     [ITEM_TYPES.THROWABLE]: ['throw', 'drop'],
+    [ITEM_TYPES.POT]: ['use', 'throw', 'drop'],
     [ITEM_TYPES.WEAPON]: ['equip', 'throw', 'drop'],
     [ITEM_TYPES.ARMOR]: ['equip', 'throw', 'drop'],
     [ITEM_TYPES.SHIELD]: ['equip', 'throw', 'drop'],

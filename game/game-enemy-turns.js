@@ -97,6 +97,15 @@ Game.prototype.announceVandalRangedAttackEvent = function(enemyName, result) {
         return;
     }
 
+    if (result?.outcome === 'pot-shatter') {
+        this.ui.addMessage(`${rockLabel} shatters on impact.`);
+        if (Array.isArray(result?.drops) && result.drops.length > 0) {
+            this.ui.addMessage('Its contents spill onto the ground.');
+            this.announceSimpleDropList(result.drops, 'item');
+        }
+        return;
+    }
+
     if (result?.outcome === 'drop') {
         this.ui.addMessage(`${rockLabel} lands at ${result.x}, ${result.y}.`);
         return;

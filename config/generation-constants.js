@@ -127,14 +127,25 @@ const PREMADE_TERRAIN_LEGEND = {
     '.': TILE_TYPES.FLOOR,
     '~': TILE_TYPES.WATER,
     '^': TILE_TYPES.SPIKE,
+    '#': TILE_TYPES.SHOP,
     L: TILE_TYPES.LAVA,
     P: TILE_TYPES.PIT,
     S: HAZARD_TYPES.STEAM,
     I: 'premade_random_item',
-    E: 'premade_random_enemy'
+    E: 'premade_random_enemy',
+    $: TILE_TYPES.SHOP
 };
 
 const PREMADE_TERRAIN_SHAPES = {
+    dungeonShop: {
+        rows: [
+            '#####',
+            '#####',
+            '##$##',
+            '#####',
+            '#####'
+        ]
+    },
     lava_item: {
         rows: [
             'SSSSS',
@@ -177,19 +188,30 @@ const PREMADE_TERRAIN_PLACEMENT_RULES = {
         { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.45 },
         { shapeId: 'lava_pool_3x2', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.35 },
         { shapeId: 'island_2x2', minFloor: 0, minCount: 1, maxCount: 3, chance: 0.9 },
-        { shapeId: 'lava_item', minFloor: 0, minCount: 0, maxCount: 1, chance: 1 }
+        { shapeId: 'lava_item', minFloor: 0, minCount: 0, maxCount: 1, chance: 1 },
+        { shapeId: 'dungeonShop', minFloor: 0, minCount: 0, maxCount: 1, chance: 1 }
     ],
     [AREA_TYPES.SWAMP]: [
         { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.45 },
+        { shapeId: 'lava_pool_3x2', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.35 },
         { shapeId: 'island_2x2', minFloor: 0, minCount: 1, maxCount: 3, chance: 0.9 },
-        { shapeId: 'lava_item', minFloor: 0, minCount: 0, maxCount: 1, chance: 1 }
+        { shapeId: 'lava_item', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.2 },
+        { shapeId: 'dungeonShop', minFloor: 0, minCount: 0, maxCount: 1, chance: 1 }
     ],
     [AREA_TYPES.FLOATING]: [
+        { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.45 },
+        { shapeId: 'lava_pool_3x2', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.35 },
         { shapeId: 'island_2x2', minFloor: 0, minCount: 0, maxCount: 2, chance: 0.6 },
-        { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.4 },
-        { shapeId: 'lava_item', minFloor: 0, minCount: 0, maxCount: 1, chance: 1 }
+        { shapeId: 'lava_item', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.1 },
+        { shapeId: 'dungeonShop', minFloor: 0, minCount: 0, maxCount: 1, chance: 1 }
     ],
-    [AREA_TYPES.CATACOMBS]: []
+    [AREA_TYPES.CATACOMBS]: [
+        { shapeId: 'pit_cross', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.45 },
+        { shapeId: 'lava_pool_3x2', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.35 },
+        { shapeId: 'island_2x2', minFloor: 0, minCount: 1, maxCount: 3, chance: 0.9 },
+        { shapeId: 'lava_item', minFloor: 0, minCount: 0, maxCount: 1, chance: 0.2 },
+        { shapeId: 'dungeonShop', minFloor: 0, minCount: 0, maxCount: 1, chance: 1 }
+    ]
 };
 
 function getAreaGenerationRule(areaType) {

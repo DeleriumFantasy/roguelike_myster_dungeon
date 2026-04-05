@@ -46,13 +46,13 @@ Object.assign(Game.prototype, {
         return positions;
     },
 
-    dropItemsNearEnemy(enemy, items) {
-        if (!enemy || !Array.isArray(items) || items.length === 0) {
+    dropItemsNearPosition(centerX, centerY, items, maxRadius = 3) {
+        if (!Array.isArray(items) || items.length === 0) {
             return [];
         }
 
         const dropped = [];
-        const candidates = this.getNearbyDropPositions(enemy.x, enemy.y, 3);
+        const candidates = [{ x: centerX, y: centerY }, ...this.getNearbyDropPositions(centerX, centerY, maxRadius)];
 
         for (const item of items) {
             let placed = false;
@@ -83,6 +83,35 @@ Object.assign(Game.prototype, {
         }
 
         return dropped;
+    },
+
+    dropItemsNearEnemy(enemy, items) {
+        if (!enemy) {
+            return [];
+        }
+
+        return this.dropItemsNearPosition(enemy.x, enemy.y, items, 3);
+    },
+
+    releasePotContentsAtPosition(potItem, x, y) {
+        if (!potItem?.isPotItem?.()) {
+            return [];
+        }
+
+        const storedItems = potItem.releaseStoredItems?.() || [];
+        return this.dropItemsNearPosition(x, y, storedItems, 3);
+    },
+
+    createPotShatterResult(item, x, y, enemy = null) {
+        return {
+            type: 'pot-shatter',
+            outcome: 'pot-shatter',
+            item,
+            enemy,
+            drops: this.releasePotContentsAtPosition(item, x, y),
+            x,
+            y
+        };
     },
 
     isFoodItemForTaming(item) {
@@ -275,6 +304,10 @@ Object.assign(Game.prototype, {
     },
 
     resolveThrowAgainstEnemy(item, enemy, x, y, dx = 0, dy = 0) {
+        if (item?.type === ITEM_TYPES.POT) {
+            return this.createPotShatterResult(item, x, y, enemy);
+        }
+
         const isFuser = typeof enemy.hasEnemyType === 'function' && enemy.hasEnemyType(ENEMY_TYPES.FUSER);
         if (isFuser) {
             return this.resolveThrowAgainstFuser(enemy, item, x, y);
@@ -286,6 +319,10 @@ Object.assign(Game.prototype, {
     resolveThrowFinalPlacement(item, lastValidPosition) {
         const dropX = lastValidPosition ? lastValidPosition.x : this.player.x;
         const dropY = lastValidPosition ? lastValidPosition.y : this.player.y;
+        if (item?.type === ITEM_TYPES.POT) {
+            return this.createPotShatterResult(item, dropX, dropY, null);
+        }
+
         if (this.getThrowableEffect(item) === 'blink') {
             const teleported = this.tryTeleportPlayerToPosition(dropX, dropY);
             return {
@@ -332,6 +369,13 @@ Object.assign(Game.prototype, {
     },
 
     resolveEnemyThrowHitPlayer(enemy, item, x, y) {
+        if (item?.type === ITEM_TYPES.POT) {
+            return {
+                ...this.createPotShatterResult(item, x, y, this.player),
+                target: this.player
+            };
+        }
+
         const throwImpact = item.throw(enemy, this.player) || { damage: 0, healing: 0 };
         return {
             outcome: 'hit-player',
@@ -345,6 +389,14 @@ Object.assign(Game.prototype, {
     },
 
     resolveEnemyThrowHitEnemy(enemy, item, targetEnemy, x, y) {
+        if (item?.type === ITEM_TYPES.POT) {
+            return {
+                ...this.createPotShatterResult(item, x, y, targetEnemy),
+                target: targetEnemy,
+                targetDefeated: false
+            };
+        }
+
         const throwImpact = item.throw(enemy, targetEnemy) || { damage: 0, healing: 0 };
         const targetDefeated = !targetEnemy.isAlive();
         if (targetDefeated) {
@@ -370,6 +422,10 @@ Object.assign(Game.prototype, {
     resolveEnemyThrowFinalPlacement(item, lastValidPosition) {
         const dropX = lastValidPosition ? lastValidPosition.x : this.player.x;
         const dropY = lastValidPosition ? lastValidPosition.y : this.player.y;
+        if (item?.type === ITEM_TYPES.POT) {
+            return this.createPotShatterResult(item, dropX, dropY, null);
+        }
+
         const dropResult = this.world.addItem(dropX, dropY, item);
         if (dropResult?.burned) {
             return {

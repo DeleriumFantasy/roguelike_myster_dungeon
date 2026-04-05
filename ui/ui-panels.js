@@ -94,6 +94,7 @@ Object.assign(UI.prototype, {
 
         modal.style.display = 'none';
         this.dungeonSelectionOpen = false;
+        this.focusGameSurface();
     },
 
     closeSettings() {
@@ -109,6 +110,92 @@ Object.assign(UI.prototype, {
 
         modal.style.display = 'none';
         this.settingsOpen = false;
+        this.focusGameSurface();
+    },
+
+    getFocusRestoreTarget() {
+        return this.game?.canvas
+            || this.pixiOverlay?.app?.view
+            || this.pixiOverlayHost
+            || null;
+    },
+
+    focusGameSurface() {
+        const focusTarget = this.getFocusRestoreTarget();
+        if (!focusTarget || typeof focusTarget.focus !== 'function') {
+            return;
+        }
+
+        if (typeof focusTarget.hasAttribute === 'function' && !focusTarget.hasAttribute('tabindex')) {
+            focusTarget.setAttribute('tabindex', '0');
+        }
+
+        window.requestAnimationFrame(() => {
+            focusTarget.focus();
+        });
+    },
+
+    runNativePrompt(callback) {
+        this.game?.inputController?.reset?.();
+        const result = typeof callback === 'function' ? callback() : null;
+        this.game?.inputController?.reset?.();
+        this.focusGameSurface();
+        return result;
+    },
+
+    confirmPickupShopItem(item, price, message) {
+        const itemName = item?.getDisplayName?.() || item?.name || 'item';
+        const promptText = message || `This item costs ${price} gold. Pick up ${itemName}?`;
+        return Boolean(this.runNativePrompt(() => window.confirm(promptText)));
+    },
+
+    buildShopSettlementPromptText(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine, footerLine) {
+        const sections = [
+            `${shopkeeperName}: Let's settle up.`,
+            settlementSummary || 'No items selected.',
+            `Buying total: ${buyTotal} money`,
+            `Selling total: ${sellTotal} money`,
+            balanceLine || 'This is an even trade.'
+        ];
+
+        if (footerLine) {
+            sections.push(footerLine);
+        }
+
+        return sections.join('\n\n');
+    },
+
+    confirmShopSettlement(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine) {
+        const promptText = this.buildShopSettlementPromptText(
+            shopkeeperName,
+            settlementSummary,
+            buyTotal,
+            sellTotal,
+            balanceLine,
+            'Complete the transaction?'
+        );
+        return Boolean(this.runNativePrompt(() => window.confirm(promptText)));
+    },
+
+    promptShopExitDecision(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine) {
+        const promptText = this.buildShopSettlementPromptText(
+            shopkeeperName,
+            settlementSummary,
+            buyTotal,
+            sellTotal,
+            balanceLine,
+            'Choose: yes / no / run away'
+        );
+        const response = this.runNativePrompt(() => window.prompt(promptText, 'no'));
+
+        const normalized = String(response || '').trim().toLowerCase();
+        if (['yes', 'y', '1', 'buy'].includes(normalized)) {
+            return 'yes';
+        }
+        if (['run', 'run away', 'runaway', '3', 'r'].includes(normalized)) {
+            return 'run-away';
+        }
+        return 'no';
     },
 
     updateInfoPanel(player, world, fov) {

@@ -9,6 +9,39 @@ Object.assign(UI.prototype, {
         this.render(this.game.world, this.game.player, this.game.fov);
     },
 
+    addMessagesFromList(messages = []) {
+        for (const message of Array.isArray(messages) ? messages : []) {
+            if (typeof message === 'string' && message.length > 0) {
+                this.addMessage(message);
+            }
+        }
+    },
+
+    applyInventoryOutcome(outcome, options = {}) {
+        const failureMessage = typeof options.failureMessage === 'string'
+            ? options.failureMessage
+            : '';
+
+        if (outcome?.handled === false && failureMessage) {
+            this.addMessage(failureMessage);
+        }
+
+        this.addMessagesFromList(outcome?.messages || []);
+        this.refreshUiAfterInventoryMutation();
+
+        if (options.reopen !== false) {
+            this.reopenInventoryForCurrentPlayer();
+        }
+
+        return outcome;
+    },
+
+    runManagedInventoryPrompt(callback) {
+        return typeof this.runNativePrompt === 'function'
+            ? this.runNativePrompt(callback)
+            : (typeof callback === 'function' ? callback() : null);
+    },
+
     createInventoryListItem(text, onClick = null, textColor = null, item = null) {
         const div = document.createElement('div');
         div.className = 'inventory-item';
@@ -53,6 +86,14 @@ Object.assign(UI.prototype, {
             : Number(item?.properties?.improvementLevel || 0);
         const quantity = typeof item.getQuantity === 'function' ? item.getQuantity() : 1;
         const cursed = typeof item.isCursed === 'function' ? item.isCursed() : Boolean(item?.properties?.cursed);
+        const potType = typeof item?.getPotType === 'function' ? item.getPotType() : String(item?.properties?.potType || '');
+        const storedItems = typeof item?.getStoredItems === 'function' ? item.getStoredItems() : [];
+        const potCapacity = typeof item?.getPotCapacity === 'function'
+            ? item.getPotCapacity()
+            : Math.max(1, Math.floor(Number(item?.properties?.potCapacity) || 1));
+        const remainingPotSpace = typeof item?.getRemainingPotSpace === 'function'
+            ? item.getRemainingPotSpace()
+            : Math.max(0, potCapacity - storedItems.length);
 
         const lines = [
             `<p>Name: ${this.formatInventoryItemLabel(item)}</p>`,
@@ -73,6 +114,18 @@ Object.assign(UI.prototype, {
         }
         if (item?.type === ITEM_TYPES.THROWABLE) {
             lines.push(`<p>Quantity: ${Math.max(1, Math.floor(Number(quantity) || 1))}</p>`);
+        }
+        if (item?.type === ITEM_TYPES.POT) {
+            const prettyPotType = potType
+                ? `${potType.charAt(0).toUpperCase()}${potType.slice(1)}`
+                : 'Basic';
+            const contentPreview = storedItems.slice(0, 4).map((storedItem) => getItemLabel(storedItem)).join(', ');
+            lines.push(`<p>Pot type: ${prettyPotType}</p>`);
+            lines.push(`<p>Space remaining: ${remainingPotSpace} / ${potCapacity}</p>`);
+            lines.push(`<p>Stored items: ${storedItems.length}</p>`);
+            if (contentPreview) {
+                lines.push(`<p>Contents: ${contentPreview}${storedItems.length > 4 ? ', ...' : ''}</p>`);
+            }
         }
         lines.push(`<p>Cursed: ${cursed ? 'yes' : 'no'}</p>`);
         lines.push(`<p>Enchantments: ${enchantments.length > 0 ? enchantments.join(', ') : 'none'}</p>`);
@@ -187,8 +240,10 @@ Object.assign(UI.prototype, {
         }
 
         const categoryOrder = [
+            'money',
             'healing',
             'food',
+            'pot',
             'throwable',
             'statusconsumable',
             'accessory',
@@ -224,8 +279,14 @@ Object.assign(UI.prototype, {
 
     getInventorySortCategory(item) {
         const type = item?.type;
+        if (type === ITEM_TYPES.MONEY) {
+            return 'money';
+        }
         if (type === ITEM_TYPES.THROWABLE) {
             return 'throwable';
+        }
+        if (type === ITEM_TYPES.POT) {
+            return 'pot';
         }
         if (type === ITEM_TYPES.ACCESSORY) {
             return 'accessory';
@@ -265,34 +326,26 @@ Object.assign(UI.prototype, {
         this.game.inventoryOpen = false;
         this.hideInventoryItemDetails();
         this.inventoryModal.style.display = 'none';
+        this.focusGameSurface?.();
     },
 
     handleEquippedItemClick(slot, item) {
         const outcome = this.game.unequipPlayerInventorySlot(slot, item, {
             formatItemLabel: (target) => this.formatInventoryItemLabel(target)
         });
-        for (const message of outcome.messages || []) {
-            this.addMessage(message);
-        }
-
-        this.refreshUiAfterInventoryMutation();
-        this.reopenInventoryForCurrentPlayer();
+        this.applyInventoryOutcome(outcome);
     },
 
     handleAllyEquippedItemClick(ally, slot, item) {
         const outcome = this.game.unequipAllyInventorySlot(ally, slot, item, {
             formatItemLabel: (target) => this.formatInventoryItemLabel(target)
         });
-        for (const message of outcome.messages || []) {
-            this.addMessage(message);
-        }
-
-        this.refreshUiAfterInventoryMutation();
-        this.reopenInventoryForCurrentPlayer();
+        this.applyInventoryOutcome(outcome);
     },
 
     handleInventoryClick(item) {
         const itemLabel = this.formatInventoryItemLabel(item);
+        const formatItemLabel = (target) => this.formatInventoryItemLabel(target);
         const actions = this.getAvailableInventoryActions(item);
         const choice = this.promptForInventoryAction(itemLabel, actions);
         if (!choice) {
@@ -303,18 +356,12 @@ Object.assign(UI.prototype, {
         if (choice === 'use') {
             const useResult = this.game.useInventoryItem(item, {
                 itemLabel,
-                formatItemLabel: (target) => this.formatInventoryItemLabel(target),
-                chooseTarget: (scrollLabel, targets) => this.promptForImprovementTarget(scrollLabel, targets)
+                formatItemLabel,
+                chooseTarget: (promptLabel, targets, promptOptions = {}) => this.promptForInventoryTarget(promptLabel, targets, promptOptions)
             });
-            if (!useResult?.handled) {
-                this.addMessage(`Could not use ${itemLabel}`);
-            } else {
-                for (const message of useResult.messages || []) {
-                    this.addMessage(message);
-                }
-            }
-            this.refreshUiAfterInventoryMutation();
-            this.reopenInventoryForCurrentPlayer();
+            this.applyInventoryOutcome(useResult, {
+                failureMessage: `Could not use ${itemLabel}`
+            });
             return;
         }
 
@@ -326,13 +373,9 @@ Object.assign(UI.prototype, {
             }
 
             const outcome = this.game.equipInventoryItem(item, equipTarget, {
-                formatItemLabel: (target) => this.formatInventoryItemLabel(target)
+                formatItemLabel
             });
-            for (const message of outcome.messages || []) {
-                this.addMessage(message);
-            }
-            this.refreshUiAfterInventoryMutation();
-            this.reopenInventoryForCurrentPlayer();
+            this.applyInventoryOutcome(outcome);
             return;
         }
 
@@ -344,13 +387,9 @@ Object.assign(UI.prototype, {
 
         if (choice === 'drop') {
             const outcome = this.game.dropInventoryItem(item, {
-                formatItemLabel: (target) => this.formatInventoryItemLabel(target)
+                formatItemLabel
             });
-            for (const message of outcome.messages || []) {
-                this.addMessage(message);
-            }
-            this.refreshUiAfterInventoryMutation();
-            this.reopenInventoryForCurrentPlayer();
+            this.applyInventoryOutcome(outcome);
         }
     },
 
@@ -389,26 +428,39 @@ Object.assign(UI.prototype, {
         return label;
     },
 
-    promptForImprovementTarget(scrollLabel, targets) {
+    promptForInventoryTarget(itemLabel, targets, options = {}) {
         if (!Array.isArray(targets) || targets.length === 0) {
             return null;
         }
 
+        const header = typeof options.header === 'string'
+            ? options.header
+            : `Choose target for ${itemLabel}:`;
+        const defaultValue = String(options.defaultValue ?? '1');
         const optionsText = targets
             .map((entry, index) => `${index + 1}. ${this.formatInventoryItemLabel(entry.item)} (${entry.locationLabel})`)
             .join('\n');
-        const response = window.prompt(`Choose equipment to improve with ${scrollLabel}:\n${optionsText}`, '1');
+        const response = this.runManagedInventoryPrompt(
+            () => window.prompt(`${header}\n${optionsText}`, defaultValue)
+        );
         if (!response) {
             return null;
         }
 
-        const selectedIndex = Number.parseInt(response.trim(), 10) - 1;
+        const selectedIndex = Number.parseInt(String(response).trim(), 10) - 1;
         if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= targets.length) {
             this.addMessage('Invalid selection.');
             return null;
         }
 
         return targets[selectedIndex].item;
+    },
+
+    promptForImprovementTarget(scrollLabel, targets) {
+        return this.promptForInventoryTarget(scrollLabel, targets, {
+            header: `Choose equipment to improve with ${scrollLabel}:`,
+            defaultValue: '1'
+        });
     },
 
     getAvailableInventoryActions(item) {
@@ -427,7 +479,9 @@ Object.assign(UI.prototype, {
         const optionsText = ['0) yourself']
             .concat(allies.map((ally, index) => `${index + 1}) ${ally.name}`))
             .join('\n');
-        const response = window.prompt(`Who should equip ${itemLabel}?\n${optionsText}\nChoose number:`, '0');
+        const response = this.runManagedInventoryPrompt(
+            () => window.prompt(`Who should equip ${itemLabel}?\n${optionsText}\nChoose number:`, '0')
+        );
         if (response === null) {
             return null;
         }
@@ -447,7 +501,9 @@ Object.assign(UI.prototype, {
 
     promptForInventoryAction(itemLabel, actions) {
         const optionsText = actions.join('/');
-        const response = window.prompt(`Choose action for ${itemLabel}: ${optionsText}`, actions[0]);
+        const response = this.runManagedInventoryPrompt(
+            () => window.prompt(`Choose action for ${itemLabel}: ${optionsText}`, actions[0])
+        );
         if (!response) {
             return null;
         }

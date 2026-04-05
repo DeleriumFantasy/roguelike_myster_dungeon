@@ -502,6 +502,10 @@ Object.assign(Enemy.prototype, {
         return this.hasEnemyType(ENEMY_TYPES.GHOST);
     },
 
+    shouldStayOnShopTiles() {
+        return Boolean(this.isShopkeeper && !this.shopkeeperHostileTriggered);
+    },
+
     canTraverseTile(tile) {
         return canActorTraverseTile(tile, this.creatureTypes);
     },
@@ -794,6 +798,10 @@ Object.assign(Enemy.prototype, {
         }
 
         const tile = world.getTile(x, y);
+        if (this.shouldStayOnShopTiles() && tile !== TILE_TYPES.SHOP) {
+            return false;
+        }
+
         if (!this.canTraverseTile(tile)) {
             return false;
         }
@@ -833,7 +841,11 @@ Object.assign(Enemy.prototype, {
     },
 
     performWanderAction(world, player) {
-        if (this.targetX === null || (this.x === this.targetX && this.y === this.targetY)) {
+        const shouldRetarget = this.targetX === null
+            || (this.x === this.targetX && this.y === this.targetY)
+            || (this.shouldStayOnShopTiles() && world.getTile(this.targetX, this.targetY) !== TILE_TYPES.SHOP);
+
+        if (shouldRetarget) {
             const target = this.getRandomWalkableTarget(world);
             this.targetX = target.x;
             this.targetY = target.y;
@@ -1112,7 +1124,9 @@ Object.assign(Enemy.prototype, {
             return { x: this.x, y: this.y };
         }
 
-        if (typeof world.findRandomFloorTile === 'function') {
+        const targetTileType = this.shouldStayOnShopTiles() ? TILE_TYPES.SHOP : TILE_TYPES.FLOOR;
+
+        if (targetTileType === TILE_TYPES.FLOOR && typeof world.findRandomFloorTile === 'function') {
             const rng = createMathRng();
             const tile = world.findRandomFloorTile(rng, 200);
             return tile || { x: this.x, y: this.y };
@@ -1120,14 +1134,14 @@ Object.assign(Enemy.prototype, {
 
         if (typeof world.findRandomTile === 'function') {
             const rng = createMathRng();
-            const tile = world.findRandomTile(rng, 200, (x, y) => world.getTile(x, y) === TILE_TYPES.FLOOR);
+            const tile = world.findRandomTile(rng, 200, (x, y) => world.getTile(x, y) === targetTileType);
             return tile || { x: this.x, y: this.y };
         }
 
         for (let attempt = 0; attempt < 200; attempt++) {
             const x = randomInt(1, GRID_SIZE - 2);
             const y = randomInt(1, GRID_SIZE - 2);
-            if (world.getTile(x, y) !== TILE_TYPES.FLOOR) {
+            if (world.getTile(x, y) !== targetTileType) {
                 continue;
             }
 
@@ -1301,8 +1315,8 @@ Object.assign(Enemy.prototype, {
             return true;
         }
 
-        // Floor is always traversable
-        return tile === TILE_TYPES.FLOOR;
+        // Floor-like tiles are always traversable.
+        return tile === TILE_TYPES.FLOOR || tile === TILE_TYPES.SHOP;
     },
 
     canCrossHostileTileForPath(world, x, y, player = null) {

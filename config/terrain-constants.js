@@ -53,7 +53,8 @@ const TILE_VISUALS = {
     },
     [TILE_TYPES.STAIRS_DOWN]: { color: '#0ff', sprite: pickTerrainSprite('STAIRS_DOWN_STONE'), glyph: '<', foregroundColor: '#fff' },
     [TILE_TYPES.STAIRS_UP]: { color: '#0ff', sprite: pickTerrainSprite('STAIRS_UP_STONE'), glyph: '>', foregroundColor: '#fff' },
-    [TILE_TYPES.LAVA]: { color: '#d9480f', sprite: pickTerrainSprite('LAVA_ACTIVE'), icon: 'lava', foregroundColor: '#ffb347' }
+    [TILE_TYPES.LAVA]: { color: '#d9480f', sprite: pickTerrainSprite('LAVA_ACTIVE'), icon: 'lava', foregroundColor: '#ffb347' },
+    [TILE_TYPES.SHOP]: { color: '#b91c1c', sprite: pickTerrainSprite('FLOOR_STONE'), foregroundColor: '#fecaca' }
 };
 
 const WALL_AUTOTILE_SPRITES = Object.freeze({

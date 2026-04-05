@@ -15,9 +15,9 @@
 
 ## Enemy Split
 
-- `enemy.js`: base enemy shell, core identity/type helpers, and per-enemy state used by AI and quest systems.
+- `enemy.js`: base enemy shell, core identity/type helpers, and per-enemy state used by AI, quest systems, and special NPC flags such as the shopkeeper state.
 - `enemy-item-behaviors.js`: carried items, thief/vandal/fuser logic, item-side enemy behavior.
-- `enemy-ai.js`: perception, targeting, movement (including A* pathfinding with cost-based routing around hostile tiles), turn decisions, passive escort behavior, lethal tile avoidance (`isLethalEnvironmentalPosition`, `tryMoveOffLethalTile`), and NPC occupancy blocking. Enemy AI reads tile/hazard damage profiles from `world.getEnvironmentalDamageProfile(...)`.
+- `enemy-ai.js`: perception, targeting, movement (including A* pathfinding with cost-based routing around hostile tiles), turn decisions, passive escort behavior, lethal tile avoidance (`isLethalEnvironmentalPosition`, `tryMoveOffLethalTile`), NPC occupancy blocking, and neutral shopkeeper confinement to `SHOP` tiles until provoked. Enemy AI reads tile/hazard damage profiles from `world.getEnvironmentalDamageProfile(...)`.
 - `enemy-progression.js`: ally progression and tier helpers.
 - `enemy-combat.js`: attacks, damage, status application, and line-of-sight combat helpers.
  Defeated allies are stalled with handler and restored to full health on retrieval.
@@ -25,7 +25,7 @@
 ## Item Split
 
 - `item.js`: base item shell.
-- `item-data.js`: item definitions, item metadata helpers, and shared item logic.
+- `item-data.js`: item definitions, item metadata helpers, shared item logic, helper factories for shop-capable items/pots, and per-item shop pricing helpers (`baseShopPrice`, `baseSellPrice`).
 - `item-factories.js`: item creation and transformation helpers, including world enchant/curse roll behavior.
 
 ## Editing Rules
@@ -49,4 +49,5 @@
 ## Item Notes
 
 - `item.js` display names summarize enchantments by count (`[N enchantments]`) instead of listing every enchantment name.
+- Base buy/sell values for dungeon shops live in `item-data.js` on the item definitions instead of a separate pricing table; prefer shared helpers like `createShopItemDefinition`, `createPotDefinition`, and `DEFAULT_SHOP_PRICE_BY_CATEGORY` when extending this area.
 - World spawn enchant rolls are handled in `item-factories.js` with three independent 5% checks (stacking by successes, slot-limited).

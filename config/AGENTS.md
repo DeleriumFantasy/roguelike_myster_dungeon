@@ -7,11 +7,11 @@
 
 ## File Roles
 
-- `constants.js`: core enums, status rules, tile rules, weather types, trap types, and shared constant tables. `CONDITIONS` includes `BLIND`, `CONFUSED`, and all other status effects. `WEATHER_TYPES` defines `NONE` and `FOGGY`. `WEATHER_DEFINITIONS` specify FOV modifiers per weather type. `HAZARD_TYPES` includes condition traps and the special `TRAP_TRIP` that drops items.
+- `constants.js`: core enums, status rules, tile rules, weather types, trap types, and shared constant tables. `CONDITIONS` includes `BLIND`, `CONFUSED`, and all other status effects. `TILE_TYPES` includes special terrain such as `SHOP`. `WEATHER_TYPES` defines `NONE` and `FOGGY`. `WEATHER_DEFINITIONS` specify FOV modifiers per weather type. `HAZARD_TYPES` includes condition traps and the special `TRAP_TRIP` that drops items.
 - `rules.js`: read-only helpers for interpreting condition, hazard, and traversal rule tables.
-- `terrain-constants.js`: tile visuals, autotiling helpers, and terrain lookups.
+- `terrain-constants.js`: tile visuals, autotiling helpers, terrain lookups, and static presentation for special tiles like the red shop floor.
 - `input-constants.js`: key bindings and input interpretation helpers.
-- `generation-constants.js`: area generation rules, generation data, weather spawn weights per area type, and dungeon path definitions.
+- `generation-constants.js`: area generation rules, premade terrain layouts, weather spawn weights per area type, dungeon path definitions, and dungeon shop placement data.
 - `enemy-definitions.js`: enemy templates and spawn-related enemy metadata.
 - `combat-rules.js`: shared pure combat math and EXP progression helpers (no actor state mutation).
 
@@ -28,6 +28,7 @@
 - Keep enemy baseline `spawnWeight` values in `enemy-definitions.js`; keep runtime family-balancing curves in `game/game-enemy-content.js`.
 - Add new rule-table readers to `rules.js`.
 - Add new static visual mappings to `terrain-constants.js`.
+- Put premade shop layouts and placement chances in `generation-constants.js`.
 - Add new key binding interpretation to `input-constants.js`.
 
 ## Common Mistakes

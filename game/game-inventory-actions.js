@@ -65,82 +65,177 @@ Object.assign(Game.prototype, {
         return { handled: false, consumed: false, effect: '' };
     },
 
-    buildImprovementTargetsForPlayer(scrollItem) {
-        if (!this.player || typeof scrollItem?.canImproveEquipmentItem !== 'function') {
+    buildPlayerInventoryTargets(predicate, options = {}) {
+        if (!this.player || typeof predicate !== 'function') {
             return [];
         }
 
+        const includeEquipped = options.includeEquipped !== false;
+        const includeInventory = options.includeInventory !== false;
+        const excludedItems = new Set(
+            Array.isArray(options.excludeItems)
+                ? options.excludeItems.filter(Boolean)
+                : []
+        );
         const targets = [];
-        const equippedItems = typeof this.player.getEquippedItems === 'function'
-            ? this.player.getEquippedItems()
-            : [];
 
-        for (const [slot, equippedItem] of equippedItems) {
-            if (!scrollItem.canImproveEquipmentItem(equippedItem)) {
-                continue;
+        if (includeEquipped) {
+            const equippedItems = typeof this.player.getEquippedItems === 'function'
+                ? this.player.getEquippedItems()
+                : [];
+
+            for (const [slot, equippedItem] of equippedItems) {
+                if (!equippedItem || excludedItems.has(equippedItem) || !predicate(equippedItem, { source: 'equipped', slot })) {
+                    continue;
+                }
+
+                targets.push({
+                    item: equippedItem,
+                    locationLabel: `equipped ${slot}`
+                });
             }
-
-            targets.push({
-                item: equippedItem,
-                locationLabel: `equipped ${slot}`
-            });
         }
 
-        const inventoryItems = typeof this.player.getInventory === 'function'
-            ? this.player.getInventory()
-            : [];
+        if (includeInventory) {
+            const inventoryItems = typeof this.player.getInventory === 'function'
+                ? this.player.getInventory()
+                : [];
 
-        for (const inventoryItem of inventoryItems) {
-            if (inventoryItem === scrollItem || !scrollItem.canImproveEquipmentItem(inventoryItem)) {
-                continue;
+            for (const inventoryItem of inventoryItems) {
+                if (!inventoryItem || excludedItems.has(inventoryItem) || !predicate(inventoryItem, { source: 'inventory' })) {
+                    continue;
+                }
+
+                targets.push({
+                    item: inventoryItem,
+                    locationLabel: 'backpack'
+                });
             }
-
-            targets.push({
-                item: inventoryItem,
-                locationLabel: 'backpack'
-            });
         }
 
         return targets;
     },
 
-    buildGenericScrollTargetsForPlayer(scrollItem) {
-        if (!this.player || typeof scrollItem?.canTargetItemForScroll !== 'function') {
+    buildImprovementTargetsForPlayer(scrollItem) {
+        if (typeof scrollItem?.canImproveEquipmentItem !== 'function') {
             return [];
         }
 
-        const targets = [];
-        const equippedItems = typeof this.player.getEquippedItems === 'function'
-            ? this.player.getEquippedItems()
-            : [];
+        return this.buildPlayerInventoryTargets(
+            (candidate) => scrollItem.canImproveEquipmentItem(candidate),
+            { excludeItems: [scrollItem] }
+        );
+    },
 
-        for (const [slot, equippedItem] of equippedItems) {
-            if (!scrollItem.canTargetItemForScroll(equippedItem)) {
-                continue;
-            }
-
-            targets.push({
-                item: equippedItem,
-                locationLabel: `equipped ${slot}`
-            });
+    buildGenericScrollTargetsForPlayer(scrollItem) {
+        if (typeof scrollItem?.canTargetItemForScroll !== 'function') {
+            return [];
         }
 
-        const inventoryItems = typeof this.player.getInventory === 'function'
-            ? this.player.getInventory()
-            : [];
+        return this.buildPlayerInventoryTargets(
+            (candidate) => scrollItem.canTargetItemForScroll(candidate),
+            { excludeItems: [scrollItem] }
+        );
+    },
 
-        for (const inventoryItem of inventoryItems) {
-            if (inventoryItem === scrollItem || !scrollItem.canTargetItemForScroll(inventoryItem)) {
-                continue;
+    buildPotTargetsForPlayer(potItem) {
+        return this.buildPlayerInventoryTargets(
+            (candidate) => candidate !== potItem && !candidate?.properties?.shopUnpaid,
+            {
+                includeEquipped: false,
+                excludeItems: [potItem]
             }
+        );
+    },
 
-            targets.push({
-                item: inventoryItem,
-                locationLabel: 'backpack'
-            });
+    buildPotStorageMessage(potType, targetLabel, transformedItem, transformedLabel, potLabel) {
+        if (potType === 'banking') {
+            return `${targetLabel} is banked by ${potLabel}.`;
         }
 
-        return targets;
+        if (potType === 'money') {
+            const moneyValue = typeof this.getValidMoneyValue === 'function'
+                ? this.getValidMoneyValue(transformedItem)
+                : Math.max(1, Math.floor(Number(transformedItem?.properties?.value) || 1));
+            return `${targetLabel} turns into ${moneyValue} money inside ${potLabel}.`;
+        }
+
+        if (potType === 'food') {
+            return `${targetLabel} changes into ${transformedLabel} inside ${potLabel}.`;
+        }
+
+        if (potType === 'randomizer') {
+            return `${targetLabel} is randomized into ${transformedLabel} inside ${potLabel}.`;
+        }
+
+        return `Placed ${targetLabel} into ${potLabel}.`;
+    },
+
+    storeInventoryItemInPot(potItem, targetItem, options = {}) {
+        const potLabel = String(options.potLabel || getItemLabel(potItem) || 'pot');
+        const formatItemLabel = typeof options.formatItemLabel === 'function'
+            ? options.formatItemLabel
+            : (value) => String(getItemLabel(value) || 'item');
+
+        if (!potItem?.isPotItem?.() || !targetItem || targetItem === potItem) {
+            return { stored: false, messages: [`Could not place an item into ${potLabel}.`] };
+        }
+
+        if (targetItem?.properties?.shopUnpaid) {
+            return { stored: false, messages: [`You can't hide unpaid shop goods inside ${potLabel}.`] };
+        }
+
+        if (potItem?.isPotFull?.()) {
+            return { stored: false, messages: [`${potLabel} is full.`] };
+        }
+
+        const transformedItem = typeof transformItemForPot === 'function'
+            ? transformItemForPot(targetItem, potItem, {
+                floorIndex: this.world?.currentFloor,
+                rng: createMathRng()
+            })
+            : targetItem;
+
+        if (!transformedItem) {
+            return { stored: false, messages: [`Could not place ${formatItemLabel(targetItem)} into ${potLabel}.`] };
+        }
+
+        this.player.removeItem(targetItem);
+
+        const targetLabel = formatItemLabel(targetItem);
+        const transformedLabel = formatItemLabel(transformedItem);
+        const potType = potItem.getPotType?.() || 'basic';
+
+        if (potType === 'banking') {
+            this.player.bankItems = Array.isArray(this.player.bankItems) ? this.player.bankItems : [];
+            const spaceUsed = typeof potItem.consumePotSpace === 'function' ? potItem.consumePotSpace(1) : 0;
+            if (spaceUsed <= 0) {
+                this.player.addItem(targetItem);
+                return { stored: false, messages: [`${potLabel} is full.`] };
+            }
+
+            this.player.bankItems.push(transformedItem);
+            return {
+                stored: true,
+                transformedItem,
+                messages: [this.buildPotStorageMessage(potType, targetLabel, transformedItem, transformedLabel, potLabel)]
+            };
+        }
+
+        const storeResult = potItem.storeItemInPot(transformedItem);
+        if (!storeResult?.stored) {
+            this.player.addItem(targetItem);
+            if (storeResult?.reason === 'full') {
+                return { stored: false, messages: [`${potLabel} is full.`] };
+            }
+            return { stored: false, messages: [`Could not place ${formatItemLabel(targetItem)} into ${potLabel}.`] };
+        }
+
+        return {
+            stored: true,
+            transformedItem,
+            messages: [this.buildPotStorageMessage(potType, targetLabel, transformedItem, transformedLabel, potLabel)]
+        };
     },
 
     useInventoryItem(item, options = {}) {
@@ -158,6 +253,41 @@ Object.assign(Game.prototype, {
                 messages.push(message);
             }
         };
+
+        if (item?.type === ITEM_TYPES.POT) {
+            if (item?.isPotFull?.()) {
+                addMessage(`${itemLabel} is full.`);
+                return { handled: true, consumed: false, messages };
+            }
+
+            const targets = this.buildPotTargetsForPlayer(item);
+            if (targets.length === 0) {
+                addMessage(`No valid item can be placed into ${itemLabel}.`);
+                return { handled: true, consumed: false, messages };
+            }
+
+            const chosenTarget = chooseTarget(itemLabel, targets, {
+                header: `Choose item to place into ${itemLabel}:`,
+                defaultValue: '1'
+            });
+            if (!chosenTarget) {
+                return { handled: true, consumed: false, messages };
+            }
+
+            const storageResult = this.storeInventoryItemInPot(item, chosenTarget, {
+                potLabel: itemLabel,
+                formatItemLabel
+            });
+            for (const message of storageResult.messages || []) {
+                addMessage(message);
+            }
+
+            if (typeof this.player.updateStats === 'function') {
+                this.player.updateStats();
+            }
+
+            return { handled: true, consumed: false, messages };
+        }
 
         const floorEffectResult = this.useFloorEffectScroll(item);
         if (floorEffectResult.handled) {
@@ -368,6 +498,10 @@ Object.assign(Game.prototype, {
             ? options.formatItemLabel
             : (target) => String(getItemLabel(target) || 'item');
         const itemLabel = formatItemLabel(item);
+        const standingOnShopTile = this.world.getTile(this.player.x, this.player.y) === TILE_TYPES.SHOP;
+        const shopkeeper = standingOnShopTile && typeof this.getActiveShopkeeper === 'function'
+            ? this.getActiveShopkeeper()
+            : null;
 
         this.player.removeItem(item);
         const dropResult = this.world.addItem(this.player.x, this.player.y, item);
@@ -375,6 +509,32 @@ Object.assign(Game.prototype, {
             return { burned: true, messages: [`${itemLabel} burns up in lava.`] };
         }
 
+        if (!dropResult?.placed) {
+            this.player.addItem(item);
+            return { burned: false, messages: [`Could not drop ${itemLabel}.`] };
+        }
+
+        const droppedFromShopArea = Boolean(shopkeeper && standingOnShopTile);
+
+        item.properties = item.properties || {};
+
+        if (droppedFromShopArea && item.properties.shopUnpaid) {
+            item.properties.shopOwned = true;
+            item.properties.shopUnpaid = false;
+            item.properties.shopPrice = this.getShopItemPrice(item);
+            delete item.properties.shopPendingSale;
+            delete item.properties.shopSellPrice;
+            return { burned: false, messages: [`You set down ${itemLabel} to return it to ${shopkeeper.name}.`] };
+        }
+
+        if (droppedFromShopArea) {
+            item.properties.shopPendingSale = true;
+            item.properties.shopSellPrice = this.getShopSellPrice(item);
+            return { burned: false, messages: [`Set down ${itemLabel} for sale to ${shopkeeper.name}. Talk to them to finalize the deal.`] };
+        }
+
+        delete item.properties.shopPendingSale;
+        delete item.properties.shopSellPrice;
         return { burned: false, messages: [`Dropped ${itemLabel}`] };
     }
 });

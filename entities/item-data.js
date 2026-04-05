@@ -6,6 +6,7 @@ const hiddenSword = 'Mysterious blade';
 const hiddenArmor = 'Unknown armor';
 const hiddenShield = 'Mysterious shield';
 const hiddenAccessory = 'Unknown ring';
+const hiddenPot = 'Unknown pot';
 
 const ENCHANTMENT_DEFINITIONS = {
     sweepingAttack: {
@@ -414,131 +415,177 @@ const EQUIPMENT_SET_DEFINITIONS = {
     }
 };
 
+function createShopItemDefinition(name, type, hiddenName, baseShopPrice, baseSellPrice, properties = {}) {
+    return {
+        name,
+        type,
+        properties: {
+            hiddenName,
+            baseShopPrice,
+            baseSellPrice,
+            burnable: properties?.burnable ?? true,
+            requiresIdentification: properties?.requiresIdentification ?? false,
+            ...(properties || {})
+        }
+    };
+}
+
+function createPotDefinition(name, potType, minCapacity, maxCapacity, baseShopPrice, baseSellPrice, extraProperties = {}) {
+    return createShopItemDefinition(name, ITEM_TYPES.POT, hiddenPot, baseShopPrice, baseSellPrice, {
+        potType,
+        minCapacity,
+        maxCapacity,
+        ...extraProperties
+    });
+}
+
+const DEFAULT_SHOP_PRICE_BY_CATEGORY = Object.freeze({
+    healing: [0, 12, 24, 50, 120],
+    food: [0, 6, 12, 24, 60],
+    throwable: [0, 8, 20, 40, 70],
+    weapon: [0, 40, 65, 95, 145],
+    armor: [0, 35, 60, 95, 150],
+    shield: [0, 30, 55, 90, 145],
+    accessory: [0, 70, 110, 170, 185],
+    statusConsumable: [0, 20, 36, 60, 95],
+    scroll: [0, 45, 75, 100, 145],
+    pot: [0, 20, 28, 36, 42]
+});
+
 const TIERED_ITEM_DEFINITIONS = {
     money: {
-        1: { name: 'Money', type: ITEM_TYPES.MONEY, properties: { valueMin: 10, valueMax: 50, hiddenName: 'Unknown currency', burnable: true, requiresIdentification: false } },
-        2: { name: 'Money', type: ITEM_TYPES.MONEY, properties: { valueMin: 50, valueMax: 100, hiddenName: 'Unknown currency', burnable: true, requiresIdentification: false } },
-        3: { name: 'Money', type: ITEM_TYPES.MONEY, properties: { valueMin: 100, valueMax: 200, hiddenName: 'Unknown currency', burnable: true, requiresIdentification: false } },
-        4: { name: 'Money', type: ITEM_TYPES.MONEY, properties: { valueMin: 200, valueMax: 300, hiddenName: 'Unknown currency', burnable: true, requiresIdentification: false } }
+        1: createShopItemDefinition('Money', ITEM_TYPES.MONEY, 'Unknown currency', 1, 1, { valueMin: 10, valueMax: 50 }),
+        2: createShopItemDefinition('Money', ITEM_TYPES.MONEY, 'Unknown currency', 1, 1, { valueMin: 50, valueMax: 100 }),
+        3: createShopItemDefinition('Money', ITEM_TYPES.MONEY, 'Unknown currency', 1, 1, { valueMin: 100, valueMax: 200 }),
+        4: createShopItemDefinition('Money', ITEM_TYPES.MONEY, 'Unknown currency', 1, 1, { valueMin: 200, valueMax: 300 })
     },
     healing: {
-        1: { name: 'Old bandage', type: ITEM_TYPES.CONSUMABLE, properties: { health: 5, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        2: { name: 'Diluted potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 10, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        3: { name: 'Healing potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 20, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        4: { name: 'Greater healing potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 50, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+        1: { name: 'Old bandage', type: ITEM_TYPES.CONSUMABLE, properties: { health: 5, baseShopPrice: 12, baseSellPrice: 6, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        2: { name: 'Diluted potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 10, baseShopPrice: 24, baseSellPrice: 12, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        3: { name: 'Healing potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 20, baseShopPrice: 50, baseSellPrice: 25, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        4: { name: 'Greater healing potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 50, baseShopPrice: 120, baseSellPrice: 60, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
     },
     food: {
-        1: { name: 'Bitter seeds', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 5, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        2: { name: 'Apple', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 10, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        3: { name: 'Bread', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 20, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        4: { name: 'Stew', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 50, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+        1: { name: 'Bitter seeds', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 5, baseShopPrice: 6, baseSellPrice: 3, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        2: { name: 'Apple', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 10, baseShopPrice: 12, baseSellPrice: 6, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        3: { name: 'Bread', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 20, baseShopPrice: 24, baseSellPrice: 12, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        4: { name: 'Stew', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 50, baseShopPrice: 60, baseSellPrice: 30, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
     },
     throwable: {
-        1: { name: 'Pebble', type: ITEM_TYPES.THROWABLE, properties: { power: 5, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
+        1: { name: 'Pebble', type: ITEM_TYPES.THROWABLE, properties: { power: 5, baseShopPrice: 8, baseSellPrice: 4, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
         2: [
-            { name: 'Sharp rock', type: ITEM_TYPES.THROWABLE, properties: { power: 10, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
-            { name: 'Pushback crystal', type: ITEM_TYPES.THROWABLE, properties: { power: 5, throwEffect: 'pushback', hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
+            { name: 'Sharp rock', type: ITEM_TYPES.THROWABLE, properties: { power: 10, baseShopPrice: 18, baseSellPrice: 9, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
+            { name: 'Pushback crystal', type: ITEM_TYPES.THROWABLE, properties: { power: 5, throwEffect: 'pushback', baseShopPrice: 26, baseSellPrice: 13, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
         ],
         3: [
-            { name: 'Ninja star', type: ITEM_TYPES.THROWABLE, properties: { power: 15, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
-            { name: 'Blink crystal', type: ITEM_TYPES.THROWABLE, properties: { throwEffect: 'blink', breakOnWall: true, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
+            { name: 'Ninja star', type: ITEM_TYPES.THROWABLE, properties: { power: 15, baseShopPrice: 34, baseSellPrice: 17, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
+            { name: 'Blink crystal', type: ITEM_TYPES.THROWABLE, properties: { throwEffect: 'blink', breakOnWall: true, baseShopPrice: 52, baseSellPrice: 26, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
         ],
         4: [
-            { name: 'Javelin', type: ITEM_TYPES.THROWABLE, properties: { power: 20, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
-            { name: 'Switch crystal', type: ITEM_TYPES.THROWABLE, properties: { throwEffect: 'switch', hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
+            { name: 'Javelin', type: ITEM_TYPES.THROWABLE, properties: { power: 20, baseShopPrice: 60, baseSellPrice: 30, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },
+            { name: 'Switch crystal', type: ITEM_TYPES.THROWABLE, properties: { throwEffect: 'switch', baseShopPrice: 80, baseSellPrice: 40, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } }
         ]
     },
     weapon: {
-        0: { name: 'Cheater sword', type: ITEM_TYPES.WEAPON, properties: { power: 9999, slots: 80, enchantments: [...CHEATER_WEAPON_ENCHANTMENTS], hiddenName: hiddenSword, burnable: false } },
-        1: { name: 'Rusted sword', type: ITEM_TYPES.WEAPON, properties: { power: 3, slots: 7, hiddenName: hiddenSword, burnable: false } },
-        2: { name: 'Bronze sword', type: ITEM_TYPES.WEAPON, properties: { power: 4, slots: 6, hiddenName: hiddenSword, burnable: false } },
-        3: { name: 'Iron sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 5, hiddenName: hiddenSword, burnable: false } },
+        0: { name: 'Cheater sword', type: ITEM_TYPES.WEAPON, properties: { power: 9999, slots: 80, baseShopPrice: 50000, baseSellPrice: 25000, enchantments: [...CHEATER_WEAPON_ENCHANTMENTS], hiddenName: hiddenSword, burnable: false } },
+        1: { name: 'Rusted sword', type: ITEM_TYPES.WEAPON, properties: { power: 3, slots: 7, baseShopPrice: 40, baseSellPrice: 20, hiddenName: hiddenSword, burnable: false } },
+        2: { name: 'Bronze sword', type: ITEM_TYPES.WEAPON, properties: { power: 4, slots: 6, baseShopPrice: 65, baseSellPrice: 32, hiddenName: hiddenSword, burnable: false } },
+        3: { name: 'Iron sword', type: ITEM_TYPES.WEAPON, properties: { power: 5, slots: 5, baseShopPrice: 95, baseSellPrice: 47, hiddenName: hiddenSword, burnable: false } },
         4: [
-            { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 8, slots: 4, setId: 'warrior', hiddenName: hiddenSword, burnable: false } },
-            { name: 'Pickaxe', type: ITEM_TYPES.WEAPON, properties: { power: 1, slots: 0, breaksWalls: true, spawnImprovementMin: 5, spawnImprovementMax: 10, hiddenName: hiddenSword, burnable: false } }
+            { name: 'Fancy sword', type: ITEM_TYPES.WEAPON, properties: { power: 8, slots: 4, baseShopPrice: 145, baseSellPrice: 72, setId: 'warrior', hiddenName: hiddenSword, burnable: false } },
+            { name: 'Pickaxe', type: ITEM_TYPES.WEAPON, properties: { power: 1, slots: 0, breaksWalls: true, spawnImprovementMin: 5, spawnImprovementMax: 10, baseShopPrice: 170, baseSellPrice: 85, hiddenName: hiddenSword, burnable: false } }
         ]
     },
     armor: {
-        0: { name: 'Cheater armor', type: ITEM_TYPES.ARMOR, properties: { armor: 9999, slots: 80, enchantments: [...CHEATER_ARMOR_ENCHANTMENTS], hiddenName: hiddenArmor, burnable: false } },
-        1: { name: 'Rags', type: ITEM_TYPES.ARMOR, properties: { armor: 3, slots: 7, hiddenName: hiddenArmor, burnable: true } },
-        2: { name: 'Leather armor', type: ITEM_TYPES.ARMOR, properties: { armor: 4, slots: 6, hiddenName: hiddenArmor, burnable: true } },
-        3: { name: 'Chainmail armor', type: ITEM_TYPES.ARMOR, properties: { armor: 6, slots: 5, hiddenName: hiddenArmor, burnable: false } },
-        4: { name: 'Plate armor', type: ITEM_TYPES.ARMOR, properties: { armor: 8, slots: 4, setId: 'warrior', hiddenName: hiddenArmor, burnable: false } }
+        0: { name: 'Cheater armor', type: ITEM_TYPES.ARMOR, properties: { armor: 9999, slots: 80, baseShopPrice: 50000, baseSellPrice: 25000, enchantments: [...CHEATER_ARMOR_ENCHANTMENTS], hiddenName: hiddenArmor, burnable: false } },
+        1: { name: 'Rags', type: ITEM_TYPES.ARMOR, properties: { armor: 3, slots: 7, baseShopPrice: 35, baseSellPrice: 17, hiddenName: hiddenArmor, burnable: true } },
+        2: { name: 'Leather armor', type: ITEM_TYPES.ARMOR, properties: { armor: 4, slots: 6, baseShopPrice: 60, baseSellPrice: 30, hiddenName: hiddenArmor, burnable: true } },
+        3: { name: 'Chainmail armor', type: ITEM_TYPES.ARMOR, properties: { armor: 6, slots: 5, baseShopPrice: 95, baseSellPrice: 47, hiddenName: hiddenArmor, burnable: false } },
+        4: { name: 'Plate armor', type: ITEM_TYPES.ARMOR, properties: { armor: 8, slots: 4, baseShopPrice: 150, baseSellPrice: 75, setId: 'warrior', hiddenName: hiddenArmor, burnable: false } }
     },
     shield: {
-        0: { name: 'Cheater shield', type: ITEM_TYPES.SHIELD, properties: { armor: 9999, slots: 80, enchantments: [...CHEATER_SHIELD_ENCHANTMENTS], hiddenName: hiddenShield, burnable: false } },
-        1: { name: 'Rotten shield', type: ITEM_TYPES.SHIELD, properties: { armor: 3, slots: 7, hiddenName: hiddenShield, burnable: true } },
-        2: { name: 'Wooden shield', type: ITEM_TYPES.SHIELD, properties: { armor: 4, slots: 6, hiddenName: hiddenShield, burnable: true } },
-        3: { name: 'Kite shield', type: ITEM_TYPES.SHIELD, properties: { armor: 6, slots: 5, hiddenName: hiddenShield, burnable: false } },
-        4: { name: 'Tower shield', type: ITEM_TYPES.SHIELD, properties: { armor: 8, slots: 4, setId: 'warrior', hiddenName: hiddenShield, burnable: false } }
+        0: { name: 'Cheater shield', type: ITEM_TYPES.SHIELD, properties: { armor: 9999, slots: 80, baseShopPrice: 50000, baseSellPrice: 25000, enchantments: [...CHEATER_SHIELD_ENCHANTMENTS], hiddenName: hiddenShield, burnable: false } },
+        1: { name: 'Rotten shield', type: ITEM_TYPES.SHIELD, properties: { armor: 3, slots: 7, baseShopPrice: 30, baseSellPrice: 15, hiddenName: hiddenShield, burnable: true } },
+        2: { name: 'Wooden shield', type: ITEM_TYPES.SHIELD, properties: { armor: 4, slots: 6, baseShopPrice: 55, baseSellPrice: 27, hiddenName: hiddenShield, burnable: true } },
+        3: { name: 'Kite shield', type: ITEM_TYPES.SHIELD, properties: { armor: 6, slots: 5, baseShopPrice: 90, baseSellPrice: 45, hiddenName: hiddenShield, burnable: false } },
+        4: { name: 'Tower shield', type: ITEM_TYPES.SHIELD, properties: { armor: 8, slots: 4, baseShopPrice: 145, baseSellPrice: 72, setId: 'warrior', hiddenName: hiddenShield, burnable: false } }
     },
     accessory: {
-        0: { name: 'Cheater accessory', type: ITEM_TYPES.ACCESSORY, properties: { power: 9999, armor: 9999, slots: 80, enchantments: [...CHEATER_ACCESSORY_ENCHANTMENTS], hiddenName: hiddenAccessory, burnable: false } },
+        0: { name: 'Cheater accessory', type: ITEM_TYPES.ACCESSORY, properties: { power: 9999, armor: 9999, slots: 80, baseShopPrice: 50000, baseSellPrice: 25000, enchantments: [...CHEATER_ACCESSORY_ENCHANTMENTS], hiddenName: hiddenAccessory, burnable: false } },
         1: [
-            { name: 'Copper ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 5, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Copper bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 5, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+            { name: 'Copper ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 5, slots: 3, baseShopPrice: 70, baseSellPrice: 35, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Copper bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 5, slots: 3, baseShopPrice: 70, baseSellPrice: 35, hiddenName: hiddenAccessory, burnable: false } }
         ],
         2: [
-            { name: 'Bronze ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 10, slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Bronze bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 10, slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+            { name: 'Bronze ring', type: ITEM_TYPES.ACCESSORY, properties: { power: 10, slots: 3, baseShopPrice: 110, baseSellPrice: 55, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Bronze bracelet', type: ITEM_TYPES.ACCESSORY, properties: { armor: 10, slots: 3, baseShopPrice: 110, baseSellPrice: 55, hiddenName: hiddenAccessory, burnable: false } }
 ],
         3: [
-            { name: 'Waterwalk ring', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['waterwalk'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Lavawalk bracelet', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['lavawalk'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Flying amulet', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['fly'], slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+            { name: 'Waterwalk ring', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['waterwalk'], slots: 3, baseShopPrice: 160, baseSellPrice: 80, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Lavawalk bracelet', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['lavawalk'], slots: 3, baseShopPrice: 160, baseSellPrice: 80, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Flying amulet', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['fly'], slots: 3, baseShopPrice: 190, baseSellPrice: 95, hiddenName: hiddenAccessory, burnable: false } }
         ],
         4: [
-            { name: 'Scholar charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['scholar'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Sustenance charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['sustenance'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Vitality charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['vitality'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Hunter lens', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['enemySight'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Treasure lens', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['itemSight'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Appraiser monocle', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['appraiser'], slots: 3, hiddenName: hiddenAccessory, burnable: false } },
-            { name: 'Mining hardhat', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['miner'], slots: 3, hiddenName: hiddenAccessory, burnable: false } }
+            { name: 'Scholar charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['scholar'], slots: 3, baseShopPrice: 180, baseSellPrice: 90, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Sustenance charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['sustenance'], slots: 3, baseShopPrice: 180, baseSellPrice: 90, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Vitality charm', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['vitality'], slots: 3, baseShopPrice: 180, baseSellPrice: 90, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Hunter lens', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['enemySight'], slots: 3, baseShopPrice: 180, baseSellPrice: 90, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Treasure lens', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['itemSight'], slots: 3, baseShopPrice: 180, baseSellPrice: 90, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Appraiser monocle', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['appraiser'], slots: 3, baseShopPrice: 180, baseSellPrice: 90, hiddenName: hiddenAccessory, burnable: false } },
+            { name: 'Mining hardhat', type: ITEM_TYPES.ACCESSORY, properties: { enchantments: ['miner'], slots: 3, baseShopPrice: 190, baseSellPrice: 95, hiddenName: hiddenAccessory, burnable: false } }
         ]
     },
     statusConsumable: {
         1: [
-            { name: 'Poison brew', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.POISONED, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Sleeping draught', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SLEEP, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Fright powder', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.FRIGHTENED, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Spoiled milk', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.HUNGRY, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+            { name: 'Poison brew', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.POISONED, baseShopPrice: 20, baseSellPrice: 10, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Sleeping draught', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SLEEP, baseShopPrice: 22, baseSellPrice: 11, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Fright powder', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.FRIGHTENED, baseShopPrice: 22, baseSellPrice: 11, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Spoiled milk', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.HUNGRY, baseShopPrice: 16, baseSellPrice: 8, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ],
         2: [
-            { name: 'Viscous slime tincture', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SLOW, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false, dropOnlyEnemyTypes: [ENEMY_TYPES.SLIME] } },
-            { name: 'Haste potion', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.HASTE, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+            { name: 'Viscous slime tincture', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SLOW, baseShopPrice: 34, baseSellPrice: 17, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false, dropOnlyEnemyTypes: [ENEMY_TYPES.SLIME] } },
+            { name: 'Haste potion', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.HASTE, baseShopPrice: 40, baseSellPrice: 20, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ],
         3: [
-            { name: 'Methanol jug', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BLIND, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Invisibility salve', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.INVISIBLE, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Shard of madness', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BERSERK, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+            { name: 'Methanol jug', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BLIND, baseShopPrice: 55, baseSellPrice: 27, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Invisibility salve', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.INVISIBLE, baseShopPrice: 65, baseSellPrice: 32, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Shard of madness', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BERSERK, baseShopPrice: 65, baseSellPrice: 32, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ],
         4: [
-            { name: 'Petrification salts', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BOUND, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Holy water', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BLESSED, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Invincibility elixir', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.INVINCIBILITY, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Garlic chicken pizza', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SATIATED, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+            { name: 'Petrification salts', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BOUND, baseShopPrice: 90, baseSellPrice: 45, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Holy water', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.BLESSED, baseShopPrice: 95, baseSellPrice: 47, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Invincibility elixir', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.INVINCIBILITY, baseShopPrice: 150, baseSellPrice: 75, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Garlic chicken pizza', type: ITEM_TYPES.CONSUMABLE, properties: { condition: CONDITIONS.SATIATED, baseShopPrice: 100, baseSellPrice: 50, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ]
     },
     scroll: {
         1: [
-            { name: 'Trap eraser scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'erase-traps', hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Mapping scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'map-floor', hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+            { name: 'Trap eraser scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'erase-traps', baseShopPrice: 45, baseSellPrice: 22, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Mapping scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'map-floor', baseShopPrice: 45, baseSellPrice: 22, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ],
         2: [
-            { name: 'Identifying scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'identify-item', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY, ITEM_TYPES.CONSUMABLE, ITEM_TYPES.THROWABLE], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Gilding scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'add-gilded', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+            { name: 'Identifying scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'identify-item', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY, ITEM_TYPES.CONSUMABLE, ITEM_TYPES.THROWABLE], baseShopPrice: 70, baseSellPrice: 35, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Gilding scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'add-gilded', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY], baseShopPrice: 85, baseSellPrice: 42, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ],
         3: [
-            { name: 'Purifying scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'purify-item', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY, ITEM_TYPES.CONSUMABLE, ITEM_TYPES.THROWABLE], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Warp scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'warp-player', hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+            { name: 'Purifying scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'purify-item', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY, ITEM_TYPES.CONSUMABLE, ITEM_TYPES.THROWABLE], baseShopPrice: 95, baseSellPrice: 47, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Warp scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'warp-player', baseShopPrice: 110, baseSellPrice: 55, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ],
         4: [
-            { name: 'Earthly power scroll', type: ITEM_TYPES.CONSUMABLE, properties: { improvesItemTypes: [ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Heavenly power scroll', type: ITEM_TYPES.CONSUMABLE, properties: { improvesItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ACCESSORY], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-            { name: 'Slot adding scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'add-slot', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY], hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+            { name: 'Earthly power scroll', type: ITEM_TYPES.CONSUMABLE, properties: { improvesItemTypes: [ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD], baseShopPrice: 140, baseSellPrice: 70, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Heavenly power scroll', type: ITEM_TYPES.CONSUMABLE, properties: { improvesItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ACCESSORY], baseShopPrice: 140, baseSellPrice: 70, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+            { name: 'Slot adding scroll', type: ITEM_TYPES.CONSUMABLE, properties: { scrollEffect: 'add-slot', targetItemTypes: [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY], baseShopPrice: 165, baseSellPrice: 82, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
         ]
-    }
+    },
+    pot: {
+        1: [
+            createPotDefinition('Basic pot', 'basic', 3, 5, 20, 10),
+            createPotDefinition('Randomizer pot', 'randomizer', 2, 5, 42, 21),
+            createPotDefinition('Money pot', 'money', 2, 5, 36, 18),
+            createPotDefinition('Food pot', 'food', 2, 5, 28, 14),
+            createPotDefinition('Banking pot', 'banking', 2, 3, 42, 21)
+        ]
+    },
 };
 
 function sumEnchantmentBonus(enchantments, bonusKey) {
@@ -614,6 +661,64 @@ function setRawItemQuantity(properties, quantity) {
     }
 }
 
+function getBaseShopPriceForItem(item) {
+    if (!item) {
+        return 0;
+    }
+
+    const configuredBasePrice = Number(item?.properties?.baseShopPrice);
+    if (Number.isFinite(configuredBasePrice) && configuredBasePrice > 0) {
+        return Math.floor(configuredBasePrice);
+    }
+
+    const match = getTieredItemMatch(item);
+    const tier = clamp(Math.floor(Number(match?.tier) || 1), 1, 4);
+    const categoryPrices = DEFAULT_SHOP_PRICE_BY_CATEGORY[String(match?.category || '')];
+    if (Array.isArray(categoryPrices)) {
+        return categoryPrices[tier] || categoryPrices[categoryPrices.length - 1] || 30;
+    }
+
+    return 30;
+}
+
+function getItemShopPrice(item) {
+    if (!item) {
+        return 0;
+    }
+
+    const basePrice = getBaseShopPriceForItem(item);
+    const improvementLevel = typeof item?.getImprovementLevel === 'function'
+        ? item.getImprovementLevel()
+        : Math.max(0, Math.floor(Number(item?.properties?.improvementLevel) || 0));
+    const enchantmentCount = typeof item?.getEnchantments === 'function'
+        ? item.getEnchantments().length
+        : (Array.isArray(item?.properties?.enchantments) ? item.properties.enchantments.length : 0);
+    const quantity = typeof item?.getQuantity === 'function'
+        ? Math.max(1, Math.floor(Number(item.getQuantity()) || 1))
+        : getRawItemQuantity(item?.properties);
+    const cursed = typeof item?.isCursed === 'function'
+        ? item.isCursed()
+        : Boolean(item?.properties?.cursed);
+
+    const improvedPrice = basePrice + improvementLevel * 20 + enchantmentCount * 35;
+    const adjustedPrice = cursed ? Math.max(1, Math.floor(improvedPrice * 0.85)) : improvedPrice;
+    return Math.max(1, Math.floor(adjustedPrice * quantity));
+}
+
+function getItemSellPrice(item) {
+    if (!item) {
+        return 0;
+    }
+
+    const configuredSellPrice = Number(item?.properties?.baseSellPrice);
+    const dynamicSellPrice = Math.max(1, Math.floor(getItemShopPrice(item) * 0.5));
+    if (Number.isFinite(configuredSellPrice) && configuredSellPrice > 0) {
+        return Math.max(Math.floor(configuredSellPrice), dynamicSellPrice);
+    }
+
+    return dynamicSellPrice;
+}
+
 function getStatusConsumableDefinitions() {
     const statusByTier = TIERED_ITEM_DEFINITIONS.statusConsumable || {};
     const definitions = [];
@@ -665,6 +770,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'money', tier: 1, weight: 4 },
         { category: 'healing', tier: 1, weight: 4 },
         { category: 'food', tier: 1, weight: 4 },
+        { category: 'pot', tier: 1, weight: 1 },
         { category: 'statusConsumable', tier: 1, weight: 2 },
         { category: 'scroll', tier: 1, weight: 1 },
         { category: 'throwable', tier: 1, weight: 3 },
@@ -677,6 +783,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'money', tier: 2, weight: 4 },
         { category: 'healing', tier: 2, weight: 4 },
         { category: 'food', tier: 2, weight: 4 },
+        { category: 'pot', tier: 1, weight: 1 },
         { category: 'statusConsumable', tier: 2, weight: 2 },
         { category: 'scroll', tier: 2, weight: 1 },
         { category: 'throwable', tier: 2, weight: 3 },
@@ -689,6 +796,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'money', tier: 3, weight: 4 },
         { category: 'healing', tier: 3, weight: 4 },
         { category: 'food', tier: 3, weight: 4 },
+        { category: 'pot', tier: 1, weight: 1 },
         { category: 'statusConsumable', tier: 3, weight: 2 },
         { category: 'scroll', tier: 3, weight: 1 },
         { category: 'throwable', tier: 3, weight: 3 },
@@ -701,6 +809,7 @@ const ITEM_SPAWN_POOL_BY_TIER = {
         { category: 'money', tier: 4, weight: 4 },
         { category: 'healing', tier: 4, weight: 4 },
         { category: 'food', tier: 4, weight: 4 },
+        { category: 'pot', tier: 1, weight: 1 },
         { category: 'statusConsumable', tier: 4, weight: 2 },
         { category: 'scroll', tier: 4, weight: 1 },
         { category: 'throwable', tier: 4, weight: 3 },

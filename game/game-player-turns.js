@@ -1,3 +1,191 @@
+// Handles item pickup after player moves, including shop logic
+Game.prototype.pickupItemsAfterMove = function(x, y) {
+    const items = this.world.getItems(x, y);
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    for (const item of [...items]) {
+        if (item?.properties?.shopOwned) {
+            const price = this.getShopItemPrice(item);
+            const itemName = item.getDisplayName?.() || item.name || 'item';
+            const confirmMsg = `This item costs ${price} gold. Pick up ${itemName}?`;
+            const confirmed = typeof this.ui?.confirmPickupShopItem === 'function'
+                ? this.ui.confirmPickupShopItem(item, price, confirmMsg)
+                : window.confirm(confirmMsg);
+            if (!confirmed) {
+                continue;
+            }
+            item.properties.shopUnpaid = true;
+        }
+
+        if (item?.properties?.shopPendingSale) {
+            delete item.properties.shopPendingSale;
+            delete item.properties.shopSellPrice;
+        }
+
+        this.player.addItem(item);
+        this.world.removeItem(x, y, item);
+    }
+
+    this.checkShopTheftAfterMove();
+};
+
+// Returns a price for a shop item (simple formula, can be improved)
+Game.prototype.getShopItemPrice = function(item) {
+    const savedPrice = Number(item?.properties?.shopPrice);
+    if (Number.isFinite(savedPrice) && savedPrice > 0) {
+        return Math.floor(savedPrice);
+    }
+
+    if (typeof getItemShopPrice === 'function') {
+        return getItemShopPrice(item);
+    }
+
+    const base = 30;
+    const improve = Number(item?.properties?.improvementLevel || 0) * 20;
+    return base + improve;
+};
+
+Game.prototype.getShopSellPrice = function(item) {
+    const savedPrice = Number(item?.properties?.shopSellPrice);
+    if (Number.isFinite(savedPrice) && savedPrice > 0) {
+        return Math.floor(savedPrice);
+    }
+
+    if (typeof getItemSellPrice === 'function') {
+        return getItemSellPrice(item);
+    }
+
+    const quantity = typeof item?.getQuantity === 'function'
+        ? Math.max(1, Math.floor(Number(item.getQuantity()) || 1))
+        : 1;
+    return Math.max(1, Math.floor((this.getShopItemPrice(item) * quantity) / 2));
+};
+
+Game.prototype.getUnpaidShopItems = function() {
+    return (this.player?.inventory || []).filter((item) => item?.properties?.shopUnpaid);
+};
+
+Game.prototype.teleportShopkeeperNextToPlayer = function(shopkeeper, excludedPositions = []) {
+    if (!shopkeeper || !this.player || typeof getNeighbors !== 'function') {
+        return false;
+    }
+
+    const excludedKeys = new Set((excludedPositions || [])
+        .filter((pos) => Number.isFinite(pos?.x) && Number.isFinite(pos?.y))
+        .map((pos) => `${pos.x},${pos.y}`));
+
+    const candidates = getNeighbors(this.player.x, this.player.y)
+        .filter((pos) => !excludedKeys.has(`${pos.x},${pos.y}`));
+
+    for (const candidate of candidates) {
+        if (!this.world.canEnemyOccupy(candidate.x, candidate.y, this.player, shopkeeper, shopkeeper)) {
+            continue;
+        }
+
+        this.world.moveEnemy(shopkeeper, candidate.x, candidate.y);
+        return true;
+    }
+
+    return false;
+};
+
+Game.prototype.triggerShopkeeperHostility = function(shopkeeper = null) {
+    const actors = shopkeeper
+        ? [shopkeeper]
+        : (typeof this.world.getAllActors === 'function'
+            ? this.world.getAllActors()
+            : [...(this.world.getEnemies?.() || []), ...(this.world.getNpcs?.() || [])]);
+
+    let activated = false;
+    for (const actor of actors) {
+        if (!actor?.isShopkeeper || actor.shopkeeperHostileTriggered) {
+            continue;
+        }
+
+        actor.shopkeeperHostileTriggered = true;
+        actor.isNeutralNpc = () => false;
+        actor.aiType = AI_TYPES.CHASE;
+        actor.baseAiType = AI_TYPES.CHASE;
+
+        if (typeof this.world.removeNpc === 'function') {
+            this.world.removeNpc(actor);
+        }
+        if (!this.world.getEnemies().includes(actor)) {
+            this.world.addEnemy(actor);
+        }
+
+        activated = true;
+    }
+
+    if (activated) {
+        this.ui.addMessage('The shopkeeper becomes hostile!');
+    }
+
+    return activated;
+};
+
+Game.prototype.handleUnpaidShopExitAttempt = function(targetX, targetY) {
+    const currentTile = this.world.getTile(this.player.x, this.player.y);
+    const targetTile = this.world.getTile(targetX, targetY);
+    if (currentTile !== TILE_TYPES.SHOP || targetTile === TILE_TYPES.SHOP) {
+        return null;
+    }
+
+    const shopkeeper = typeof this.getActiveShopkeeper === 'function'
+        ? this.getActiveShopkeeper()
+        : null;
+    if (!shopkeeper) {
+        return null;
+    }
+
+    const settlement = typeof this.getShopSettlementState === 'function'
+        ? this.getShopSettlementState(shopkeeper)
+        : null;
+    if (!settlement || settlement.unpaidItems.length === 0) {
+        return null;
+    }
+
+    this.teleportShopkeeperNextToPlayer(shopkeeper, [{ x: targetX, y: targetY }]);
+
+    const decision = typeof this.ui?.promptShopExitDecision === 'function'
+        ? this.ui.promptShopExitDecision(
+            shopkeeper.name,
+            settlement.summaryText,
+            settlement.buyTotal,
+            settlement.sellTotal,
+            settlement.balanceLine
+        )
+        : 'no';
+
+    if (decision === 'yes') {
+        const result = typeof this.attemptShopSettlement === 'function'
+            ? this.attemptShopSettlement(shopkeeper, settlement)
+            : { completed: false, reason: 'missing-settlement-helper' };
+        return result.completed
+            ? { allowMove: true, purchased: true }
+            : { stayOnShopTile: true };
+    }
+
+    if (decision === 'run-away') {
+        this.ui.addMessage('You make a run for it!');
+        this.triggerShopkeeperHostility(shopkeeper);
+        return { allowMove: true, ranAway: true };
+    }
+
+    this.ui.addMessage(`${shopkeeper.name}: Then stay in the shop until you can pay.`);
+    return { stayOnShopTile: true };
+};
+
+// Checks if player is holding unpaid shop items outside the shop, makes shopkeeper hostile
+Game.prototype.checkShopTheftAfterMove = function() {
+    const inShop = this.world.getTile(this.player.x, this.player.y) === TILE_TYPES.SHOP;
+    const unpaid = this.getUnpaidShopItems();
+    if (unpaid.length === 0 || inShop) {
+        return;
+    }
+
+    this.triggerShopkeeperHostility();
+};
 // Player turn input and action resolution helpers
 
 Game.prototype.processPlayerTurn = function(input) {
@@ -46,6 +234,17 @@ Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY) {
         return null;
     }
 
+    const shopExitAttempt = this.handleUnpaidShopExitAttempt(targetX, targetY);
+    if (shopExitAttempt?.stayOnShopTile) {
+        this.player.tickConditions();
+        this.clearFailedMoveRecord();
+        return this.createPlayerMoveResult({
+            consumed: true,
+            moved: false,
+            actionType: 'shop-intercept'
+        });
+    }
+
     this.player.tickConditions();
 
     const prevPlayerX = this.player.x;
@@ -74,6 +273,13 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
     if (!this.world.canPlayerOccupy(targetX, targetY)) {
         this.recordFailedMove(input);
         return this.createPlayerMoveResult({ consumed: false, moved: false });
+    }
+
+    const shopExitAttempt = this.handleUnpaidShopExitAttempt(targetX, targetY);
+    if (shopExitAttempt?.stayOnShopTile) {
+        this.player.tickConditions();
+        this.clearFailedMoveRecord();
+        return this.createPlayerMoveResult({ consumed: true, moved: false, actionType: 'shop-intercept' });
     }
 
     this.player.tickConditions();
@@ -434,6 +640,11 @@ Game.prototype.processPlayerBerserkTurn = function() {
     const next = path[1];
     const moveDx = next.x - this.player.x;
     const moveDy = next.y - this.player.y;
+    const shopExitAttempt = this.handleUnpaidShopExitAttempt(next.x, next.y);
+    if (shopExitAttempt?.stayOnShopTile) {
+        return this.createPlayerTurnResult({ consumed: true, actionType: 'berserk-shop-intercept' });
+    }
+
     const floorBeforeMove = this.world.currentFloor;
     const moved = this.player.move(moveDx, moveDy, this.world, { applyHazards: false });
     if (moved) {
