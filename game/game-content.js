@@ -11,9 +11,24 @@ const FLOOR_EVENT_DISPLAY = {
         objective: ({ currentKills, requiredKills }) => `Defeat enemies with thrown items (${currentKills}/${requiredKills}).`,
         appendTurnsRemaining: false
     },
-    'catacombs-hoard': {
-        title: () => 'Random Event: Burial Hoard',
+    hoard: {
+        title: () => 'Random Event: Guarded Hoard',
         objective: () => 'Be careful, the hoard is protected.'
+    },
+    'save-lost-explorer': {
+        title: () => 'Quest: Save Lost Explorer',
+        objective: () => 'Find the lost explorer in the guarded room.',
+        appendTurnsRemaining: false
+    },
+    'retrieve-item': {
+        title: () => 'Quest: Retrieve Item',
+        objective: ({ itemName }) => `Recover ${itemName || 'the quest item'} and return it to the Questgiver.`,
+        appendTurnsRemaining: false
+    },
+    'material-delivery': {
+        title: () => 'Quest: Material Delivery',
+        objective: ({ engineerName, materialCount, materialName }) => `Bring ${materialCount || 1} ${materialName || 'delivery material'}${(materialCount || 1) === 1 ? '' : 's'} to ${engineerName || 'the engineer'}.`,
+        appendTurnsRemaining: false
     }
 };
 
@@ -46,49 +61,71 @@ Object.assign(Game.prototype, {
         return getFloorEventDisplayData(eventType, context);
     },
 
-    shouldGuaranteeCatacombsHoardEvent(floorIndex = this.world.currentFloor) {
-        return floorIndex === 1 && this.canActivateCatacombsHoardEvent();
+    ensureFloorMeta(floor = this.world.getCurrentFloor()) {
+        const targetFloor = floor || this.world.getCurrentFloor();
+        if (!targetFloor) {
+            return null;
+        }
+
+        targetFloor.meta = targetFloor.meta || {};
+        return targetFloor;
+    },
+
+    canStartFloorEvent(floor = this.ensureFloorMeta()) {
+        return Boolean(floor && !floor.meta?.activeEvent);
+    },
+
+    setActiveFloorEvent(eventType, eventData = {}, displayContext = {}, floor = this.ensureFloorMeta()) {
+        if (!floor) {
+            return false;
+        }
+
+        floor.meta.activeEvent = {
+            type: eventType,
+            ...eventData,
+            display: this.createFloorEventDisplayData(eventType, displayContext)
+        };
+        return true;
+    },
+
+    shouldGuaranteeHoardEvent(floorIndex = this.world.currentFloor) {
+        return floorIndex === 1 && this.canActivateHoardEvent();
     },
 
     rollRandomFloorEventType(rng) {
         const eventTypes = ['food-party', 'throwing-challenge'];
-        if (this.canActivateCatacombsHoardEvent()) {
-            eventTypes.push('catacombs-hoard');
+        if (this.canActivateHoardEvent()) {
+            eventTypes.push('hoard');
         }
         return pickRandom(eventTypes, rng);
     },
 
-    tryActivateRandomFloorEvent(rng, floorIndex) {
-        const floor = this.world.getCurrentFloor();
-        floor.meta = floor.meta || {};
+    activateRandomFloorEventByType(eventType, rng, floorIndex) {
+        const activators = {
+            'food-party': () => this.activateFoodPartyEvent(rng, floorIndex),
+            'throwing-challenge': () => this.activateThrowingChallengeEvent(),
+            hoard: () => this.activateHoardEvent(rng, floorIndex)
+        };
 
-        if (floor.meta.activeEvent) {
-            return;
+        return activators[eventType]?.() || false;
+    },
+
+    tryActivateRandomFloorEvent(rng, floorIndex) {
+        const floor = this.ensureFloorMeta();
+        if (!this.canStartFloorEvent(floor)) {
+            return false;
         }
 
-        if (this.shouldGuaranteeCatacombsHoardEvent(this.world.currentFloor)) {
-            this.activateCatacombsHoardEvent(rng, floorIndex);
-            return;
+        if (this.shouldGuaranteeHoardEvent(this.world.currentFloor)) {
+            return this.activateHoardEvent(rng, floorIndex);
         }
 
         if (getRngRoll(rng) >= this.getFloorRandomEventChance()) {
-            return;
+            return false;
         }
 
         const eventType = this.rollRandomFloorEventType(rng);
-        if (eventType === 'food-party') {
-            this.activateFoodPartyEvent(rng, floorIndex);
-            return;
-        }
-
-        if (eventType === 'throwing-challenge') {
-            this.activateThrowingChallengeEvent();
-            return;
-        }
-
-        if (eventType === 'catacombs-hoard') {
-            this.activateCatacombsHoardEvent(rng, floorIndex);
-        }
+        return this.activateRandomFloorEventByType(eventType, rng, floorIndex);
     },
 
     roomContainsPosition(room, x, y) {
@@ -147,8 +184,35 @@ Object.assign(Game.prototype, {
         return shuffled;
     },
 
-    getCatacombsHoardBlockedKeys(floor) {
+    addBlockedAreaKeys(blockedKeys, area, paddingOverride = null) {
+        if (!(blockedKeys instanceof Set) || !area) {
+            return;
+        }
+
+        const padding = paddingOverride === null
+            ? Math.max(0, Math.floor(Number(area.padding) || 0))
+            : Math.max(0, Math.floor(Number(paddingOverride) || 0));
+        const width = Math.max(1, Math.floor(Number(area.width) || 1));
+        const height = Math.max(1, Math.floor(Number(area.height) || 1));
+        const startX = Math.floor(Number(area.x) || 0) - padding;
+        const startY = Math.floor(Number(area.y) || 0) - padding;
+        const endX = startX + width + padding * 2 - 1;
+        const endY = startY + height + padding * 2 - 1;
+
+        for (let y = startY; y <= endY; y++) {
+            for (let x = startX; x <= endX; x++) {
+                if (!this.world.isWithinInteriorBounds(x, y)) {
+                    continue;
+                }
+                blockedKeys.add(toGridKey(x, y));
+            }
+        }
+    },
+
+    getHoardEventBlockedKeys(floor, options = {}) {
         const blockedKeys = new Set();
+        const includeSpecialAreas = options.ignoreSpecialAreas !== true;
+        const includeQuestRooms = options.ignoreQuestRooms !== true;
         const stairs = floor?.meta?.stairPositions;
         if (stairs?.up) {
             blockedKeys.add(toGridKey(stairs.up.x, stairs.up.y));
@@ -157,12 +221,26 @@ Object.assign(Game.prototype, {
             blockedKeys.add(toGridKey(stairs.down.x, stairs.down.y));
         }
 
+        if (includeSpecialAreas) {
+            const specialAreas = Array.isArray(floor?.meta?.specialAreas) ? floor.meta.specialAreas : [];
+            for (const area of specialAreas) {
+                this.addBlockedAreaKeys(blockedKeys, area);
+            }
+        }
+
+        if (includeQuestRooms) {
+            const questRooms = Array.isArray(floor?.meta?.questRooms) ? floor.meta.questRooms : [];
+            for (const room of questRooms) {
+                this.addBlockedAreaKeys(blockedKeys, room, 1);
+            }
+        }
+
         return blockedKeys;
     },
 
-    getEligibleCatacombsHoardRooms(floor = this.world.getCurrentFloor()) {
-        const rooms = Array.isArray(floor?.meta?.catacombsRooms) ? floor.meta.catacombsRooms : [];
-        const blockedKeys = this.getCatacombsHoardBlockedKeys(floor);
+    getEligibleHoardEventRooms(floor = this.world.getCurrentFloor()) {
+        const rooms = Array.isArray(floor?.meta?.encounterRooms) ? floor.meta.encounterRooms : [];
+        const blockedKeys = this.getHoardEventBlockedKeys(floor);
 
         return rooms.filter((room) => {
             if (this.getRoomArea(room) < 25) {
@@ -178,24 +256,21 @@ Object.assign(Game.prototype, {
         });
     },
 
-    canActivateCatacombsHoardEvent() {
-        if (this.world.getAreaType() !== AREA_TYPES.CATACOMBS) {
-            return false;
-        }
-
-        return this.getEligibleCatacombsHoardRooms().length > 0;
+    canActivateHoardEvent() {
+        const floor = this.world.getCurrentFloor();
+        return Boolean(floor?.grid);
     },
 
-    getCatacombsHoardEnemyCount(room) {
+    getGuardedEncounterEnemyCount(room) {
         return clamp(Math.floor(this.getRoomArea(room) * 0.3), 5, 10);
     },
 
-    getCatacombsHoardItemCount(room) {
+    getHoardEventItemCount(room) {
         return clamp(Math.floor(this.getRoomArea(room) * 0.2), 4, 8);
     },
 
-    chooseCatacombsHoardRoom(rng, floor = this.world.getCurrentFloor()) {
-        const eligibleRooms = this.getEligibleCatacombsHoardRooms(floor)
+    chooseHoardEventRoom(rng, floor = this.world.getCurrentFloor()) {
+        const eligibleRooms = this.getEligibleHoardEventRooms(floor)
             .sort((left, right) => this.getRoomArea(right) - this.getRoomArea(left));
         if (eligibleRooms.length === 0) {
             return null;
@@ -206,17 +281,626 @@ Object.assign(Game.prototype, {
         return chosenRoom ? { ...chosenRoom } : null;
     },
 
-    getCatacombsHoardEnemySpawnTiles(room, rng) {
-        const tiles = this.getRoomTiles(room).filter((tile) => this.world.canEnemyOccupy(tile.x, tile.y, this.player));
-        return this.shuffleTiles(rng, tiles);
+    getShuffledRoomTilesByPredicate(room, rng, predicate = () => true) {
+        return this.shuffleTiles(
+            rng,
+            this.getRoomTiles(room).filter((tile) => predicate(tile))
+        );
     },
 
-    getCatacombsHoardItemSpawnTiles(room, rng) {
-        const tiles = this.getRoomTiles(room).filter((tile) => this.world.canSpawnItemAt(tile.x, tile.y, this.player));
-        return this.shuffleTiles(rng, tiles);
+    getGuardedEncounterEnemySpawnTiles(room, rng, reservedKeys = new Set()) {
+        return this.getShuffledRoomTilesByPredicate(
+            room,
+            rng,
+            (tile) => !reservedKeys.has(toGridKey(tile.x, tile.y))
+                && this.world.canEnemyOccupy(tile.x, tile.y, this.player)
+        );
     },
 
-    createCatacombsHoardEnemy(enemyTypeKey, floorIndex) {
+    getGuardedEncounterItemSpawnTiles(room, rng) {
+        return this.getShuffledRoomTilesByPredicate(
+            room,
+            rng,
+            (tile) => this.world.canSpawnItemAt(tile.x, tile.y, this.player)
+        );
+    },
+
+    getRoomCenterPosition(room) {
+        if (!room) {
+            return { x: this.player.x, y: this.player.y };
+        }
+
+        return {
+            x: Math.floor(room.x + room.width / 2),
+            y: Math.floor(room.y + room.height / 2)
+        };
+    },
+
+    getQuestEncounterBlockedKeys(floor = this.world.getCurrentFloor(), options = {}) {
+        const blockedKeys = this.getHoardEventBlockedKeys(floor, options);
+        const grid = floor?.grid;
+
+        if (options.ignoreShopTiles !== true && Array.isArray(grid)) {
+            for (let y = 0; y < grid.length; y++) {
+                for (let x = 0; x < grid[y].length; x++) {
+                    if (grid[y][x] === TILE_TYPES.SHOP) {
+                        blockedKeys.add(toGridKey(x, y));
+                    }
+                }
+            }
+        }
+
+        return blockedKeys;
+    },
+
+    getRelaxedQuestEncounterPlacementOptions() {
+        return {
+            ignoreSpecialAreas: true,
+            ignoreQuestRooms: true,
+            ignoreShopTiles: true
+        };
+    },
+
+    findNearestOpenTileOutsideRoom(room, floor = this.world.getCurrentFloor()) {
+        const grid = floor?.grid;
+        if (!room || !Array.isArray(grid)) {
+            return null;
+        }
+
+        const center = this.getRoomCenterPosition(room);
+        for (let radius = 1; radius <= GRID_SIZE; radius++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dy = -radius; dy <= radius; dy++) {
+                    if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) {
+                        continue;
+                    }
+
+                    const x = center.x + dx;
+                    const y = center.y + dy;
+                    if (!this.world.isWithinInteriorBounds(x, y) || this.roomContainsPosition(room, x, y)) {
+                        continue;
+                    }
+
+                    const tile = grid[y][x];
+                    if (tile === TILE_TYPES.FLOOR || tile === TILE_TYPES.STAIRS_UP || tile === TILE_TYPES.STAIRS_DOWN || tile === TILE_TYPES.SHOP) {
+                        return { x, y };
+                    }
+                }
+            }
+        }
+
+        return null;
+    },
+
+    sanitizeEncounterRoomTiles(tileKeys, floor = this.world.getCurrentFloor()) {
+        if (!(tileKeys instanceof Set) || !floor) {
+            return;
+        }
+
+        for (const key of tileKeys) {
+            const position = fromGridKey(key);
+            if (!position) {
+                continue;
+            }
+
+            this.world.setTile(position.x, position.y, TILE_TYPES.FLOOR);
+            this.world.removeHazard?.(position.x, position.y);
+            this.world.removeTrap?.(position.x, position.y);
+            if (floor.items instanceof Map) {
+                floor.items.delete(key);
+            }
+        }
+    },
+
+    relocateActorsOutOfRoom(room, rng, floor = this.world.getCurrentFloor()) {
+        const floorEnemies = Array.isArray(floor?.enemies) ? floor.enemies : [];
+        for (const enemy of floorEnemies) {
+            if (!enemy?.isAlive?.() || enemy.isAlly || enemy.isShopkeeper || enemy.isLostExplorerNpc) {
+                continue;
+            }
+
+            if (!this.isPositionAdjacentToRoom(room, enemy.x, enemy.y, 1)) {
+                continue;
+            }
+
+            let spawn = null;
+            for (let attempt = 0; attempt < 10; attempt++) {
+                const candidate = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
+                if (candidate && !this.roomContainsPosition(room, candidate.x, candidate.y)) {
+                    spawn = candidate;
+                    break;
+                }
+            }
+
+            if (spawn) {
+                this.assignActorPosition(enemy, spawn);
+            }
+        }
+    },
+
+    prepareEncounterRoom(room, rng, floor = this.world.getCurrentFloor()) {
+        if (!room) {
+            return;
+        }
+
+        const roomKeys = new Set(this.getRoomTiles(room).map((tile) => toGridKey(tile.x, tile.y)));
+        this.sanitizeEncounterRoomTiles(roomKeys, floor);
+        this.relocateActorsOutOfRoom(room, rng, floor);
+    },
+
+    buildQuestEncounterBoundaryWalls(room, floor = this.world.getCurrentFloor()) {
+        const grid = floor?.grid;
+        if (!room || !Array.isArray(grid)) {
+            return;
+        }
+
+        for (let y = room.y - 1; y <= room.y + room.height; y++) {
+            for (let x = room.x - 1; x <= room.x + room.width; x++) {
+                if (!this.world.isWithinInteriorBounds(x, y) || this.roomContainsPosition(room, x, y)) {
+                    continue;
+                }
+
+                const key = toGridKey(x, y);
+                this.world.setTile(x, y, TILE_TYPES.WALL);
+                this.world.removeHazard?.(x, y);
+                this.world.removeTrap?.(x, y);
+                if (floor.items instanceof Map) {
+                    floor.items.delete(key);
+                }
+            }
+        }
+    },
+
+    findQuestEncounterRoomCandidate(rng, blockedKeys = new Set(), attempts = 80) {
+        for (let attempt = 0; attempt < attempts; attempt++) {
+            const width = getRngRandomInt(rng, 6, 9);
+            const height = getRngRandomInt(rng, 6, 9);
+            const x = getRngRandomInt(rng, 2, GRID_SIZE - width - 3);
+            const y = getRngRandomInt(rng, 2, GRID_SIZE - height - 3);
+            const candidate = { x, y, width, height };
+
+            const touchesBlockedTile = Array.from(blockedKeys).some((key) => {
+                const position = fromGridKey(key);
+                return position && this.isPositionAdjacentToRoom(candidate, position.x, position.y, 1);
+            });
+
+            if (touchesBlockedTile) {
+                continue;
+            }
+
+            return candidate;
+        }
+
+        return null;
+    },
+
+    registerQuestEncounterRoom(floor, room) {
+        if (!floor?.meta || !room) {
+            return;
+        }
+
+        if (!Array.isArray(floor.meta.questRooms)) {
+            floor.meta.questRooms = [];
+        }
+        floor.meta.questRooms.push({ ...room });
+
+        if (!Array.isArray(floor.meta.specialAreas)) {
+            floor.meta.specialAreas = [];
+        }
+
+        const specialArea = typeof this.world?.createSpecialAreaDescriptor === 'function'
+            ? this.world.createSpecialAreaDescriptor('guarded-room', room.x, room.y, room.width, room.height, { padding: 1 })
+            : {
+                type: 'guarded-room',
+                x: room.x,
+                y: room.y,
+                width: room.width,
+                height: room.height,
+                padding: 1
+            };
+        floor.meta.specialAreas.push(specialArea);
+    },
+
+    createQuestEncounterRoom(rng, floor = this.world.getCurrentFloor(), options = {}) {
+        const targetFloor = this.ensureFloorMeta(floor);
+        const grid = targetFloor?.grid;
+        if (!Array.isArray(grid)) {
+            return null;
+        }
+
+        const roomTileKeys = new Set();
+        const hallwayTileKeys = new Set();
+        let room = this.findQuestEncounterRoomCandidate(
+            rng,
+            this.getQuestEncounterBlockedKeys(targetFloor),
+            80
+        );
+
+        if (!room && options.forcePlacement) {
+            room = this.findQuestEncounterRoomCandidate(
+                rng,
+                this.getQuestEncounterBlockedKeys(targetFloor, this.getRelaxedQuestEncounterPlacementOptions()),
+                160
+            );
+        }
+
+        if (!room) {
+            room = {
+                x: clamp(Math.floor(GRID_SIZE / 2) - 3, 1, GRID_SIZE - 8),
+                y: clamp(Math.floor(GRID_SIZE / 2) - 3, 1, GRID_SIZE - 8),
+                width: 6,
+                height: 6
+            };
+        }
+
+        this.buildQuestEncounterBoundaryWalls(room, targetFloor);
+        this.world.carveRoom(grid, room, roomTileKeys);
+
+        const connectionTarget = this.findNearestOpenTileOutsideRoom(room, targetFloor);
+        if (connectionTarget) {
+            this.world.carveHallwayBetweenPoints(
+                grid,
+                this.getRoomCenterPosition(room),
+                connectionTarget,
+                rng,
+                roomTileKeys,
+                hallwayTileKeys
+            );
+        }
+
+        this.sanitizeEncounterRoomTiles(roomTileKeys, targetFloor);
+        this.sanitizeEncounterRoomTiles(hallwayTileKeys, targetFloor);
+        this.prepareEncounterRoom(room, rng, targetFloor);
+
+        this.registerQuestEncounterRoom(targetFloor, room);
+
+        return room;
+    },
+
+    createNeutralGuardNpc(name, extraProperties = {}, enemyTypeKey = 'npcTier1') {
+        const npc = this.createEnemyForType(0, 0, enemyTypeKey, 0);
+        if (!npc) {
+            return null;
+        }
+
+        npc.name = String(name || 'NPC');
+        npc.aiType = AI_TYPES.GUARD;
+        npc.baseAiType = AI_TYPES.GUARD;
+        Object.assign(npc, extraProperties || {});
+        npc.isNeutralNpc = () => true;
+        return npc;
+    },
+
+    createLostExplorerNpc(quest) {
+        return this.createNeutralGuardNpc('Lost explorer', {
+            monsterType: 'npcLostExplorerTier1',
+            isLostExplorerNpc: true,
+            lostExplorerQuestId: quest?.id ?? null
+        });
+    },
+
+    createMaterialDeliveryEngineerNpc(quest) {
+        const engineerName = typeof quest?.engineerName === 'string' && quest.engineerName.trim().length > 0
+            ? quest.engineerName.trim()
+            : 'Engineer';
+        return this.createNeutralGuardNpc(engineerName, {
+            monsterType: 'npcEngineerTier1',
+            isMaterialDeliveryEngineerNpc: true,
+            materialDeliveryQuestId: quest?.id ?? null
+        });
+    },
+
+    getActiveQuestForFloor(questType, floorIndex = this.world.currentFloor) {
+        const activeQuest = this.ensureQuestgiverState?.().activeQuest;
+        if (!activeQuest || activeQuest.type !== questType || activeQuest.completed) {
+            return null;
+        }
+
+        const normalizedFloor = Math.max(0, Math.floor(Number(floorIndex) || 0));
+        if (normalizedFloor <= 0) {
+            return null;
+        }
+
+        const currentPathId = this.world?.getSelectedDungeonPathId?.() || getDefaultDungeonPathId();
+        const targetPathId = activeQuest.targetPathId || getDefaultDungeonPathId();
+        const targetFloor = Math.max(1, Math.floor(Number(activeQuest.targetFloor) || 1));
+
+        if (currentPathId !== targetPathId || normalizedFloor !== targetFloor) {
+            return null;
+        }
+
+        return activeQuest;
+    },
+
+    createRetrieveItemQuestItem(quest) {
+        const itemName = typeof quest?.itemName === 'string' && quest.itemName.trim().length > 0
+            ? quest.itemName.trim()
+            : 'Recovered relic';
+        const item = new Item(itemName, ITEM_TYPES.CONSUMABLE, {
+            requiresIdentification: false,
+            hiddenName: itemName,
+            questItem: true,
+            questReturnOnly: true,
+            questType: 'retrieve-item',
+            questId: quest?.id ?? null,
+            burnable: false,
+            useBlockMessage: `${itemName} must be returned to the Questgiver.`
+        });
+        item.identify?.();
+        return item;
+    },
+
+    getQuestFloorEventContext(questType, floorIndex = this.world.currentFloor, options = {}) {
+        const floor = this.ensureFloorMeta();
+        if (!this.canStartFloorEvent(floor)) {
+            return null;
+        }
+
+        const activeQuest = this.getActiveQuestForFloor(questType, floorIndex);
+        if (!activeQuest || (options.requireIncomplete !== false && activeQuest.completed)) {
+            return null;
+        }
+
+        return { floor, activeQuest };
+    },
+
+    findQuestNpcSpawn(rng, npc, floor = this.ensureFloorMeta(), options = {}) {
+        if (!npc || !floor) {
+            return null;
+        }
+
+        const strictAttempts = Math.max(1, Math.floor(Number(options.strictAttempts) || 60));
+        const relaxedAttempts = Math.max(0, Math.floor(Number(options.relaxedAttempts) || 120));
+        const fallbackAttempts = Math.max(0, Math.floor(Number(options.fallbackAttempts) || 1));
+        const tryFindSpawn = (blockedKeys = null, attempts = 60) => {
+            for (let attempt = 0; attempt < attempts; attempt++) {
+                const candidate = this.world.findRandomOpenTile(rng, this.player, 250, npc);
+                if (!candidate) {
+                    continue;
+                }
+
+                if (blockedKeys instanceof Set && blockedKeys.has(toGridKey(candidate.x, candidate.y))) {
+                    continue;
+                }
+
+                return candidate;
+            }
+
+            return null;
+        };
+
+        let spawn = tryFindSpawn(this.getQuestEncounterBlockedKeys(floor), strictAttempts);
+        if (!spawn && relaxedAttempts > 0) {
+            spawn = tryFindSpawn(
+                this.getQuestEncounterBlockedKeys(floor, this.getRelaxedQuestEncounterPlacementOptions()),
+                relaxedAttempts
+            );
+        }
+
+        if (!spawn && fallbackAttempts > 0) {
+            spawn = tryFindSpawn(null, fallbackAttempts);
+        }
+
+        return spawn;
+    },
+
+    activateQuestNpcEvent(questType, rng, floorIndex = this.world.currentFloor, options = {}) {
+        const questContext = this.getQuestFloorEventContext(questType, floorIndex, options);
+        if (!questContext) {
+            return false;
+        }
+
+        const npc = typeof options.createNpc === 'function'
+            ? options.createNpc(questContext.activeQuest)
+            : null;
+        if (!npc) {
+            return false;
+        }
+
+        const spawn = this.findQuestNpcSpawn(rng, npc, questContext.floor, options.spawnOptions);
+        if (!spawn) {
+            return false;
+        }
+
+        this.assignActorPosition(npc, spawn);
+        this.addEnemyIfMissing(npc);
+
+        const eventActorKey = typeof options.eventActorKey === 'string' && options.eventActorKey.length > 0
+            ? options.eventActorKey
+            : 'npc';
+        const displayContext = typeof options.getDisplayContext === 'function'
+            ? options.getDisplayContext(questContext.activeQuest, npc, spawn)
+            : (options.displayContext || {});
+
+        return this.setActiveFloorEvent(
+            options.eventType || questType,
+            {
+                [eventActorKey]: npc,
+                questId: questContext.activeQuest.id,
+                ...(options.eventData || {})
+            },
+            displayContext,
+            questContext.floor
+        );
+    },
+
+    getGuardedEncounterRoom(rng, floor = this.world.getCurrentFloor(), options = {}) {
+        const room = this.chooseHoardEventRoom(rng, floor)
+            || this.createQuestEncounterRoom(rng, floor, options);
+        if (!room) {
+            return null;
+        }
+
+        this.prepareEncounterRoom(room, rng, floor);
+        return room;
+    },
+
+    getGuardedEncounterEnemyContext(floorIndex = this.world.currentFloor) {
+        const enemyFloorIndex = this.getDungeonDepthIndex(floorIndex);
+        const enemyEntries = this.getEnemySpawnEntriesForFloor(enemyFloorIndex)
+            .filter((entry) => !this.isDungeonNpcTypeKey(entry.key));
+
+        return { enemyFloorIndex, enemyEntries };
+    },
+
+    spawnSleepingEnemiesForGuardedRoom(room, rng, floorIndex, options = {}) {
+        const enemyContext = options.enemyContext || this.getGuardedEncounterEnemyContext(floorIndex);
+        const reservedKeys = options.reservedKeys instanceof Set
+            ? new Set(options.reservedKeys)
+            : new Set();
+        const shuffledEnemyTiles = this.getGuardedEncounterEnemySpawnTiles(room, rng, reservedKeys);
+        const requestedCount = Number.isFinite(options.enemyCount)
+            ? Math.max(0, Math.floor(options.enemyCount))
+            : this.getGuardedEncounterEnemyCount(room);
+        const enemyCount = Math.min(shuffledEnemyTiles.length, requestedCount);
+        const sleepingEnemies = [];
+
+        for (let i = 0; i < enemyCount; i++) {
+            const chosenEntry = this.chooseWeightedEntry(rng, enemyContext.enemyEntries);
+            if (!chosenEntry) {
+                continue;
+            }
+
+            const enemy = this.createHoardEventEnemy(chosenEntry.key, enemyContext.enemyFloorIndex);
+            if (!enemy) {
+                continue;
+            }
+
+            const spawnTile = shuffledEnemyTiles[i];
+            this.assignActorPosition(enemy, spawnTile);
+            this.addEnemyIfMissing(enemy);
+            sleepingEnemies.push(enemy);
+        }
+
+        return sleepingEnemies;
+    },
+
+    prepareGuardedEncounterEvent(rng, floorIndex, floor = this.ensureFloorMeta(), options = {}) {
+        if (!this.canStartFloorEvent(floor)) {
+            return null;
+        }
+
+        const enemyContext = this.getGuardedEncounterEnemyContext(floorIndex);
+        if (enemyContext.enemyEntries.length === 0) {
+            return null;
+        }
+
+        const room = this.getGuardedEncounterRoom(rng, floor, options);
+        if (!room) {
+            return null;
+        }
+
+        return { floor, room, enemyContext };
+    },
+
+    activateGuardedQuestEvent(questType, rng, floorIndex, options = {}) {
+        const questContext = this.getQuestFloorEventContext(questType, floorIndex, options);
+        if (!questContext) {
+            return false;
+        }
+
+        const setup = this.prepareGuardedEncounterEvent(rng, floorIndex, questContext.floor, {
+            forcePlacement: options.forcePlacement !== false
+        });
+        if (!setup) {
+            return false;
+        }
+
+        const prepared = typeof options.prepareEncounter === 'function'
+            ? options.prepareEncounter({ ...setup, activeQuest: questContext.activeQuest })
+            : {};
+        if (!prepared) {
+            return false;
+        }
+
+        const sleepingEnemies = this.spawnSleepingEnemiesForGuardedRoom(setup.room, rng, floorIndex, {
+            enemyContext: setup.enemyContext,
+            reservedKeys: prepared.reservedKeys,
+            enemyCount: prepared.enemyCount
+        });
+
+        return this.setActiveFloorEvent(
+            options.eventType || questType,
+            {
+                room: setup.room,
+                sleepingEnemies,
+                questId: questContext.activeQuest.id,
+                awakened: false,
+                ...(prepared.eventData || {})
+            },
+            prepared.displayContext || {},
+            questContext.floor
+        );
+    },
+
+    tryActivateSaveLostExplorerEvent(rng, floorIndex = this.world.currentFloor) {
+        return this.activateGuardedQuestEvent('save-lost-explorer', rng, floorIndex, {
+            prepareEncounter: ({ activeQuest, room }) => {
+                const explorer = this.createLostExplorerNpc(activeQuest);
+                if (!explorer) {
+                    return null;
+                }
+
+                const roomTiles = this.getShuffledRoomTilesByPredicate(
+                    room,
+                    rng,
+                    (tile) => this.world.canEnemyOccupy(tile.x, tile.y, this.player, null, explorer)
+                );
+                const explorerTile = roomTiles[0];
+                if (!explorerTile) {
+                    return null;
+                }
+
+                this.assignActorPosition(explorer, explorerTile);
+                this.addEnemyIfMissing(explorer);
+
+                return {
+                    eventData: { explorer },
+                    reservedKeys: new Set([toGridKey(explorerTile.x, explorerTile.y)]),
+                    enemyCount: clamp(Math.floor(this.getRoomArea(room) * 0.25), 4, 8)
+                };
+            }
+        });
+    },
+
+    tryActivateRetrieveItemQuestEvent(rng, floorIndex = this.world.currentFloor) {
+        return this.activateGuardedQuestEvent('retrieve-item', rng, floorIndex, {
+            prepareEncounter: ({ activeQuest, room }) => {
+                const questItem = this.createRetrieveItemQuestItem(activeQuest);
+                const itemTiles = this.getGuardedEncounterItemSpawnTiles(room, rng);
+                if (!questItem || itemTiles.length === 0) {
+                    return null;
+                }
+
+                const itemTile = itemTiles[0];
+                const placementResult = this.world.addItem(itemTile.x, itemTile.y, questItem);
+                if (!placementResult?.placed) {
+                    return null;
+                }
+
+                return {
+                    eventData: { questItem },
+                    reservedKeys: new Set([toGridKey(placementResult.x, placementResult.y)]),
+                    enemyCount: clamp(Math.floor(this.getRoomArea(room) * 0.2), 4, 7),
+                    displayContext: { itemName: activeQuest.itemName }
+                };
+            }
+        });
+    },
+
+    tryActivateMaterialDeliveryQuestEvent(rng, floorIndex = this.world.currentFloor) {
+        return this.activateQuestNpcEvent('material-delivery', rng, floorIndex, {
+            createNpc: (activeQuest) => this.createMaterialDeliveryEngineerNpc(activeQuest),
+            eventActorKey: 'engineer',
+            getDisplayContext: (activeQuest) => ({
+                engineerName: activeQuest.engineerName,
+                materialCount: activeQuest.materialCount,
+                materialName: activeQuest.materialName
+            })
+        });
+    },
+
+    createHoardEventEnemy(enemyTypeKey, floorIndex) {
         const enemy = this.createEnemyForType(0, 0, enemyTypeKey, floorIndex);
         if (!enemy) {
             return null;
@@ -227,45 +911,20 @@ Object.assign(Game.prototype, {
         return enemy;
     },
 
-    activateCatacombsHoardEvent(rng, floorIndex) {
-        const floor = this.world.getCurrentFloor();
-        floor.meta = floor.meta || {};
-
-        const room = this.chooseCatacombsHoardRoom(rng, floor);
-        if (!room) {
+    activateHoardEvent(rng, floorIndex) {
+        const setup = this.prepareGuardedEncounterEvent(rng, floorIndex);
+        if (!setup) {
             return false;
         }
 
-        const enemyEntries = this.getEnemySpawnEntriesForFloor(floorIndex)
-            .filter((entry) => !this.isDungeonNpcTypeKey(entry.key));
-        if (enemyEntries.length === 0) {
-            return false;
-        }
+        const sleepingEnemies = this.spawnSleepingEnemiesForGuardedRoom(setup.room, rng, floorIndex, {
+            enemyContext: setup.enemyContext,
+            enemyCount: this.getGuardedEncounterEnemyCount(setup.room)
+        });
 
-        const enemyTiles = this.getCatacombsHoardEnemySpawnTiles(room, rng);
-        const sleepingEnemies = [];
+        const itemTiles = this.getGuardedEncounterItemSpawnTiles(setup.room, rng);
+        const itemCount = Math.min(itemTiles.length, this.getHoardEventItemCount(setup.room));
         const spawnedItems = [];
-        const enemyCount = Math.min(enemyTiles.length, this.getCatacombsHoardEnemyCount(room));
-
-        for (let i = 0; i < enemyCount; i++) {
-            const chosenEntry = this.chooseWeightedEntry(rng, enemyEntries);
-            if (!chosenEntry) {
-                continue;
-            }
-
-            const enemy = this.createCatacombsHoardEnemy(chosenEntry.key, floorIndex);
-            if (!enemy) {
-                continue;
-            }
-
-            const spawnTile = enemyTiles[i];
-            this.assignActorPosition(enemy, spawnTile);
-            this.addEnemyIfMissing(enemy);
-            sleepingEnemies.push(enemy);
-        }
-
-        const itemTiles = this.getCatacombsHoardItemSpawnTiles(room, rng);
-        const itemCount = Math.min(itemTiles.length, this.getCatacombsHoardItemCount(room));
 
         for (let i = 0; i < itemCount; i++) {
             const item = this.createRandomItemForFloor(rng, floorIndex);
@@ -286,21 +945,34 @@ Object.assign(Game.prototype, {
             return false;
         }
 
-        floor.meta.activeEvent = {
-            type: 'catacombs-hoard',
-            room,
-            sleepingEnemies,
-            spawnedItems,
-            awakened: false,
-            display: this.createFloorEventDisplayData('catacombs-hoard')
-        };
+        return this.setActiveFloorEvent(
+            'hoard',
+            {
+                room: setup.room,
+                sleepingEnemies,
+                spawnedItems,
+                awakened: false
+            },
+            {},
+            setup.floor
+        );
+    },
 
-        return true;
+    tryActivateQuestFloorEvent(rng, floorIndex = this.world.currentFloor) {
+        const questActivators = [
+            () => this.tryActivateSaveLostExplorerEvent(rng, floorIndex),
+            () => this.tryActivateRetrieveItemQuestEvent(rng, floorIndex),
+            () => this.tryActivateMaterialDeliveryQuestEvent(rng, floorIndex)
+        ];
+
+        return questActivators.some((activate) => activate());
     },
 
     activateFoodPartyEvent(rng, floorIndex) {
-        const floor = this.world.getCurrentFloor();
-        floor.meta = floor.meta || {};
+        const floor = this.ensureFloorMeta();
+        if (!floor) {
+            return false;
+        }
 
         const spawnedItems = [];
         const eventSpawnCount = 12;
@@ -324,30 +996,38 @@ Object.assign(Game.prototype, {
             spawnedItems.push({ x: spawn.x, y: spawn.y, item: foodItem });
         }
 
-        floor.meta.activeEvent = {
-            type: 'food-party',
-            turnsRemaining: this.getFoodPartyEventTurnLimit(),
-            spawnedItems,
-            display: this.createFloorEventDisplayData('food-party', {
+        return this.setActiveFloorEvent(
+            'food-party',
+            {
+                turnsRemaining: this.getFoodPartyEventTurnLimit(),
+                spawnedItems
+            },
+            {
                 turnsRemaining: this.getFoodPartyEventTurnLimit()
-            })
-        };
+            },
+            floor
+        );
     },
 
     activateThrowingChallengeEvent() {
-        const floor = this.world.getCurrentFloor();
-        floor.meta = floor.meta || {};
+        const floor = this.ensureFloorMeta();
+        if (!floor) {
+            return false;
+        }
 
-        floor.meta.activeEvent = {
-            type: 'throwing-challenge',
-            requiredKills: 5,
-            currentKills: 0,
-            rewardGranted: false,
-            display: this.createFloorEventDisplayData('throwing-challenge', {
+        return this.setActiveFloorEvent(
+            'throwing-challenge',
+            {
+                requiredKills: 5,
+                currentKills: 0,
+                rewardGranted: false
+            },
+            {
                 currentKills: 0,
                 requiredKills: 5
-            })
-        };
+            },
+            floor
+        );
     },
 
     cleanupFoodPartyEventItems(activeEvent) {
@@ -397,10 +1077,11 @@ Object.assign(Game.prototype, {
         floor.meta.activeEvent = null;
     },
 
-    tryWakeCatacombsHoardEvent() {
+    tryWakeGuardedRoomEvent() {
         const floor = this.world.getCurrentFloor();
         const activeEvent = floor?.meta?.activeEvent;
-        if (!activeEvent || activeEvent.type !== 'catacombs-hoard' || activeEvent.awakened) {
+        const supportedEventTypes = new Set(['hoard', 'save-lost-explorer', 'retrieve-item']);
+        if (!activeEvent || !supportedEventTypes.has(activeEvent.type) || activeEvent.awakened) {
             return;
         }
 
@@ -425,7 +1106,9 @@ Object.assign(Game.prototype, {
         }
 
         activeEvent.awakened = true;
-        floor.meta.activeEvent = null;
+        if (activeEvent.type === 'hoard') {
+            floor.meta.activeEvent = null;
+        }
     },
 
     handleFloorEventEnemyDefeat(enemy, options = {}) {
@@ -461,7 +1144,10 @@ Object.assign(Game.prototype, {
         const rewardRng = this.getFloorContentRng(this.world.currentFloor + 900000);
         const rewardItem = this.createThrowingChallengeRewardItem(rewardRng, this.getDungeonDepthIndex(this.world.currentFloor));
         if (rewardItem) {
-            this.player.addItem(rewardItem);
+            const rewardResult = this.tryAddItemToPlayerInventory?.(rewardItem, { dropIfFull: true });
+            if (rewardResult && !rewardResult.added) {
+                this.ui?.addMessage?.(`Inventory is full. ${getItemLabel(rewardItem)} drops at your feet.`);
+            }
         }
 
         activeEvent.rewardGranted = true;
@@ -593,8 +1279,8 @@ Object.assign(Game.prototype, {
     },
 
     populateCurrentFloorIfNeeded() {
-        const floor = this.world.getCurrentFloor();
-        if (floor.meta?.contentSpawned) {
+        const floor = this.ensureFloorMeta();
+        if (floor?.meta?.contentSpawned) {
             return;
         }
 
@@ -614,10 +1300,13 @@ Object.assign(Game.prototype, {
             this.spawnItemsForCurrentFloor(rng, dungeonDepthIndex);
             this.spawnPremadeItemsForCurrentFloor(rng, itemFloorIndex);
             this.populateDungeonShopIfPresent(rng, itemFloorIndex);
-            this.tryActivateRandomFloorEvent(rng, dungeonDepthIndex);
         }
 
-        floor.meta = floor.meta || {};
+        const activatedQuestEvent = this.tryActivateQuestFloorEvent(rng, floorIndex);
+        if (!activatedQuestEvent) {
+            this.tryActivateRandomFloorEvent(rng, enemyFloorIndex);
+        }
+
         floor.meta.contentSpawned = true;
     },
 

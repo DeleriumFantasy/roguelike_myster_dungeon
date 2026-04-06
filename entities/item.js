@@ -737,6 +737,17 @@ class Item {
             return this.applyScrollTargetEffect(target);
         }
 
+        if (this.properties.questReturnOnly || this.properties.useBlocked) {
+            return {
+                consumed: false,
+                effect: 'blocked-use',
+                reason: this.properties.questReturnOnly ? 'quest-return-only' : 'blocked-use',
+                message: typeof this.properties.useBlockMessage === 'string'
+                    ? this.properties.useBlockMessage
+                    : 'This item cannot be used right now.'
+            };
+        }
+
         const health = Number(this.properties.health || 0);
         const hunger = Number(this.properties.hunger || 0);
         const { condition, duration } = resolveConditionDuration(this.properties);

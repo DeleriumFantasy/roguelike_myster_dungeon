@@ -164,6 +164,15 @@ class Game {
     beginThrowMode(item) {
         if (!item) return;
 
+        if (item?.properties?.throwBlocked) {
+            this.ui?.addMessage?.(
+                typeof item?.properties?.throwBlockMessage === 'string'
+                    ? item.properties.throwBlockMessage
+                    : `${getItemLabel(item)} is too heavy to throw.`
+            );
+            return;
+        }
+
         const facing = getActorFacing(this.player);
 
         this.performTurn({

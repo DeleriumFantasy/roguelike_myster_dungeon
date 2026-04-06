@@ -113,6 +113,14 @@ Game.prototype.getAutoExploreForcedDetour = function() {
     return null;
 };
 
+Game.prototype.isAutoExploreBlockedByPopup = function() {
+    return Boolean(
+        this.inventoryOpen
+        || this.ui?.settingsOpen
+        || this.ui?.dungeonSelectionOpen
+    );
+};
+
 Game.prototype.queueAutoExploreTick = function(delayMs = 60) {
     if (!this.autoExploreActive) {
         return;
@@ -133,7 +141,7 @@ Game.prototype.runAutoExploreTick = function() {
         return;
     }
 
-    if (this.inventoryOpen) {
+    if (this.isAutoExploreBlockedByPopup()) {
         this.stopAutoExplore();
         return;
     }
@@ -337,15 +345,49 @@ Game.prototype.getUnexploredTiles = function() {
     return unexplored;
 };
 
+Game.prototype.shouldAutoExplorePickupItem = function(item, x = null, y = null) {
+    if (!item) {
+        return false;
+    }
+
+    if (typeof this.player?.hasInventorySpaceFor === 'function' && !this.player.hasInventorySpaceFor()) {
+        return false;
+    }
+
+    const properties = item.properties || {};
+    if (
+        properties.shopOwned
+        || properties.shopUnpaid
+        || properties.shopPendingSale
+        || Number.isFinite(Number(properties.shopPrice))
+        || properties.shopkeeperId !== undefined
+    ) {
+        return false;
+    }
+
+    if (Number.isFinite(x) && Number.isFinite(y) && this.world.getTile(x, y) === TILE_TYPES.SHOP) {
+        return false;
+    }
+
+    return true;
+};
+
 Game.prototype.getPickupTargets = function() {
     const floor = this.world.getCurrentFloor();
     const targets = [];
 
     for (const [key, items] of floor.items.entries()) {
-        if (Array.isArray(items) && items.length > 0) {
-            const [x, y] = fromGridKey(key);
-            targets.push({ x, y, item: items[0] });
+        if (!Array.isArray(items) || items.length === 0) {
+            continue;
         }
+
+        const [x, y] = fromGridKey(key);
+        const targetItem = items.find((item) => this.shouldAutoExplorePickupItem(item, x, y));
+        if (!targetItem) {
+            continue;
+        }
+
+        targets.push({ x, y, item: targetItem });
     }
 
     return targets;
@@ -455,7 +497,7 @@ Game.prototype.findPathForAutoExplore = function(targetX, targetY) {
     return findPathAStar(this.player.x, this.player.y, targetX, targetY, (nx, ny, isGoal) => {
         const tile = this.world.getTile(nx, ny);
 
-        if (!isGoal && tile === TILE_TYPES.STAIRS_UP) {
+        if (!isGoal && (tile === TILE_TYPES.STAIRS_UP || tile === TILE_TYPES.SHOP)) {
             return false;
         }
 

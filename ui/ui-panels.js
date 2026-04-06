@@ -44,6 +44,7 @@ Object.assign(UI.prototype, {
     openSettings() {
         const modal = document.getElementById('settings-modal');
         if (!modal) return;
+        this.game?.stopAutoExplore?.();
         const cb = document.getElementById('setting-descend-immediately');
         if (cb && this.game?.settings) {
             cb.checked = this.game.settings.autoExploreDescendImmediately;
@@ -62,6 +63,8 @@ Object.assign(UI.prototype, {
         if (!modal || !list) {
             return;
         }
+
+        this.game?.stopAutoExplore?.();
 
         const normalizedOptions = Array.isArray(options)
             ? options.filter((option) => option && typeof option.id === 'string')
@@ -136,6 +139,7 @@ Object.assign(UI.prototype, {
     },
 
     runNativePrompt(callback) {
+        this.game?.stopAutoExplore?.();
         this.game?.inputController?.reset?.();
         const result = typeof callback === 'function' ? callback() : null;
         this.game?.inputController?.reset?.();

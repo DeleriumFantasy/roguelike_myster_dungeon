@@ -251,14 +251,6 @@ Object.assign(Game.prototype, {
 
     seedPlayerInventory() {
         this.equipStartingCheaterLoadout();
-
-        const starterItems = [
-            ...createTieredStarterItems(),
-            ...createAllStatusConsumables(),
-            ...createAllImprovementScrolls()
-        ];
-
-        starterItems.forEach((item) => this.player.addItem(item));
     },
 
     equipStartingCheaterLoadout() {

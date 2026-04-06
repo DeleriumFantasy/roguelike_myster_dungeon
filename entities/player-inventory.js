@@ -1,6 +1,43 @@
 // Player inventory, equipment, and ally helpers
 
 Object.assign(Player.prototype, {
+    getMaxInventoryItems() {
+        const configuredLimit = Number(this.maxInventoryItems);
+        return Number.isFinite(configuredLimit) && configuredLimit > 0
+            ? Math.floor(configuredLimit)
+            : 20;
+    },
+
+    getBackpackItems() {
+        return Array.isArray(this.inventory) ? this.inventory : [];
+    },
+
+    getBackpackItemCount() {
+        return this.getBackpackItems().length;
+    },
+
+    getEquippedInventoryItemCount() {
+        return this.equipment instanceof Map ? this.equipment.size : 0;
+    },
+
+    getTotalCarriedItemCount() {
+        return this.getBackpackItemCount() + this.getEquippedInventoryItemCount();
+    },
+
+    getInventoryItemCount() {
+        return this.getTotalCarriedItemCount();
+    },
+
+    hasInventorySpaceFor(item = null, options = {}) {
+        if (item && this.isStackableItem(item) && this.findMatchingThrowableStack(item)) {
+            return true;
+        }
+
+        const reservedSlots = Math.max(0, Math.floor(Number(options?.reservedSlots) || 0));
+        const effectiveCount = Math.max(0, this.getInventoryItemCount() - reservedSlots);
+        return effectiveCount < this.getMaxInventoryItems();
+    },
+
     equipItem(item) {
         const validSlots = Object.values(EQUIPMENT_SLOTS);
         if (!validSlots.includes(item.type)) {
@@ -24,7 +61,7 @@ Object.assign(Player.prototype, {
         this.applyEquipmentGrantedConditions();
 
         this.equipment.delete(slot);
-        this.inventory.push(item);
+        this.addItem(item);
         this.updateStats();
         return true;
     },
@@ -129,7 +166,7 @@ Object.assign(Player.prototype, {
             return null;
         }
 
-        return this.inventory.find((existingItem) => {
+        return this.getBackpackItems().find((existingItem) => {
             if (!this.isStackableItem(existingItem)) {
                 return false;
             }
@@ -169,20 +206,25 @@ Object.assign(Player.prototype, {
 
     addItem(item) {
         if (!item) {
-            return;
+            return false;
         }
 
         if (this.isStackableItem(item)) {
             const existingStack = this.findMatchingThrowableStack(item);
             if (existingStack) {
                 this.mergeThrowableStackQuantities(existingStack, item);
-                return;
+                return true;
             }
 
             this.setItemQuantity(item, this.getItemQuantity(item));
         }
 
+        if (!this.hasInventorySpaceFor(item)) {
+            return false;
+        }
+
         this.inventory.push(item);
+        return true;
     },
 
     dequeueThrowItem(item) {
@@ -242,6 +284,11 @@ Object.assign(Player.prototype, {
         }
 
         const replacedItem = ally.equipment?.get?.(item.type) || null;
+        const reservedSlots = this.getBackpackItems().includes(item) ? 1 : 0;
+        if (replacedItem && replacedItem !== item && !this.hasInventorySpaceFor(replacedItem, { reservedSlots })) {
+            return { success: false, reason: 'inventory full for replaced item', replacedItem };
+        }
+
         const equipped = typeof ally.equipItem === 'function' ? ally.equipItem(item) : false;
         if (equipped) {
             if (typeof item.identify === 'function') {
@@ -249,7 +296,10 @@ Object.assign(Player.prototype, {
             }
 
             if (replacedItem && replacedItem !== item) {
-                this.addItem(replacedItem);
+                const added = this.addItem(replacedItem);
+                if (!added) {
+                    return { success: false, reason: 'inventory full for replaced item', replacedItem };
+                }
             }
         }
 
@@ -268,7 +318,7 @@ Object.assign(Player.prototype, {
     },
 
     getInventory() {
-        return this.inventory;
+        return this.getBackpackItems();
     },
 
     getEquippedItems() {

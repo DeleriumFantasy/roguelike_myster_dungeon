@@ -10,7 +10,7 @@
 
 - `player.js`: base player shell and core movement/environment state. Supports deferred hazard application on move (`applyHazards: false`) for turn-order-sensitive flows.
 - `player-combat.js`: attacks, damage, statuses, and combat-side helpers.
-- `player-inventory.js`: equipment, inventory, throwable handling, and ally equipment helpers (including equipping onto allies and returning replaced ally gear to player inventory).
+- `player-inventory.js`: equipment, inventory, throwable handling, carried-capacity helpers (`getTotalCarriedItemCount`, `hasInventorySpaceFor`), and ally equipment helpers (including equipping onto allies and returning replaced ally gear to player inventory).
 - `player-progression.js`: EXP, leveling, and progression helpers.
 
 ## Enemy Split
@@ -34,7 +34,7 @@
 - Move behavior to the focused extension file instead of growing the shell again.
 - If a helper is specific to one enemy archetype's item behavior, prefer `enemy-item-behaviors.js` over `enemy-ai.js`.
 - If logic is about choosing actions, it belongs in `enemy-ai.js`; if it is about resolving hits or damage, it belongs in `enemy-combat.js`.
-- If logic is about inventory/equipment mutation, it belongs in `player-inventory.js`.
+- If logic is about inventory/equipment mutation or carried-item capacity, it belongs in `player-inventory.js`.
 - If a behavior depends on move ordering vs hazards/stairs, place move-order orchestration in `game/game-player-turns.js` and keep raw move/hazard hooks in `player.js`.
 - Passive quest escort movement and flee logic belongs in `enemy-ai.js`; escort state flags belong in `enemy.js`.
 - Pathfinding and movement cost logic belongs in `enemy-ai.js`; world-level movement validation belongs in `engine/world-actors.js`.

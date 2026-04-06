@@ -551,7 +551,12 @@ Object.assign(Game.prototype, {
                 item.identify?.();
             }
 
-            this.player.addItem(item);
+            const added = this.player.addItem(item);
+            if (!added) {
+                this.ui?.addMessage?.(`Inventory is full. ${getItemLabel(item)} stays on the ground.`);
+                continue;
+            }
+
             this.world.removeItem(x, y, item);
             const itemName = getItemLabel(item);
             pickedNames.push(itemName);

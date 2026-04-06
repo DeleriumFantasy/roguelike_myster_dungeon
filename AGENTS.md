@@ -36,7 +36,7 @@
 - `player.js`: base player shell.
 - `combat-utils.js`: shared combat application helpers that mutate actor state (`applyDamageToActor`, `applyStandardAttackToTarget`).
 - `player-combat.js`: damage, attacks, conditions.
-- `player-inventory.js`: equipment, inventory, throwables, ally item handling.
+- `player-inventory.js`: equipment, inventory, throwables, ally item handling, and carried-capacity helpers (the player's equipped gear counts toward the same 20-item limit).
 - `player-progression.js`: level and EXP handling.
 - `enemy.js`: base enemy shell, core type helpers, and persistent enemy-side state flags.
 - `enemy-item-behaviors.js`: thief, vandal, fuser, and carried-item logic.
@@ -57,7 +57,7 @@
 - `ui-pixi-actors.js`: Actor sprites with glows, health bars, labels (~130 lines).
 - `ui-pixi-effects.js`: Combat effects and event banners (~150 lines).
 - `ui-panels.js`: stats, message, settings, shop prompt helpers, and shared focus-restoration helpers for native prompts/modals.
-- `ui-inventory.js`: inventory modal helpers, including managed prompt/outcome helpers for inventory actions.
+- `ui-inventory.js`: inventory modal helpers, including managed prompt/outcome helpers, inventory entry builders, and the live `Inventory [count/max]` title.
 
 ### `game/`
 
@@ -69,7 +69,7 @@
 - `game-content-utils.js`: shared content-selection helpers such as weighted rolls.
 - `game-content-registry.js`: content-registry helpers for enemy templates and weighted item entry selection.
 - `game-enemy-content.js`: enemy spawn tables, family-balancing curves, enemy creation, promotion, and overworld NPC roster placement.
-- `game-inventory-actions.js`: inventory action resolution, including shared target builders, pot storage messaging, and shop sale staging when items are dropped on shop tiles.
+- `game-inventory-actions.js`: inventory action resolution, including shared target builders, inventory-use subhelpers, pot storage messaging, inventory-cap handling, and shop sale staging when items are dropped on shop tiles.
 - `game-item-generation.js`: floor-banded item spawn counts, floor-scaled tier weighting, random item generation, starter loadout, premade item placement.
 - `game-item-state.js`: throw resolution, pickup/drop mutation, defeat drop state changes.
 - `game-item-interactions.js`: item-related announcements and coordination helpers.
@@ -131,7 +131,7 @@
 - For dungeon shop issues: check `config/generation-constants.js` (shop premade shape/chance), `engine/world-generation.js` (placement), `game/game-content.js` (shopkeeper + stock spawn), `game/game-player-turns.js` (pickup and exit interception), `game/game-npc-interactions.js` (combined buy/sell settlement), `game/game-inventory-actions.js` (sale staging), `entities/item-data.js` (prices), and `ui/ui-panels.js` / `ui/ui-pixi-layers.js` (prompts and visuals).
 - For auto-explore issues: check `game-explore.js` (tick loop, sticky targets, oscillation breakout, forced detours, no-progress watchdog, damage-tile avoidance, BLIND/CONFUSED random movement, descent setting), `game-input.js` (any keypress stops explore), and `game.js` (`game.settings.autoExploreDescendImmediately`).
 - For settings menu issues: check `ui/ui-panels.js` (`openSettings`, `closeSettings`, `settingsOpen`), `game-input.js` (Escape toggles settings), `index.html` (`#settings-modal`), and `game.js` (`this.settings` object).
-- For inventory UI issues: check `ui/ui-inventory.js` (unified equipped/backpack list, ally equipment entries, hover details panel, unknown-item redaction, `runManagedInventoryPrompt`, `applyInventoryOutcome`), `ui/ui-panels.js` (`focusGameSurface`, `runNativePrompt`), and `index.html` (`#inventory-item-details`).
+- For inventory UI issues: check `ui/ui-inventory.js` (unified equipped/backpack list, ally equipment entries, hover details panel, unknown-item redaction, `runManagedInventoryPrompt`, `applyInventoryOutcome`, `buildInventoryDisplayEntries`), `ui/ui-panels.js` (`focusGameSurface`, `runNativePrompt`), `entities/player-inventory.js` (carried-count/capacity helpers), and `index.html` (`#inventory-item-details`, `#inventory-title`).
 - For stair/item ordering issues: check `game/game-player-turns.js` and `entities/player.js` (deferred hazard/stair trigger so pickup happens first).
 - For floor spawning issues: check `game-content.js`, `game-enemy-content.js` (including `ENEMY_FAMILY_SPAWN_BALANCING`, zero-weight filtering, and NPC placement/filtering), `game-item-generation.js` (count bands and tier weighting), and `engine/world-generation.js`.
 - For trap issues: check `engine/world-tile-state.js` (trap state and reveal), `config/constants.js` (trap definitions), and `game/game.js` (`applyPlayerTrapAtCurrentPosition()` and `dropPlayerItems()` for trip traps).

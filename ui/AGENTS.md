@@ -16,7 +16,7 @@
 - `ui.js`: base UI shell, shared DOM/canvas setup, shared scene/view helpers (camera bounds, visibility predicates, tile/item/enemy display helpers, banner data helpers), camera targeting, and scene view helpers.
 - `ui-panels.js`: stats and message overlay updates, settings modal (`openSettings`, `closeSettings`, `settingsOpen`), shared focus-restoration helpers (`focusGameSurface`, `runNativePrompt`), and native prompt helpers for shop pickup/exit settlement. Settings changes are read from/written to `game.settings` on close. Message list renders newest-first. Ally stats are included in the stats overlay.
 	Dungeon selection modal presentation (`openDungeonSelection`, `closeDungeonSelection`) also belongs here.
-- `ui-inventory.js`: inventory modal presentation (lists, prompts, hover details panel with unknown-item redaction, `runManagedInventoryPrompt`, `applyInventoryOutcome`) and delegation of gameplay mutations to `game-inventory-actions.js`.
+- `ui-inventory.js`: inventory modal presentation (lists, prompts, hover details panel with unknown-item redaction, `runManagedInventoryPrompt`, `applyInventoryOutcome`, `buildInventoryDisplayEntries`, `runInventoryAction`) and delegation of gameplay mutations to `game-inventory-actions.js`.
 
 ## Editing Rules
 
@@ -46,7 +46,7 @@
 - Check `ui-pixi-layers.js`.
 
 **For inventory detail hover panel issues:**
-- Check `ui-inventory.js` (`runManagedInventoryPrompt`, `applyInventoryOutcome`) and `index.html` (`#inventory-item-details`).
+- Check `ui-inventory.js` (`runManagedInventoryPrompt`, `applyInventoryOutcome`, `buildInventoryDisplayEntries`, `runInventoryAction`) and `index.html` (`#inventory-item-details`, `#inventory-title`).
 
 ## Common Mistakes
 

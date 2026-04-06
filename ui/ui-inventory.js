@@ -184,21 +184,33 @@ Object.assign(UI.prototype, {
         this.openInventory(this.game.player);
     },
 
-    openInventory(player) {
-        this.game.inventoryOpen = true;
-        const list = this.inventoryModal.querySelector('#inventory-list');
-        list.innerHTML = '';
+    updateInventoryTitle(player) {
+        const title = this.inventoryModal?.querySelector('#inventory-title')
+            || this.inventoryModal?.querySelector('h3');
+        if (!title) {
+            return;
+        }
 
-        // Equipped items first, including ally equipment
-        const equippedItems = typeof player.getEquippedItems === 'function' ? player.getEquippedItems() : [];
+        const itemCount = typeof player?.getInventoryItemCount === 'function'
+            ? player.getInventoryItemCount()
+            : (Array.isArray(player?.getInventory?.()) ? player.getInventory().length : 0);
+        const maxItems = typeof player?.getMaxInventoryItems === 'function'
+            ? player.getMaxInventoryItems()
+            : 20;
+
+        title.textContent = `Inventory [${itemCount}/${maxItems}]`;
+    },
+
+    buildInventoryDisplayEntries(player) {
+        const entries = [];
+        const equippedItems = typeof player?.getEquippedItems === 'function' ? player.getEquippedItems() : [];
         for (const [slot, item] of equippedItems) {
-            const displayName = `[E] ${this.formatInventoryItemLabel(item)}`;
-            list.appendChild(this.createInventoryListItem(
-                displayName,
-                () => this.handleEquippedItemClick(slot, item),
-                getItemTypeColor(item?.type),
+            entries.push({
+                displayName: `[E] ${this.formatInventoryItemLabel(item)}`,
+                onClick: () => this.handleEquippedItemClick(slot, item),
+                textColor: getItemTypeColor(item?.type),
                 item
-            ));
+            });
         }
 
         const allies = Array.isArray(player?.allies) ? player.allies : [];
@@ -208,27 +220,47 @@ Object.assign(UI.prototype, {
             }
 
             for (const [slot, item] of ally.equipment.entries()) {
-                const displayName = `[E - ${ally.name}] ${this.formatInventoryItemLabel(item)}`;
-                list.appendChild(this.createInventoryListItem(
-                    displayName,
-                    () => this.handleAllyEquippedItemClick(ally, slot, item),
-                    getItemTypeColor(item?.type),
+                entries.push({
+                    displayName: `[E - ${ally.name}] ${this.formatInventoryItemLabel(item)}`,
+                    onClick: () => this.handleAllyEquippedItemClick(ally, slot, item),
+                    textColor: getItemTypeColor(item?.type),
                     item
-                ));
+                });
             }
         }
 
-        // Backpack items below
-        const sortedInventory = this.sortInventoryForDisplay(player.getInventory());
-        sortedInventory.forEach((item) => {
-            const displayName = this.formatInventoryItemLabel(item);
-            list.appendChild(this.createInventoryListItem(
-                displayName,
-                () => this.handleInventoryClick(item),
-                getItemTypeColor(item?.type),
+        const sortedInventory = this.sortInventoryForDisplay(player?.getInventory?.() || []);
+        for (const item of sortedInventory) {
+            entries.push({
+                displayName: this.formatInventoryItemLabel(item),
+                onClick: () => this.handleInventoryClick(item),
+                textColor: getItemTypeColor(item?.type),
                 item
+            });
+        }
+
+        return entries;
+    },
+
+    appendInventoryDisplayEntries(list, entries = []) {
+        for (const entry of entries) {
+            list.appendChild(this.createInventoryListItem(
+                entry.displayName,
+                entry.onClick,
+                entry.textColor,
+                entry.item
             ));
-        });
+        }
+    },
+
+    openInventory(player) {
+        this.game.inventoryOpen = true;
+        this.updateInventoryTitle(player);
+        const list = this.inventoryModal.querySelector('#inventory-list');
+        list.innerHTML = '';
+
+        const entries = this.buildInventoryDisplayEntries(player);
+        this.appendInventoryDisplayEntries(list, entries);
 
         this.hideInventoryItemDetails();
         this.inventoryModal.style.display = 'block';
@@ -343,6 +375,56 @@ Object.assign(UI.prototype, {
         this.applyInventoryOutcome(outcome);
     },
 
+    runInventoryAction(choice, item, actionContext = {}) {
+        const itemLabel = actionContext.itemLabel || this.formatInventoryItemLabel(item);
+        const formatItemLabel = typeof actionContext.formatItemLabel === 'function'
+            ? actionContext.formatItemLabel
+            : (target) => this.formatInventoryItemLabel(target);
+
+        const actionHandlers = {
+            use: () => {
+                const useResult = this.game.useInventoryItem(item, {
+                    itemLabel,
+                    formatItemLabel,
+                    chooseTarget: (promptLabel, targets, promptOptions = {}) => this.promptForInventoryTarget(promptLabel, targets, promptOptions)
+                });
+                this.applyInventoryOutcome(useResult, {
+                    failureMessage: `Could not use ${itemLabel}`
+                });
+            },
+            equip: () => {
+                const equipTarget = this.promptForEquipmentRecipient(itemLabel);
+                if (!equipTarget) {
+                    this.reopenInventoryForCurrentPlayer();
+                    return;
+                }
+
+                const outcome = this.game.equipInventoryItem(item, equipTarget, {
+                    formatItemLabel
+                });
+                this.applyInventoryOutcome(outcome);
+            },
+            throw: () => {
+                this.closeInventory();
+                this.game.beginThrowMode(item);
+            },
+            drop: () => {
+                const outcome = this.game.dropInventoryItem(item, {
+                    formatItemLabel
+                });
+                this.applyInventoryOutcome(outcome);
+            }
+        };
+
+        const handler = actionHandlers[choice];
+        if (typeof handler !== 'function') {
+            return false;
+        }
+
+        handler();
+        return true;
+    },
+
     handleInventoryClick(item) {
         const itemLabel = this.formatInventoryItemLabel(item);
         const formatItemLabel = (target) => this.formatInventoryItemLabel(target);
@@ -353,44 +435,7 @@ Object.assign(UI.prototype, {
             return;
         }
 
-        if (choice === 'use') {
-            const useResult = this.game.useInventoryItem(item, {
-                itemLabel,
-                formatItemLabel,
-                chooseTarget: (promptLabel, targets, promptOptions = {}) => this.promptForInventoryTarget(promptLabel, targets, promptOptions)
-            });
-            this.applyInventoryOutcome(useResult, {
-                failureMessage: `Could not use ${itemLabel}`
-            });
-            return;
-        }
-
-        if (choice === 'equip') {
-            const equipTarget = this.promptForEquipmentRecipient(itemLabel);
-            if (!equipTarget) {
-                this.reopenInventoryForCurrentPlayer();
-                return;
-            }
-
-            const outcome = this.game.equipInventoryItem(item, equipTarget, {
-                formatItemLabel
-            });
-            this.applyInventoryOutcome(outcome);
-            return;
-        }
-
-        if (choice === 'throw') {
-            this.closeInventory();
-            this.game.beginThrowMode(item);
-            return;
-        }
-
-        if (choice === 'drop') {
-            const outcome = this.game.dropInventoryItem(item, {
-                formatItemLabel
-            });
-            this.applyInventoryOutcome(outcome);
-        }
+        this.runInventoryAction(choice, item, { itemLabel, formatItemLabel });
     },
 
     pluralizeItemLabel(label) {
@@ -464,7 +509,22 @@ Object.assign(UI.prototype, {
     },
 
     getAvailableInventoryActions(item) {
-        return getInventoryActionsForItemType(item?.type);
+        const configuredActions = Array.isArray(item?.properties?.inventoryActions)
+            ? item.properties.inventoryActions.filter((action) => ['use', 'equip', 'throw', 'drop'].includes(action))
+            : null;
+        const baseActions = (configuredActions && configuredActions.length > 0)
+            ? configuredActions
+            : getInventoryActionsForItemType(item?.type);
+
+        return baseActions.filter((action) => {
+            if (action === 'use' && item?.properties?.useBlocked) {
+                return false;
+            }
+            if (action === 'throw' && item?.properties?.throwBlocked) {
+                return false;
+            }
+            return true;
+        });
     },
 
     promptForEquipmentRecipient(itemLabel) {

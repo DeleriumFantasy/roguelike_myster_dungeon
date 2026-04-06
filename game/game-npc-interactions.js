@@ -19,8 +19,80 @@ const QUESTGIVER_QUEST_POOLS = {
         { minFloor: 1, targetAdvanceMin: 2, targetAdvanceMax: 3, rewardMoney: 90, rewardTier: 1 },
         { minFloor: 3, targetAdvanceMin: 3, targetAdvanceMax: 4, rewardMoney: 135, rewardTier: 2 },
         { minFloor: 6, targetAdvanceMin: 4, targetAdvanceMax: 5, rewardMoney: 200, rewardTier: 3 }
+    ],
+    saveLostExplorer: [
+        { minFloor: 1, targetAdvanceMin: 1, targetAdvanceMax: 2, rewardMoney: 110, rewardTier: 1 },
+        { minFloor: 3, targetAdvanceMin: 2, targetAdvanceMax: 3, rewardMoney: 160, rewardTier: 2 },
+        { minFloor: 6, targetAdvanceMin: 3, targetAdvanceMax: 4, rewardMoney: 230, rewardTier: 3 }
+    ],
+    retrieveItem: [
+        { minFloor: 1, targetAdvanceMin: 1, targetAdvanceMax: 2, rewardMoney: 85, rewardTier: 1 },
+        { minFloor: 3, targetAdvanceMin: 2, targetAdvanceMax: 3, rewardMoney: 130, rewardTier: 2 },
+        { minFloor: 6, targetAdvanceMin: 3, targetAdvanceMax: 4, rewardMoney: 190, rewardTier: 3 }
+    ],
+    materialDelivery: [
+        { minFloor: 1, targetAdvanceMin: 1, targetAdvanceMax: 2, materialCountMin: 3, materialCountMax: 4, rewardMoney: 115, rewardTier: 1 },
+        { minFloor: 3, targetAdvanceMin: 2, targetAdvanceMax: 3, materialCountMin: 3, materialCountMax: 5, rewardMoney: 170, rewardTier: 2 },
+        { minFloor: 6, targetAdvanceMin: 3, targetAdvanceMax: 4, materialCountMin: 4, materialCountMax: 5, rewardMoney: 240, rewardTier: 3 }
     ]
 };
+
+const QUESTGIVER_RETRIEVE_ITEM_NAMES = ['Sealed relic', 'Surveyor\'s ledger', 'Crystal compass', 'Ancient field notes'];
+const QUESTGIVER_MATERIAL_NAMES = ['Reinforcement crate', 'Power conduit', 'Stone brace', 'Machined strut'];
+const QUESTGIVER_ENGINEER_NAMES = ['Engineer Hale', 'Engineer Mira', 'Engineer Varo', 'Engineer Seln'];
+const QUESTGIVER_ADVANCE_QUEST_CONFIGS = {
+    escort: {
+        poolKey: 'escort',
+        questType: 'escort-npc',
+        rewardFloorMultiplier: 10,
+        minimumAdvance: 0,
+        createExtraFields: (game) => ({
+            escortTypeKey: 'escortPassengerTier1',
+            escortName: game.getQuestgiverTargetName('escortPassengerTier1')
+        })
+    },
+    saveLostExplorer: {
+        poolKey: 'saveLostExplorer',
+        questType: 'save-lost-explorer',
+        rewardFloorMultiplier: 12,
+        minimumAdvance: 1
+    },
+    retrieveItem: {
+        poolKey: 'retrieveItem',
+        questType: 'retrieve-item',
+        rewardFloorMultiplier: 10,
+        minimumAdvance: 1,
+        createExtraFields: (_game, _entry, _targetFloor, questRng) => ({
+            itemName: pickRandom(QUESTGIVER_RETRIEVE_ITEM_NAMES, questRng, QUESTGIVER_RETRIEVE_ITEM_NAMES[0])
+        })
+    },
+    materialDelivery: {
+        poolKey: 'materialDelivery',
+        questType: 'material-delivery',
+        rewardFloorMultiplier: 12,
+        minimumAdvance: 1,
+        createExtraFields: (_game, entry, _targetFloor, questRng) => {
+            const materialCountMin = Math.max(3, Math.floor(Number(entry?.materialCountMin) || 3));
+            const materialCountMax = Math.max(materialCountMin, Math.floor(Number(entry?.materialCountMax) || materialCountMin));
+            const materialCount = getRngRandomInt(questRng, materialCountMin, materialCountMax);
+            return {
+                materialName: pickRandom(QUESTGIVER_MATERIAL_NAMES, questRng, QUESTGIVER_MATERIAL_NAMES[0]),
+                materialCount,
+                requiredCount: materialCount,
+                engineerName: pickRandom(QUESTGIVER_ENGINEER_NAMES, questRng, QUESTGIVER_ENGINEER_NAMES[0])
+            };
+        }
+    }
+};
+const QUESTGIVER_QUEST_BUILDER_METHODS = [
+    'buildQuestgiverHuntQuest',
+    'buildQuestgiverAllyRetrievalQuest',
+    'buildQuestgiverExploreQuest',
+    'buildQuestgiverEscortQuest',
+    'buildQuestgiverLostExplorerQuest',
+    'buildQuestgiverRetrieveItemQuest',
+    'buildQuestgiverMaterialDeliveryQuest'
+];
 
 Object.assign(Game.prototype, {
     ensureQuestgiverState() {
@@ -70,6 +142,25 @@ Object.assign(Game.prototype, {
         const key = typeof pathId === 'string' ? pathId : this.world?.getSelectedDungeonPathId?.();
         const byPath = questState.deepestDungeonFloorReachedByPath || {};
         return Math.max(1, Math.floor(Number(byPath[key]) || 0) + 1);
+    },
+
+    getQuestgiverQuestTargetContext(quest) {
+        const targetPathId = quest?.targetPathId || getDefaultDungeonPathId();
+        return {
+            targetPathId,
+            targetPathName: this.getQuestgiverTargetPathName(targetPathId),
+            targetFloor: Math.max(1, Math.floor(Number(quest?.targetFloor) || 1))
+        };
+    },
+
+    updateQuestgiverQuestDisplay(quest) {
+        if (!quest) {
+            return 'No task available.';
+        }
+
+        const display = this.describeQuestgiverQuest(quest);
+        quest.display = display;
+        return display;
     },
 
     getQuestgiverEligibleEntries(poolKey, pathId = this.world?.getSelectedDungeonPathId?.()) {
@@ -124,54 +215,95 @@ Object.assign(Game.prototype, {
         };
     },
 
+    getQuestgiverPathTargeting(rng, targetPathId = this.getQuestgiverTargetPathId(rng)) {
+        const normalizedPathId = typeof targetPathId === 'string'
+            ? targetPathId
+            : this.getQuestgiverTargetPathId(rng);
+        const progressFloor = this.getQuestgiverTargetProgressFloor(normalizedPathId);
+        const pathMaxDepth = getDungeonPathMaxDepth(normalizedPathId);
+        const maxTargetFloor = Number.isFinite(pathMaxDepth) ? pathMaxDepth : 99;
+
+        return {
+            targetPathId: normalizedPathId,
+            progressFloor,
+            maxTargetFloor
+        };
+    },
+
+    buildQuestgiverAdvanceFloorQuest(rng, poolKey, questType, options = {}) {
+        const { rewardFloorMultiplier = 0, minimumAdvance = 0, createExtraFields = null } = options;
+        const targeting = this.getQuestgiverPathTargeting(rng);
+        const eligibleEntries = this.getQuestgiverEligibleEntries(poolKey, targeting.targetPathId);
+        const chosenEntry = pickRandom(eligibleEntries, rng, eligibleEntries[0]);
+        if (!chosenEntry) {
+            return null;
+        }
+
+        const minAdvance = Math.max(minimumAdvance, Math.floor(Number(chosenEntry.targetAdvanceMin) || 0));
+        const maxAdvance = Math.max(minAdvance, Math.floor(Number(chosenEntry.targetAdvanceMax) || minAdvance));
+        const targetAdvance = getRngRandomInt(rng, minAdvance, maxAdvance);
+        const targetFloor = clamp(targeting.progressFloor + targetAdvance, 1, targeting.maxTargetFloor);
+
+        return {
+            id: this.ensureQuestgiverState().nextQuestId++,
+            type: questType,
+            targetPathId: targeting.targetPathId,
+            targetFloor,
+            completed: false,
+            rewardMoney: Math.max(0, Math.floor(Number(chosenEntry.rewardMoney) || 0)) + targetFloor * rewardFloorMultiplier,
+            rewardTier: Math.max(1, Math.floor(Number(chosenEntry.rewardTier) || 1)),
+            ...(typeof createExtraFields === 'function'
+                ? (createExtraFields(chosenEntry, targetFloor, rng) || {})
+                : {})
+        };
+    },
+
     buildQuestgiverExploreQuest(rng) {
         const questState = this.ensureQuestgiverState();
-        const targetPathId = this.getQuestgiverTargetPathId(rng);
-        const deepestReached = Math.max(0, this.getQuestgiverTargetProgressFloor(targetPathId) - 1);
-        const pathMaxDepth = getDungeonPathMaxDepth(targetPathId);
-        const maxTargetFloor = Number.isFinite(pathMaxDepth) ? pathMaxDepth : 99;
-        const targetFloor = clamp(deepestReached + getRngRandomInt(rng, 1, 2), 1, maxTargetFloor);
+        const targeting = this.getQuestgiverPathTargeting(rng);
+        const deepestReached = Math.max(0, targeting.progressFloor - 1);
+        const targetFloor = clamp(deepestReached + getRngRandomInt(rng, 1, 2), 1, targeting.maxTargetFloor);
         const rewardTier = clamp(Math.ceil(targetFloor / 3), 1, 4);
 
         return {
             id: questState.nextQuestId++,
             type: 'explore-floor',
-            targetPathId,
+            targetPathId: targeting.targetPathId,
             targetFloor,
             rewardMoney: 50 + targetFloor * 15,
             rewardTier
         };
     },
 
-    buildQuestgiverEscortQuest(rng) {
-        const targetPathId = this.getQuestgiverTargetPathId(rng);
-        const eligibleEntries = this.getQuestgiverEligibleEntries('escort', targetPathId);
-        const chosenEntry = pickRandom(eligibleEntries, rng, eligibleEntries[0]);
-        if (!chosenEntry) {
+    buildConfiguredQuestgiverAdvanceQuest(configKey, rng) {
+        const config = QUESTGIVER_ADVANCE_QUEST_CONFIGS[configKey];
+        if (!config) {
             return null;
         }
 
-        const progressFloor = this.getQuestgiverTargetProgressFloor(targetPathId);
-        const pathMaxDepth = getDungeonPathMaxDepth(targetPathId);
-        const targetAdvance = getRngRandomInt(
-            rng,
-            Math.max(0, Math.floor(Number(chosenEntry.targetAdvanceMin) || 0)),
-            Math.max(0, Math.floor(Number(chosenEntry.targetAdvanceMax) || 0))
-        );
-        const maxTargetFloor = Number.isFinite(pathMaxDepth) ? pathMaxDepth : 99;
-        const targetFloor = clamp(progressFloor + targetAdvance, 1, maxTargetFloor);
+        return this.buildQuestgiverAdvanceFloorQuest(rng, config.poolKey, config.questType, {
+            rewardFloorMultiplier: config.rewardFloorMultiplier,
+            minimumAdvance: config.minimumAdvance,
+            createExtraFields: typeof config.createExtraFields === 'function'
+                ? (entry, targetFloor, questRng) => config.createExtraFields(this, entry, targetFloor, questRng)
+                : null
+        });
+    },
 
-        return {
-            id: this.ensureQuestgiverState().nextQuestId++,
-            type: 'escort-npc',
-            targetPathId,
-            escortTypeKey: 'escortPassengerTier1',
-            escortName: this.getQuestgiverTargetName('escortPassengerTier1'),
-            targetFloor,
-            completed: false,
-            rewardMoney: Math.max(0, Math.floor(Number(chosenEntry.rewardMoney) || 0)) + targetFloor * 10,
-            rewardTier: Math.max(1, Math.floor(Number(chosenEntry.rewardTier) || 1))
-        };
+    buildQuestgiverEscortQuest(rng) {
+        return this.buildConfiguredQuestgiverAdvanceQuest('escort', rng);
+    },
+
+    buildQuestgiverLostExplorerQuest(rng) {
+        return this.buildConfiguredQuestgiverAdvanceQuest('saveLostExplorer', rng);
+    },
+
+    buildQuestgiverRetrieveItemQuest(rng) {
+        return this.buildConfiguredQuestgiverAdvanceQuest('retrieveItem', rng);
+    },
+
+    buildQuestgiverMaterialDeliveryQuest(rng) {
+        return this.buildConfiguredQuestgiverAdvanceQuest('materialDelivery', rng);
     },
 
     getQuestEscortAlly(quest = this.ensureQuestgiverState().activeQuest) {
@@ -184,22 +316,75 @@ Object.assign(Game.prototype, {
     },
 
     removeEnemyFromAllFloors(enemy) {
-        if (!enemy || !Array.isArray(this.world?.floors)) {
+        if (!enemy || !this.world) {
             return;
         }
 
-        for (const floor of this.world.floors) {
-            if (!Array.isArray(floor?.enemies)) {
-                continue;
-            }
+        const floorCollections = [];
+        if (Array.isArray(this.world.floors)) {
+            floorCollections.push(this.world.floors);
+        }
 
-            const index = floor.enemies.indexOf(enemy);
-            if (index < 0) {
-                continue;
+        const pathFloorCollections = Object.values(this.world.pathFloors || {});
+        for (const floors of pathFloorCollections) {
+            if (Array.isArray(floors)) {
+                floorCollections.push(floors);
             }
+        }
 
-            this.world.unindexEnemy?.(enemy, floor);
-            floor.enemies.splice(index, 1);
+        for (const floors of floorCollections) {
+            for (const floor of floors) {
+                if (!Array.isArray(floor?.enemies)) {
+                    continue;
+                }
+
+                const index = floor.enemies.indexOf(enemy);
+                if (index < 0) {
+                    continue;
+                }
+
+                this.world.unindexEnemy?.(enemy, floor);
+                floor.enemies.splice(index, 1);
+            }
+        }
+    },
+
+    clearQuestEventById(questId, eventType = '') {
+        if (!this.world || !Number.isFinite(Number(questId))) {
+            return;
+        }
+
+        const normalizedQuestId = Math.floor(Number(questId));
+        const floorCollections = [];
+        if (Array.isArray(this.world.floors)) {
+            floorCollections.push(this.world.floors);
+        }
+
+        const pathFloorCollections = Object.values(this.world.pathFloors || {});
+        for (const floors of pathFloorCollections) {
+            if (Array.isArray(floors)) {
+                floorCollections.push(floors);
+            }
+        }
+
+        for (const floors of floorCollections) {
+            for (const floor of floors) {
+                const activeEvent = floor?.meta?.activeEvent;
+                if (!activeEvent) {
+                    continue;
+                }
+
+                const activeQuestId = Math.floor(Number(activeEvent.questId));
+                if (activeQuestId !== normalizedQuestId) {
+                    continue;
+                }
+
+                if (eventType && activeEvent.type !== eventType) {
+                    continue;
+                }
+
+                floor.meta.activeEvent = null;
+            }
         }
     },
 
@@ -248,10 +433,10 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        quest.completed = true;
-        quest.display = this.describeQuestgiverQuest(quest);
         this.removeQuestEscortAlly(quest);
-        this.ui.addMessage(`${escortAlly.name} safely arrives on floor ${quest.targetFloor}. Return to the Questgiver for your reward.`);
+        this.completeQuestgiverObjective(quest, {
+            message: `${escortAlly.name} safely arrives on floor ${quest.targetFloor}. Return to the Questgiver for your reward.`
+        });
     },
 
     failEscortQuest(quest, escortAlly = null) {
@@ -274,20 +459,39 @@ Object.assign(Game.prototype, {
         }
     },
 
+    failMaterialDeliveryQuest(quest, engineer = null, failureMessage = 'The material delivery quest has failed.') {
+        if (!quest || quest.type !== 'material-delivery') {
+            return;
+        }
+
+        if (engineer) {
+            this.removeEnemyFromAllFloors(engineer);
+        }
+
+        this.consumeMaterialDeliveryQuestItems(quest);
+        this.clearQuestEventById?.(quest.id, 'material-delivery');
+
+        const questState = this.ensureQuestgiverState();
+        if (questState.activeQuest?.id === quest.id) {
+            questState.activeQuest = null;
+            this.ui.addMessage(failureMessage);
+        }
+    },
+
     canStoreAllyWithHandler(ally) {
         return Boolean(ally?.isAlive?.() && !Number.isFinite(ally?.questEscortId));
     },
 
+    getQuestgiverQuestBuilders(rng = createMathRng()) {
+        return QUESTGIVER_QUEST_BUILDER_METHODS
+            .map((methodName) => this[methodName])
+            .filter((buildQuest) => typeof buildQuest === 'function')
+            .map((buildQuest) => () => buildQuest.call(this, rng));
+    },
+
     createQuestgiverQuest() {
         const rng = createMathRng();
-        const builders = [
-            () => this.buildQuestgiverHuntQuest(rng),
-            () => this.buildQuestgiverAllyRetrievalQuest(rng),
-            () => this.buildQuestgiverExploreQuest(rng),
-            () => this.buildQuestgiverEscortQuest(rng)
-        ];
-
-        const shuffledBuilders = [...builders];
+        const shuffledBuilders = [...this.getQuestgiverQuestBuilders(rng)];
         for (let i = shuffledBuilders.length - 1; i > 0; i--) {
             const j = getRngRandomInt(rng, 0, i);
             [shuffledBuilders[i], shuffledBuilders[j]] = [shuffledBuilders[j], shuffledBuilders[i]];
@@ -296,7 +500,7 @@ Object.assign(Game.prototype, {
         for (const buildQuest of shuffledBuilders) {
             const quest = buildQuest();
             if (quest) {
-                quest.display = this.describeQuestgiverQuest(quest);
+                this.updateQuestgiverQuestDisplay(quest);
                 return quest;
             }
         }
@@ -309,32 +513,46 @@ Object.assign(Game.prototype, {
             return 'No task available.';
         }
 
-        const targetPathId = quest.targetPathId || getDefaultDungeonPathId();
-        const targetPathName = this.getQuestgiverTargetPathName(targetPathId);
-        const targetFloor = Math.max(1, Math.floor(Number(quest.targetFloor) || 1));
+        const { targetPathName, targetFloor } = this.getQuestgiverQuestTargetContext(quest);
 
-        if (quest.type === 'hunt') {
-            return `Defeat ${quest.requiredCount} ${quest.targetName}${quest.requiredCount === 1 ? '' : 's'} on ${targetPathName}, floor ${targetFloor}+ (${quest.currentCount}/${quest.requiredCount}).`;
-        }
+        switch (quest.type) {
+            case 'hunt':
+                return `Defeat ${quest.requiredCount} ${quest.targetName}${quest.requiredCount === 1 ? '' : 's'} on ${targetPathName}, floor ${targetFloor}+ (${quest.currentCount}/${quest.requiredCount}).`;
 
-        if (quest.type === 'ally-retrieval') {
-            const minAllyLevel = Math.max(1, Math.floor(Number(quest.minAllyLevel) || 1));
-            return `Bring me a loyal ${quest.targetName} ally at level ${minAllyLevel}+.`;
-        }
-
-        if (quest.type === 'explore-floor') {
-            return `Reach ${targetPathName}, floor ${targetFloor} and return alive.`;
-        }
-
-        if (quest.type === 'escort-npc') {
-            if (quest.completed) {
-                return `${quest.escortName} reached ${targetPathName}, floor ${targetFloor}. Collect your reward.`;
+            case 'ally-retrieval': {
+                const minAllyLevel = Math.max(1, Math.floor(Number(quest.minAllyLevel) || 1));
+                return `Bring me a loyal ${quest.targetName} ally at level ${minAllyLevel}+.`;
             }
 
-            return `Escort ${quest.escortName} safely to ${targetPathName}, floor ${targetFloor}.`;
-        }
+            case 'explore-floor':
+                return `Reach ${targetPathName}, floor ${targetFloor} and return alive.`;
 
-        return 'Complete the assigned task.';
+            case 'escort-npc':
+                return quest.completed
+                    ? `${quest.escortName} reached ${targetPathName}, floor ${targetFloor}. Collect your reward.`
+                    : `Escort ${quest.escortName} safely to ${targetPathName}, floor ${targetFloor}.`;
+
+            case 'save-lost-explorer':
+                return quest.completed
+                    ? `The lost explorer from ${targetPathName}, floor ${targetFloor}, is safe. Collect your reward.`
+                    : `Save the lost explorer trapped on ${targetPathName}, floor ${targetFloor}. Expect a guarded room full of sleeping enemies.`;
+
+            case 'retrieve-item':
+                return `Retrieve ${quest.itemName || 'the quest item'} from ${targetPathName}, floor ${targetFloor}, and bring it back to me.`;
+
+            case 'material-delivery': {
+                const materialCount = Math.max(1, Math.floor(Number(quest.materialCount || quest.requiredCount) || 1));
+                const materialName = quest.materialName || 'delivery material';
+                const engineerName = quest.engineerName || 'the engineer';
+                const quantityLabel = `${materialCount} ${materialName}${materialCount === 1 ? '' : 's'}`;
+                return quest.completed
+                    ? `${engineerName} received ${quantityLabel} on ${targetPathName}, floor ${targetFloor}. Collect your reward.`
+                    : `Deliver ${quantityLabel} to ${engineerName} on ${targetPathName}, floor ${targetFloor}. Speak to the engineer only when you carry the full shipment.`;
+            }
+
+            default:
+                return 'Complete the assigned task.';
+        }
     },
 
     getQuestgiverQuestRewardSummary(quest) {
@@ -350,27 +568,32 @@ Object.assign(Game.prototype, {
             return false;
         }
 
-        if (quest.type === 'hunt') {
-            return Math.max(0, Math.floor(Number(quest.currentCount) || 0)) >= Math.max(1, Math.floor(Number(quest.requiredCount) || 1));
-        }
+        switch (quest.type) {
+            case 'hunt':
+                return Math.max(0, Math.floor(Number(quest.currentCount) || 0)) >= Math.max(1, Math.floor(Number(quest.requiredCount) || 1));
 
-        if (quest.type === 'ally-retrieval') {
-            return Boolean(this.findMatchingQuestgiverAlly(quest));
-        }
+            case 'ally-retrieval':
+                return Boolean(this.findMatchingQuestgiverAlly(quest));
 
-        if (quest.type === 'explore-floor') {
-            const questState = this.ensureQuestgiverState();
-            const byPath = questState.deepestDungeonFloorReachedByPath || {};
-            const targetPathId = quest.targetPathId || getDefaultDungeonPathId();
-            const reachedFloorOnPath = Math.max(0, Math.floor(Number(byPath[targetPathId]) || 0));
-            return reachedFloorOnPath >= Math.max(1, Math.floor(Number(quest.targetFloor) || 1));
-        }
+            case 'explore-floor': {
+                const questState = this.ensureQuestgiverState();
+                const byPath = questState.deepestDungeonFloorReachedByPath || {};
+                const { targetPathId, targetFloor } = this.getQuestgiverQuestTargetContext(quest);
+                const reachedFloorOnPath = Math.max(0, Math.floor(Number(byPath[targetPathId]) || 0));
+                return reachedFloorOnPath >= targetFloor;
+            }
 
-        if (quest.type === 'escort-npc') {
-            return Boolean(quest.completed);
-        }
+            case 'retrieve-item':
+                return Boolean(this.findQuestgiverRetrieveItem(quest));
 
-        return false;
+            case 'escort-npc':
+            case 'save-lost-explorer':
+            case 'material-delivery':
+                return Boolean(quest.completed);
+
+            default:
+                return false;
+        }
     },
 
     findMatchingQuestgiverAlly(quest) {
@@ -390,6 +613,121 @@ Object.assign(Game.prototype, {
         }) || null;
     },
 
+    findQuestgiverRetrieveItem(quest) {
+        if (!quest || quest.type !== 'retrieve-item') {
+            return null;
+        }
+
+        const inventory = Array.isArray(this.player?.getInventory?.())
+            ? this.player.getInventory()
+            : [];
+        return inventory.find((item) => {
+            const properties = item?.properties || {};
+            return Boolean(
+                properties.questReturnOnly
+                && properties.questType === 'retrieve-item'
+                && Math.floor(Number(properties.questId)) === Math.floor(Number(quest.id))
+            );
+        }) || null;
+    },
+
+    findMaterialDeliveryQuestItems(quest) {
+        if (!quest || quest.type !== 'material-delivery') {
+            return [];
+        }
+
+        const inventory = Array.isArray(this.player?.getInventory?.())
+            ? this.player.getInventory()
+            : [];
+        return inventory.filter((item) => {
+            const properties = item?.properties || {};
+            return Boolean(
+                properties.questDeliveryOnly
+                && properties.questType === 'material-delivery'
+                && Math.floor(Number(properties.questId)) === Math.floor(Number(quest.id))
+            );
+        });
+    },
+
+    createMaterialDeliveryQuestItems(quest) {
+        if (!quest || quest.type !== 'material-delivery') {
+            return [];
+        }
+
+        const materialName = typeof quest.materialName === 'string' && quest.materialName.trim().length > 0
+            ? quest.materialName.trim()
+            : 'delivery material';
+        const engineerName = typeof quest.engineerName === 'string' && quest.engineerName.trim().length > 0
+            ? quest.engineerName.trim()
+            : 'the engineer';
+        const materialCount = Math.max(1, Math.floor(Number(quest.materialCount || quest.requiredCount) || 1));
+        const items = [];
+
+        for (let i = 0; i < materialCount; i++) {
+            const item = new Item(materialName, ITEM_TYPES.CONSUMABLE, {
+                requiresIdentification: false,
+                hiddenName: materialName,
+                questItem: true,
+                questDeliveryOnly: true,
+                questType: 'material-delivery',
+                questId: quest?.id ?? null,
+                burnable: false,
+                inventoryActions: ['drop'],
+                useBlocked: true,
+                throwBlocked: true,
+                useBlockMessage: `${materialName} is too heavy to use. It must be delivered to ${engineerName}.`,
+                throwBlockMessage: `${materialName} is too heavy to throw.`,
+                storageBlockMessage: `${materialName} must stay with you until it is delivered to ${engineerName}.`,
+                saleBlockMessage: `${materialName} is reserved for ${engineerName}, not for sale.`
+            });
+            item.identify?.();
+            items.push(item);
+        }
+
+        return items;
+    },
+
+    issueMaterialDeliveryQuestItems(quest, enemy) {
+        if (!quest || quest.type !== 'material-delivery') {
+            return true;
+        }
+
+        const materials = this.createMaterialDeliveryQuestItems(quest);
+        const requiredSlots = materials.length;
+        const carriedCount = typeof this.player?.getInventoryItemCount === 'function'
+            ? this.player.getInventoryItemCount()
+            : (Array.isArray(this.player?.getInventory?.()) ? this.player.getInventory().length : 0);
+        const maxItems = typeof this.player?.getMaxInventoryItems === 'function'
+            ? this.player.getMaxInventoryItems()
+            : 20;
+
+        if (carriedCount + requiredSlots > maxItems) {
+            this.ui.addMessage(`${enemy.name}: Clear ${requiredSlots} inventory slot${requiredSlots === 1 ? '' : 's'} before taking this shipment.`);
+            return false;
+        }
+
+        for (const item of materials) {
+            if (!this.player.addItem(item)) {
+                for (const addedItem of materials) {
+                    this.player.removeItem?.(addedItem);
+                }
+                this.ui.addMessage(`${enemy.name}: You need ${requiredSlots} open inventory slot${requiredSlots === 1 ? '' : 's'} for these materials.`);
+                return false;
+            }
+        }
+
+        this.ui.addMessage(`${enemy.name}: Take these ${requiredSlots} ${quest.materialName}${requiredSlots === 1 ? '' : 's'} to ${quest.engineerName} on floor ${quest.targetFloor}. They are too heavy to use or throw.`);
+        return true;
+    },
+
+    consumeMaterialDeliveryQuestItems(quest) {
+        const materials = this.findMaterialDeliveryQuestItems(quest);
+        for (const item of materials) {
+            this.player.removeItem(item);
+        }
+        return materials;
+    },
+
     consumeQuestgiverRetrievedAlly(quest) {
         const matchingAlly = this.findMatchingQuestgiverAlly(quest);
         if (!matchingAlly) {
@@ -401,24 +739,100 @@ Object.assign(Game.prototype, {
         return matchingAlly;
     },
 
+    completeQuestgiverObjective(quest, options = {}) {
+        if (!quest) {
+            return false;
+        }
+
+        quest.completed = true;
+        this.updateQuestgiverQuestDisplay(quest);
+
+        if (options.eventType) {
+            this.clearQuestEventById?.(quest.id, options.eventType);
+        }
+
+        if (options.removeEnemy) {
+            this.removeEnemyFromAllFloors(options.removeEnemy);
+        }
+
+        const messages = Array.isArray(options.messages)
+            ? options.messages
+            : [options.message];
+        for (const message of messages) {
+            if (typeof message === 'string' && message.length > 0) {
+                this.ui.addMessage(message);
+            }
+        }
+
+        return true;
+    },
+
+    prepareAcceptedQuestgiverQuest(enemy, quest) {
+        if (!quest) {
+            return false;
+        }
+
+        if (quest.type === 'escort-npc' && !this.spawnQuestEscortAlly(quest)) {
+            this.ui.addMessage(`${enemy.name}: I cannot send anyone with you right now.`);
+            return false;
+        }
+
+        if (quest.type === 'material-delivery' && !this.issueMaterialDeliveryQuestItems(quest, enemy)) {
+            return false;
+        }
+
+        return true;
+    },
+
+    resolveQuestgiverQuestTurnIn(quest) {
+        if (!quest) {
+            return;
+        }
+
+        switch (quest.type) {
+            case 'ally-retrieval':
+                this.consumeQuestgiverRetrievedAlly(quest);
+                break;
+
+            case 'escort-npc':
+                this.removeQuestEscortAlly(quest);
+                break;
+
+            case 'retrieve-item': {
+                const retrievedItem = this.findQuestgiverRetrieveItem(quest);
+                if (retrievedItem) {
+                    this.player.removeItem(retrievedItem);
+                }
+                this.clearQuestEventById?.(quest.id, 'retrieve-item');
+                break;
+            }
+
+            case 'material-delivery':
+                this.consumeMaterialDeliveryQuestItems(quest);
+                this.clearQuestEventById?.(quest.id, 'material-delivery');
+                break;
+
+            default:
+                break;
+        }
+    },
+
     grantQuestgiverQuestReward(enemy, quest) {
         if (!quest) {
             return;
         }
 
-        if (quest.type === 'ally-retrieval') {
-            this.consumeQuestgiverRetrievedAlly(quest);
-        }
-
-        if (quest.type === 'escort-npc') {
-            this.removeQuestEscortAlly(quest);
-        }
+        this.resolveQuestgiverQuestTurnIn(quest);
 
         this.player.money = Math.max(0, Math.floor(Number(this.player.money) || 0)) + Math.max(0, Math.floor(Number(quest.rewardMoney) || 0));
         const rewardItem = this.createNpcRewardEquipmentForTier(quest.rewardTier, createMathRng());
         if (rewardItem) {
-            this.player.addItem(rewardItem);
-            this.ui.addMessage(`${enemy.name}: Excellent work. Take ${quest.rewardMoney} money and ${getItemLabel(rewardItem)}.`);
+            const rewardResult = this.tryAddItemToPlayerInventory?.(rewardItem, { dropIfFull: true });
+            if (rewardResult?.added) {
+                this.ui.addMessage(`${enemy.name}: Excellent work. Take ${quest.rewardMoney} money and ${getItemLabel(rewardItem)}.`);
+            } else {
+                this.ui.addMessage(`${enemy.name}: Excellent work. Take ${quest.rewardMoney} money. ${getItemLabel(rewardItem)} is left at your feet because your inventory is full.`);
+            }
         } else {
             this.ui.addMessage(`${enemy.name}: Excellent work. Take ${quest.rewardMoney} money.`);
         }
@@ -445,8 +859,7 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        if (nextQuest.type === 'escort-npc' && !this.spawnQuestEscortAlly(nextQuest)) {
-            this.ui.addMessage(`${enemy.name}: I cannot send anyone with you right now.`);
+        if (!this.prepareAcceptedQuestgiverQuest(enemy, nextQuest)) {
             return;
         }
 
@@ -463,7 +876,7 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        activeQuest.display = this.describeQuestgiverQuest(activeQuest);
+        this.updateQuestgiverQuestDisplay(activeQuest);
         if (this.isQuestgiverQuestComplete(activeQuest)) {
             this.grantQuestgiverQuestReward(enemy, activeQuest);
             return;
@@ -502,9 +915,22 @@ Object.assign(Game.prototype, {
     },
 
     trackQuestProgressForEnemyDefeat(enemy, options = {}) {
-        const activeQuest = this.ensureQuestgiverState().activeQuest;
+        const questState = this.ensureQuestgiverState();
+        const activeQuest = questState.activeQuest;
         if (activeQuest?.type === 'escort-npc' && enemy?.questEscortId === activeQuest.id) {
             this.failEscortQuest(activeQuest, enemy);
+            return;
+        }
+
+        if (activeQuest?.type === 'save-lost-explorer' && enemy?.lostExplorerQuestId === activeQuest.id) {
+            this.clearQuestEventById?.(activeQuest.id, 'save-lost-explorer');
+            questState.activeQuest = null;
+            this.ui.addMessage('The lost explorer has perished. The rescue task has failed.');
+            return;
+        }
+
+        if (activeQuest?.type === 'material-delivery' && enemy?.materialDeliveryQuestId === activeQuest.id) {
+            this.failMaterialDeliveryQuest(activeQuest, enemy, 'The engineer is gone. The delivery contract has failed.');
             return;
         }
 
@@ -536,7 +962,7 @@ Object.assign(Game.prototype, {
         }
 
         activeQuest.currentCount = clamp(Math.floor(Number(activeQuest.currentCount) || 0) + 1, 0, activeQuest.requiredCount);
-        activeQuest.display = this.describeQuestgiverQuest(activeQuest);
+        this.updateQuestgiverQuestDisplay(activeQuest);
     },
 
     isFoodItemForNpcTrade(item) {
@@ -761,8 +1187,12 @@ Object.assign(Game.prototype, {
         const foodTier = this.getFoodTierForNpcTrade(selectedFood);
         const rewardItem = this.createNpcRewardEquipmentForTier(foodTier);
         if (rewardItem) {
-            this.player.addItem(rewardItem);
-            this.ui.addMessage(`${enemy.name}: Thank you. Please take ${getItemLabel(rewardItem)}.`);
+            const rewardResult = this.tryAddItemToPlayerInventory?.(rewardItem, { dropIfFull: true });
+            if (rewardResult?.added) {
+                this.ui.addMessage(`${enemy.name}: Thank you. Please take ${getItemLabel(rewardItem)}.`);
+            } else {
+                this.ui.addMessage(`${enemy.name}: Thank you. ${getItemLabel(rewardItem)} is left at your feet because your inventory is full.`);
+            }
         } else {
             this.ui.addMessage(`${enemy.name}: Thank you for the meal.`);
         }
@@ -816,6 +1246,61 @@ Object.assign(Game.prototype, {
         this.completeOneTimeNpcInteraction(enemy);
     },
 
+    interactWithLostExplorerNpc(enemy) {
+        const activeQuest = this.ensureQuestgiverState().activeQuest;
+        if (!activeQuest || activeQuest.type !== 'save-lost-explorer' || activeQuest.id !== enemy?.lostExplorerQuestId) {
+            this.ui.addMessage(`${enemy.name}: Please help me find the way back out.`);
+            return;
+        }
+
+        if (activeQuest.completed) {
+            this.ui.addMessage(`${enemy.name}: Thank you again for the rescue.`);
+            return;
+        }
+
+        this.completeQuestgiverObjective(activeQuest, {
+            eventType: 'save-lost-explorer',
+            removeEnemy: enemy,
+            messages: [
+                `${enemy.name}: You found me! I'll head back to safety from here.`,
+                'The lost explorer has been saved. Return to the Questgiver for your reward.'
+            ]
+        });
+    },
+
+    interactWithMaterialEngineerNpc(enemy) {
+        const activeQuest = this.ensureQuestgiverState().activeQuest;
+        if (!activeQuest || activeQuest.type !== 'material-delivery' || activeQuest.id !== enemy?.materialDeliveryQuestId) {
+            this.ui.addMessage(`${enemy.name}: I'm waiting on a shipment from the Questgiver.`);
+            return;
+        }
+
+        if (activeQuest.completed) {
+            this.ui.addMessage(`${enemy.name}: The delivery is already complete. Thank you.`);
+            return;
+        }
+
+        const materialCount = Math.max(1, Math.floor(Number(activeQuest.materialCount || activeQuest.requiredCount) || 1));
+        const carriedMaterials = this.findMaterialDeliveryQuestItems(activeQuest);
+        if (carriedMaterials.length < materialCount) {
+            this.failMaterialDeliveryQuest(activeQuest, enemy, 'You arrived without the full shipment. The material delivery quest has failed.');
+            return;
+        }
+
+        for (const item of carriedMaterials.slice(0, materialCount)) {
+            this.player.removeItem(item);
+        }
+
+        this.completeQuestgiverObjective(activeQuest, {
+            eventType: 'material-delivery',
+            removeEnemy: enemy,
+            messages: [
+                `${enemy.name}: Perfect. These materials are exactly what I needed.`,
+                'The materials are delivered. Return to the Questgiver for your reward.'
+            ]
+        });
+    },
+
     getSpecialNpcInteraction(enemy) {
         if (!enemy) {
             return null;
@@ -823,6 +1308,14 @@ Object.assign(Game.prototype, {
 
         if (enemy.isShopkeeper && !enemy.shopkeeperHostileTriggered) {
             return () => this.interactWithShopkeeper(enemy);
+        }
+
+        if (enemy.isLostExplorerNpc || enemy.monsterType === 'npcLostExplorerTier1') {
+            return () => this.interactWithLostExplorerNpc(enemy);
+        }
+
+        if (enemy.isMaterialDeliveryEngineerNpc || enemy.materialDeliveryQuestId) {
+            return () => this.interactWithMaterialEngineerNpc(enemy);
         }
 
         const interactionMap = {
@@ -862,6 +1355,11 @@ Object.assign(Game.prototype, {
 
         if ((this.player.money || 0) < price) {
             this.ui.addMessage(`${enemy.name}: You don't have enough money.`);
+            return;
+        }
+
+        if (typeof this.player?.hasInventorySpaceFor === 'function' && !this.player.hasInventorySpaceFor(enemy.shopOfferItem)) {
+            this.ui.addMessage(`${enemy.name}: Your inventory is full.`);
             return;
         }
 
@@ -1174,7 +1672,12 @@ Object.assign(Game.prototype, {
         }
 
         const [returnedItem] = storedItems.splice(selectedIndex, 1);
-        this.player.addItem(returnedItem);
+        if (!this.player.addItem(returnedItem)) {
+            storedItems.splice(selectedIndex, 0, returnedItem);
+            this.ui.addMessage(`${enemy.name}: Your inventory is full.`);
+            return;
+        }
+
         this.ui.addMessage(`${enemy.name}: Returned ${getItemLabel(returnedItem)}.`);
     },
 

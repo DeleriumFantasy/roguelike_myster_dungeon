@@ -4,6 +4,8 @@ Game.prototype.pickupItemsAfterMove = function(x, y) {
     if (!Array.isArray(items) || items.length === 0) return;
 
     for (const item of [...items]) {
+        let shouldMarkUnpaid = false;
+
         if (item?.properties?.shopOwned) {
             const price = this.getShopItemPrice(item);
             const itemName = item.getDisplayName?.() || item.name || 'item';
@@ -14,7 +16,7 @@ Game.prototype.pickupItemsAfterMove = function(x, y) {
             if (!confirmed) {
                 continue;
             }
-            item.properties.shopUnpaid = true;
+            shouldMarkUnpaid = true;
         }
 
         if (item?.properties?.shopPendingSale) {
@@ -22,7 +24,16 @@ Game.prototype.pickupItemsAfterMove = function(x, y) {
             delete item.properties.shopSellPrice;
         }
 
-        this.player.addItem(item);
+        const added = this.player.addItem(item);
+        if (!added) {
+            this.ui?.addMessage?.(`Inventory is full. ${getItemLabel(item)} stays on the ground.`);
+            continue;
+        }
+
+        if (shouldMarkUnpaid && item?.properties) {
+            item.properties.shopUnpaid = true;
+        }
+
         this.world.removeItem(x, y, item);
     }
 
@@ -260,7 +271,7 @@ Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY) {
     this.player.x = targetX;
     this.player.y = targetY;
     this.clearFailedMoveRecord();
-    this.tryWakeCatacombsHoardEvent?.();
+    this.tryWakeGuardedRoomEvent?.();
     this.pickupItemsAfterMove(targetX, targetY);
     return this.createPlayerMoveResult({
         consumed: true,
@@ -316,7 +327,7 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
     }
 
     if (this.world.currentFloor === floorBeforeMove) {
-        this.tryWakeCatacombsHoardEvent?.();
+        this.tryWakeGuardedRoomEvent?.();
     }
 
     return this.createPlayerMoveResult({
@@ -669,7 +680,7 @@ Game.prototype.processPlayerBerserkTurn = function() {
             });
         }
         if (this.world.currentFloor === floorBeforeMove) {
-            this.tryWakeCatacombsHoardEvent?.();
+            this.tryWakeGuardedRoomEvent?.();
         }
         return this.createPlayerTurnResult({ consumed: true, applyEnvironmentAfterAction: false, actionType: 'berserk-move' });
     }

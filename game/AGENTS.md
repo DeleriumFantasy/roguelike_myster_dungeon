@@ -19,7 +19,7 @@
 - `game-enemy-content.js`: enemy spawning, configurable family-balancing (`ENEMY_FAMILY_SPAWN_BALANCING`), creation, promotion, and explicit overworld NPC placement.
 - `game-item-generation.js`: floor-banded item spawn counts, floor-scaled item-tier weighting, premade item placement, starter loadout, and event-reward item helpers.
 - `game-item-state.js`: throw resolution, pickup/drop mutation, and defeat drop state changes.
-- `game-inventory-actions.js`: inventory action resolution that mutates gameplay state (use/equip/unequip/drop orchestration, floor-effect scroll outcomes, shared player-target helpers, pot storage messaging, and staging shop sales when items are dropped on shop tiles).
+- `game-inventory-actions.js`: inventory action resolution that mutates gameplay state (use/equip/unequip/drop orchestration, floor-effect scroll outcomes, shared player-target helpers, inventory-use subhelpers, pot storage messaging, inventory-cap handling, and staging shop sales when items are dropped on shop tiles).
 - `game-item-interactions.js`: item announcements and interaction coordination.
 - `game-player-turns.js`: player turn resolution, including shop pickup confirmation, unpaid-item tracking, and exit interception when leaving a shop with unsettled goods.
 - `game-enemy-turns.js`: enemy turn resolution, defeat/EXP handling, and ally stalling. Defeated allies are automatically stalled with the handler via `stallAllyWithHandler()` if one exists on the overworld.
@@ -53,8 +53,8 @@
 - For player movement ordering bugs (e.g., item on stairs), check `game-player-turns.js` and `entities/player.js` together.
 - Read `game-item-state.js` first for throw, pickup, and drop bugs.
 - Read `game-enemy-content.js` and `game-item-generation.js` for spawning/content bugs and floor-scaling balance issues.
-- For dungeon shop issues, check `game-content.js` (spawn), `game-player-turns.js` (pickup/exit handling), `game-npc-interactions.js` (combined settlement), and `game-inventory-actions.js` (sale staging and shared inventory targeting).
-- For inventory/focus bugs, check `game-input.js` (`toggleInventory`, `handleEscapeKey`, `closeOverlayAndFocus`) together with `ui/ui-panels.js` (`focusGameSurface`, `runNativePrompt`).
+- For dungeon shop issues, check `game-content.js` (spawn), `game-player-turns.js` (pickup/exit handling), `game-npc-interactions.js` (combined settlement), and `game-inventory-actions.js` (sale staging, capacity handling, and shared inventory targeting).
+- For inventory/focus bugs, check `game-input.js` (`toggleInventory`, `handleEscapeKey`, `closeOverlayAndFocus`) together with `ui/ui-panels.js` (`focusGameSurface`, `runNativePrompt`) and `ui/ui-inventory.js` (`runInventoryAction`, `buildInventoryDisplayEntries`).
 - Read `game-npc-interactions.js` for banker, handler, questgiver, escort, and other special NPC behavior.
 - For hoard room issues (wake distance, ally detection): check `game-content.js` `tryWakeCatacombsHoardEvent`, `isPositionAdjacentToRoom`, and the calls in `game-player-turns.js` and `game-enemy-turns.js`.
 

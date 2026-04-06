@@ -245,7 +245,7 @@ Game.prototype.processEnemyTurn = function(enemy) {
     }
 
     if (enemy.isAlly && result?.type === 'move') {
-        this.tryWakeCatacombsHoardEvent?.();
+        this.tryWakeGuardedRoomEvent?.();
     }
 
     return this.resolveEnemyActionResult(enemy, result);

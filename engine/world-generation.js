@@ -38,7 +38,9 @@ Object.assign(World.prototype, {
             meta: {
                 areaType,
                 generatorType: this.getGeneratorType(areaType),
+                encounterRooms: Array.isArray(layout?.rooms) ? layout.rooms.map((room) => ({ ...room })) : [],
                 catacombsRooms: Array.isArray(layout?.rooms) ? layout.rooms.map((room) => ({ ...room })) : [],
+                specialAreas: Array.isArray(layout?.specialAreas) ? layout.specialAreas.map((area) => ({ ...area })) : [],
                 stairPositions: stairPositions ? {
                     up: stairPositions.up ? { ...stairPositions.up } : null,
                     down: stairPositions.down ? { ...stairPositions.down } : null
@@ -132,6 +134,7 @@ Object.assign(World.prototype, {
         const grid = [];
         const premadeItemSpawns = [];
         const premadeEnemySpawns = [];
+        const specialAreas = [];
 
         for (let y = 0; y < GRID_SIZE; y++) {
             grid[y] = [];
@@ -141,14 +144,15 @@ Object.assign(World.prototype, {
         }
 
         this.applyAreaWalkers(grid, rule, rng);
-        this.applyPremadeTerrainShapes(grid, areaType, rng, this.currentFloor, premadeItemSpawns, premadeEnemySpawns);
+        this.applyPremadeTerrainShapes(grid, areaType, rng, this.currentFloor, premadeItemSpawns, premadeEnemySpawns, specialAreas);
         return {
             grid,
             roomTileKeys: null,
             hallwayTileKeys: null,
             rooms: null,
             premadeItemSpawns,
-            premadeEnemySpawns
+            premadeEnemySpawns,
+            specialAreas
         };
     },
 
@@ -227,7 +231,8 @@ Object.assign(World.prototype, {
                 grid,
                 roomTileKeys: null,
                 hallwayTileKeys: null,
-                rooms: null
+                rooms: null,
+                specialAreas: []
             };
         }
 
@@ -241,7 +246,8 @@ Object.assign(World.prototype, {
             grid,
             roomTileKeys,
             hallwayTileKeys,
-            rooms: rooms.map((room) => ({ ...room }))
+            rooms: rooms.map((room) => ({ ...room })),
+            specialAreas: []
         };
     },
 
@@ -252,6 +258,32 @@ Object.assign(World.prototype, {
             && candidate.y <= room.y + room.height - 1 + padding
             && candidate.y + candidate.height - 1 + padding >= room.y
         ));
+    },
+
+    createSpecialAreaDescriptor(type, x, y, width, height, options = {}) {
+        return {
+            type: String(type || 'special-area'),
+            x: Math.floor(Number(x) || 0),
+            y: Math.floor(Number(y) || 0),
+            width: Math.max(1, Math.floor(Number(width) || 1)),
+            height: Math.max(1, Math.floor(Number(height) || 1)),
+            padding: Math.max(0, Math.floor(Number(options.padding) || 0))
+        };
+    },
+
+    doSpecialAreasOverlap(left, right, extraPadding = 0) {
+        if (!left || !right) {
+            return false;
+        }
+
+        const leftPadding = Math.max(0, Math.floor(Number(left.padding) || 0));
+        const rightPadding = Math.max(0, Math.floor(Number(right.padding) || 0));
+        const padding = Math.max(0, Math.floor(Number(extraPadding) || 0)) + leftPadding + rightPadding;
+
+        return left.x <= right.x + right.width - 1 + padding
+            && left.x + left.width - 1 + padding >= right.x
+            && left.y <= right.y + right.height - 1 + padding
+            && left.y + left.height - 1 + padding >= right.y;
     },
 
     carveRoom(grid, room, roomTileKeys) {
@@ -423,7 +455,7 @@ Object.assign(World.prototype, {
         return new Set();
     },
 
-    applyPremadeTerrainShapes(grid, areaType, rng, floorIndex, premadeItemSpawns = [], premadeEnemySpawns = []) {
+    applyPremadeTerrainShapes(grid, areaType, rng, floorIndex, premadeItemSpawns = [], premadeEnemySpawns = [], specialAreas = []) {
         const placementRules = getPremadeTerrainPlacementRulesForFloor(areaType, floorIndex);
         for (const placementRule of placementRules) {
             const chance = Number.isFinite(placementRule.chance) ? placementRule.chance : 1;
@@ -443,17 +475,27 @@ Object.assign(World.prototype, {
                 : effectiveMinCount;
 
             for (let i = 0; i < targetCount; i++) {
-                this.placePremadeTerrainShapeRandom(grid, placementRule.shapeId, rng, 40, premadeItemSpawns, premadeEnemySpawns);
+                this.placePremadeTerrainShapeRandom(
+                    grid,
+                    placementRule.shapeId,
+                    rng,
+                    40,
+                    premadeItemSpawns,
+                    premadeEnemySpawns,
+                    specialAreas,
+                    placementRule
+                );
             }
         }
     },
 
-    placePremadeTerrainShapeRandom(grid, shapeId, rng, attempts = 40, premadeItemSpawns = [], premadeEnemySpawns = []) {
+    placePremadeTerrainShapeRandom(grid, shapeId, rng, attempts = 40, premadeItemSpawns = [], premadeEnemySpawns = [], specialAreas = [], options = {}) {
         const shape = getPremadeTerrainShape(shapeId);
         if (!shape || !Array.isArray(shape.rows) || shape.rows.length === 0) {
             return false;
         }
 
+        const forcePlacement = options?.forcePlacement === true || options?.questRelated === true;
         const shapeHeight = shape.rows.length;
         const shapeWidth = shape.rows[0].length;
         const maxX = GRID_SIZE - 1 - shapeWidth;
@@ -466,15 +508,53 @@ Object.assign(World.prototype, {
             const startX = rng.randomInt(1, maxX);
             const startY = rng.randomInt(1, maxY);
 
-            if (!this.canPlacePremadeTerrainShapeAt(grid, shape, startX, startY)) {
+            if (!this.canPlacePremadeTerrainShapeAt(grid, shape, startX, startY, specialAreas, shapeId)) {
                 continue;
             }
 
-            this.applyPremadeTerrainShapeAt(grid, shape, startX, startY, premadeItemSpawns, premadeEnemySpawns);
+            this.applyPremadeTerrainShapeAt(grid, shape, startX, startY, premadeItemSpawns, premadeEnemySpawns, specialAreas, shapeId);
             return true;
         }
 
-        return false;
+        if (!forcePlacement) {
+            return false;
+        }
+
+        const forcedCandidates = [];
+        for (let startY = 1; startY <= maxY; startY++) {
+            for (let startX = 1; startX <= maxX; startX++) {
+                if (!this.canPlacePremadeTerrainShapeAt(
+                    grid,
+                    shape,
+                    startX,
+                    startY,
+                    specialAreas,
+                    shapeId,
+                    { allowSpecialAreaOverlap: true }
+                )) {
+                    continue;
+                }
+
+                forcedCandidates.push({ x: startX, y: startY });
+            }
+        }
+
+        if (forcedCandidates.length === 0) {
+            return false;
+        }
+
+        const forcedStart = pickRandom(forcedCandidates, rng, forcedCandidates[0]);
+        this.applyPremadeTerrainShapeAt(
+            grid,
+            shape,
+            forcedStart.x,
+            forcedStart.y,
+            premadeItemSpawns,
+            premadeEnemySpawns,
+            specialAreas,
+            shapeId
+        );
+        return true;
     },
 
     forEachShapeCell(shape, callback) {
@@ -491,7 +571,13 @@ Object.assign(World.prototype, {
         return true;
     },
 
-    canPlacePremadeTerrainShapeAt(grid, shape, startX, startY) {
+    canPlacePremadeTerrainShapeAt(grid, shape, startX, startY, specialAreas = [], shapeId = 'special-area', options = {}) {
+        const allowSpecialAreaOverlap = options.allowSpecialAreaOverlap === true;
+        const candidateArea = this.createSpecialAreaDescriptor(shapeId, startX, startY, shape.rows[0].length, shape.rows.length, { padding: 1 });
+        if (!allowSpecialAreaOverlap && Array.isArray(specialAreas) && specialAreas.some((area) => this.doSpecialAreasOverlap(area, candidateArea))) {
+            return false;
+        }
+
         return this.forEachShapeCell(shape, (rowIndex, colIndex) => {
             const x = startX + colIndex;
             const y = startY + rowIndex;
@@ -500,7 +586,7 @@ Object.assign(World.prototype, {
         });
     },
 
-    applyPremadeTerrainShapeAt(grid, shape, startX, startY, premadeItemSpawns = [], premadeEnemySpawns = []) {
+    applyPremadeTerrainShapeAt(grid, shape, startX, startY, premadeItemSpawns = [], premadeEnemySpawns = [], specialAreas = [], shapeId = 'special-area') {
         this.forEachShapeCell(shape, (rowIndex, colIndex, replacementTile) => {
             const x = startX + colIndex;
             const y = startY + rowIndex;
@@ -518,6 +604,12 @@ Object.assign(World.prototype, {
 
             grid[y][x] = replacementTile;
         });
+
+        if (Array.isArray(specialAreas)) {
+            specialAreas.push(
+                this.createSpecialAreaDescriptor(shapeId, startX, startY, shape.rows[0].length, shape.rows.length, { padding: 1 })
+            );
+        }
     },
 
     generateTileFromAreaRule(rule, rng, x, y) {

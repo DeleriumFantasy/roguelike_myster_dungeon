@@ -3,6 +3,30 @@
 // Keep gameplay mutation in game/ so ui/ can stay presentation-focused.
 
 Object.assign(Game.prototype, {
+    tryAddItemToPlayerInventory(item, options = {}) {
+        if (!item || !this.player || typeof this.player.addItem !== 'function') {
+            return { added: false, dropped: false, reason: 'unavailable' };
+        }
+
+        if (this.player.addItem(item)) {
+            return { added: true, dropped: false, reason: 'added' };
+        }
+
+        if (options.dropIfFull && this.world && this.player) {
+            const dropResult = this.world.addItem(this.player.x, this.player.y, item);
+            if (dropResult?.placed || dropResult?.burned) {
+                return {
+                    added: false,
+                    dropped: Boolean(dropResult?.placed),
+                    burned: Boolean(dropResult?.burned),
+                    reason: 'inventory-full'
+                };
+            }
+        }
+
+        return { added: false, dropped: false, reason: 'inventory-full' };
+    },
+
     findWarpDestinationForPlayer() {
         const world = this.world;
         const player = this.player;
@@ -185,6 +209,15 @@ Object.assign(Game.prototype, {
             return { stored: false, messages: [`You can't hide unpaid shop goods inside ${potLabel}.`] };
         }
 
+        if (targetItem?.properties?.questReturnOnly || targetItem?.properties?.questDeliveryOnly) {
+            const blockedMessage = typeof targetItem?.properties?.storageBlockMessage === 'string'
+                ? targetItem.properties.storageBlockMessage
+                : (targetItem?.properties?.questReturnOnly
+                    ? `${formatItemLabel(targetItem)} must be brought back to the Questgiver.`
+                    : `${formatItemLabel(targetItem)} must stay with you for its quest.`);
+            return { stored: false, messages: [blockedMessage] };
+        }
+
         if (potItem?.isPotFull?.()) {
             return { stored: false, messages: [`${potLabel} is full.`] };
         }
@@ -238,169 +271,202 @@ Object.assign(Game.prototype, {
         };
     },
 
-    useInventoryItem(item, options = {}) {
-        const itemLabel = String(options.itemLabel || getItemLabel(item) || 'item');
-        const formatItemLabel = typeof options.formatItemLabel === 'function'
-            ? options.formatItemLabel
-            : (target) => String(getItemLabel(target) || 'item');
-        const chooseTarget = typeof options.chooseTarget === 'function'
-            ? options.chooseTarget
-            : (_label, targets) => (Array.isArray(targets) && targets.length > 0 ? targets[0].item : null);
-
-        const messages = [];
-        const addMessage = (message) => {
-            if (typeof message === 'string' && message.length > 0) {
-                messages.push(message);
-            }
+    createInventoryUseContext(item, options = {}) {
+        return {
+            item,
+            itemLabel: String(options.itemLabel || getItemLabel(item) || 'item'),
+            formatItemLabel: typeof options.formatItemLabel === 'function'
+                ? options.formatItemLabel
+                : (target) => String(getItemLabel(target) || 'item'),
+            chooseTarget: typeof options.chooseTarget === 'function'
+                ? options.chooseTarget
+                : (_label, targets) => (Array.isArray(targets) && targets.length > 0 ? targets[0].item : null),
+            messages: []
         };
+    },
+
+    pushInventoryUseMessage(context, message) {
+        if (typeof message === 'string' && message.length > 0) {
+            context.messages.push(message);
+        }
+    },
+
+    finalizeInventoryUse(context, consumed = false, handled = true) {
+        if (typeof this.player?.updateStats === 'function') {
+            this.player.updateStats();
+        }
+
+        return {
+            handled,
+            consumed,
+            messages: context.messages
+        };
+    },
+
+    handlePotInventoryUse(context) {
+        const { item, itemLabel, formatItemLabel, chooseTarget } = context;
+        if (item?.isPotFull?.()) {
+            this.pushInventoryUseMessage(context, `${itemLabel} is full.`);
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const targets = this.buildPotTargetsForPlayer(item);
+        if (targets.length === 0) {
+            this.pushInventoryUseMessage(context, `No valid item can be placed into ${itemLabel}.`);
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const chosenTarget = chooseTarget(itemLabel, targets, {
+            header: `Choose item to place into ${itemLabel}:`,
+            defaultValue: '1'
+        });
+        if (!chosenTarget) {
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const storageResult = this.storeInventoryItemInPot(item, chosenTarget, {
+            potLabel: itemLabel,
+            formatItemLabel
+        });
+        for (const message of storageResult.messages || []) {
+            this.pushInventoryUseMessage(context, message);
+        }
+
+        return this.finalizeInventoryUse(context, false);
+    },
+
+    handleImprovementScrollInventoryUse(context) {
+        const { item, itemLabel, formatItemLabel, chooseTarget } = context;
+        const targets = this.buildImprovementTargetsForPlayer(item);
+        if (targets.length === 0) {
+            this.pushInventoryUseMessage(context, `No valid equipment can be improved by ${itemLabel}.`);
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const chosenTarget = chooseTarget(itemLabel, targets);
+        if (!chosenTarget) {
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const useResult = item.use(this.player, chosenTarget) || { consumed: false };
+        if (!useResult?.consumed) {
+            this.pushInventoryUseMessage(context, `Could not use ${itemLabel}`);
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const targetLabel = formatItemLabel(useResult.target);
+        this.pushInventoryUseMessage(context, `Used ${itemLabel} on ${targetLabel}.`);
+        this.pushInventoryUseMessage(context, `${targetLabel} is now +${useResult.level}.`);
+        this.player.removeItem(item);
+        return this.finalizeInventoryUse(context, Boolean(useResult.consumed));
+    },
+
+    handleTargetedScrollInventoryUse(context) {
+        const { item, itemLabel, formatItemLabel, chooseTarget } = context;
+        const targets = this.buildGenericScrollTargetsForPlayer(item);
+        if (targets.length === 0) {
+            this.pushInventoryUseMessage(context, `No valid target for ${itemLabel}.`);
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const chosenTarget = chooseTarget(itemLabel, targets);
+        if (!chosenTarget) {
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const useResult = item.use(this.player, chosenTarget) || { consumed: false };
+        if (!useResult?.consumed) {
+            this.pushInventoryUseMessage(context, `Could not use ${itemLabel}`);
+            return this.finalizeInventoryUse(context, false);
+        }
+
+        const targetLabel = formatItemLabel(useResult.target);
+        const effect = useResult.effect;
+        this.pushInventoryUseMessage(context, `Used ${itemLabel} on ${targetLabel}.`);
+
+        if (effect === 'add-slot') {
+            this.pushInventoryUseMessage(context, `${targetLabel} now has ${useResult.slots} enchantment slot(s).`);
+        } else if (effect === 'purify-item') {
+            this.pushInventoryUseMessage(
+                context,
+                useResult.wasCursed
+                    ? `${targetLabel} is no longer cursed.`
+                    : `${targetLabel} had no curse, but is now purified.`
+            );
+        } else if (effect === 'identify-item') {
+            this.pushInventoryUseMessage(
+                context,
+                useResult.isCursed
+                    ? `${targetLabel} is cursed.`
+                    : `${targetLabel} is not cursed.`
+            );
+        } else if (effect === 'add-gilded') {
+            this.pushInventoryUseMessage(context, `${targetLabel} is now gilded.`);
+        }
+
+        this.player.removeItem(item);
+        return this.finalizeInventoryUse(context, Boolean(useResult.consumed));
+    },
+
+    handleDefaultInventoryUse(context) {
+        const { item, itemLabel } = context;
+        const useResult = item.use(this.player) || { consumed: true };
+        if (useResult.consumed !== false) {
+            this.player.removeItem(item);
+            this.pushInventoryUseMessage(context, `Used ${itemLabel}`);
+            return this.finalizeInventoryUse(context, true);
+        }
+
+        this.pushInventoryUseMessage(
+            context,
+            typeof useResult?.message === 'string' && useResult.message.length > 0
+                ? useResult.message
+                : `Could not use ${itemLabel}.`
+        );
+        return this.finalizeInventoryUse(context, false);
+    },
+
+    useInventoryItem(item, options = {}) {
+        const context = this.createInventoryUseContext(item, options);
+        const { itemLabel } = context;
 
         if (item?.type === ITEM_TYPES.POT) {
-            if (item?.isPotFull?.()) {
-                addMessage(`${itemLabel} is full.`);
-                return { handled: true, consumed: false, messages };
-            }
-
-            const targets = this.buildPotTargetsForPlayer(item);
-            if (targets.length === 0) {
-                addMessage(`No valid item can be placed into ${itemLabel}.`);
-                return { handled: true, consumed: false, messages };
-            }
-
-            const chosenTarget = chooseTarget(itemLabel, targets, {
-                header: `Choose item to place into ${itemLabel}:`,
-                defaultValue: '1'
-            });
-            if (!chosenTarget) {
-                return { handled: true, consumed: false, messages };
-            }
-
-            const storageResult = this.storeInventoryItemInPot(item, chosenTarget, {
-                potLabel: itemLabel,
-                formatItemLabel
-            });
-            for (const message of storageResult.messages || []) {
-                addMessage(message);
-            }
-
-            if (typeof this.player.updateStats === 'function') {
-                this.player.updateStats();
-            }
-
-            return { handled: true, consumed: false, messages };
+            return this.handlePotInventoryUse(context);
         }
 
         const floorEffectResult = this.useFloorEffectScroll(item);
         if (floorEffectResult.handled) {
             if (floorEffectResult.effect === 'map-floor' && floorEffectResult.consumed) {
-                addMessage(`Used ${itemLabel}.`);
-                addMessage('The entire floor is revealed.');
+                this.pushInventoryUseMessage(context, `Used ${itemLabel}.`);
+                this.pushInventoryUseMessage(context, 'The entire floor is revealed.');
             } else if (floorEffectResult.effect === 'erase-traps' && floorEffectResult.consumed) {
-                addMessage(`Used ${itemLabel}.`);
-                addMessage(`Erased ${floorEffectResult.removedCount || 0} trap(s) on this floor.`);
+                this.pushInventoryUseMessage(context, `Used ${itemLabel}.`);
+                this.pushInventoryUseMessage(context, `Erased ${floorEffectResult.removedCount || 0} trap(s) on this floor.`);
             } else if (floorEffectResult.effect === 'warp-player') {
                 if (floorEffectResult.consumed && floorEffectResult.destination) {
-                    addMessage(`Used ${itemLabel}.`);
-                    addMessage(`Warped to ${floorEffectResult.destination.x}, ${floorEffectResult.destination.y}.`);
+                    this.pushInventoryUseMessage(context, `Used ${itemLabel}.`);
+                    this.pushInventoryUseMessage(context, `Warped to ${floorEffectResult.destination.x}, ${floorEffectResult.destination.y}.`);
                 } else {
-                    addMessage(`Could not use ${itemLabel}.`);
+                    this.pushInventoryUseMessage(context, `Could not use ${itemLabel}.`);
                 }
             }
 
-            if (typeof this.player.updateStats === 'function') {
-                this.player.updateStats();
-            }
-
-            return { handled: true, consumed: floorEffectResult.consumed, messages };
+            return this.finalizeInventoryUse(context, floorEffectResult.consumed);
         }
 
         const isImprovementScroll = typeof item?.isEquipmentImprovementScroll === 'function' && item.isEquipmentImprovementScroll();
         if (isImprovementScroll) {
-            const targets = this.buildImprovementTargetsForPlayer(item);
-            if (targets.length === 0) {
-                addMessage(`No valid equipment can be improved by ${itemLabel}.`);
-                return { handled: true, consumed: false, messages };
-            }
-
-            const chosenTarget = chooseTarget(itemLabel, targets);
-            if (!chosenTarget) {
-                return { handled: true, consumed: false, messages };
-            }
-
-            const useResult = item.use(this.player, chosenTarget) || { consumed: false };
-            if (!useResult?.consumed) {
-                addMessage(`Could not use ${itemLabel}`);
-            } else {
-                const targetLabel = formatItemLabel(useResult.target);
-                addMessage(`Used ${itemLabel} on ${targetLabel}.`);
-                addMessage(`${targetLabel} is now +${useResult.level}.`);
-                this.player.removeItem(item);
-            }
-
-            if (typeof this.player.updateStats === 'function') {
-                this.player.updateStats();
-            }
-
-            return { handled: true, consumed: Boolean(useResult.consumed), messages };
+            return this.handleImprovementScrollInventoryUse(context);
         }
 
         const hasTargetedScrollEffect = typeof item?.getScrollEffect === 'function'
             && ['add-slot', 'purify-item', 'identify-item', 'add-gilded'].includes(item.getScrollEffect());
 
         if (hasTargetedScrollEffect) {
-            const targets = this.buildGenericScrollTargetsForPlayer(item);
-            if (targets.length === 0) {
-                addMessage(`No valid target for ${itemLabel}.`);
-                return { handled: true, consumed: false, messages };
-            }
-
-            const chosenTarget = chooseTarget(itemLabel, targets);
-            if (!chosenTarget) {
-                return { handled: true, consumed: false, messages };
-            }
-
-            const useResult = item.use(this.player, chosenTarget) || { consumed: false };
-            if (!useResult?.consumed) {
-                addMessage(`Could not use ${itemLabel}`);
-            } else {
-                const targetLabel = formatItemLabel(useResult.target);
-                const effect = useResult.effect;
-                addMessage(`Used ${itemLabel} on ${targetLabel}.`);
-
-                if (effect === 'add-slot') {
-                    addMessage(`${targetLabel} now has ${useResult.slots} enchantment slot(s).`);
-                } else if (effect === 'purify-item') {
-                    addMessage(useResult.wasCursed
-                        ? `${targetLabel} is no longer cursed.`
-                        : `${targetLabel} had no curse, but is now purified.`);
-                } else if (effect === 'identify-item') {
-                    addMessage(useResult.isCursed
-                        ? `${targetLabel} is cursed.`
-                        : `${targetLabel} is not cursed.`);
-                } else if (effect === 'add-gilded') {
-                    addMessage(`${targetLabel} is now gilded.`);
-                }
-
-                this.player.removeItem(item);
-            }
-
-            if (typeof this.player.updateStats === 'function') {
-                this.player.updateStats();
-            }
-
-            return { handled: true, consumed: Boolean(useResult.consumed), messages };
+            return this.handleTargetedScrollInventoryUse(context);
         }
 
-        const useResult = item.use(this.player) || { consumed: true };
-        if (useResult.consumed !== false) {
-            this.player.removeItem(item);
-            addMessage(`Used ${itemLabel}`);
-        }
-
-        if (typeof this.player.updateStats === 'function') {
-            this.player.updateStats();
-        }
-
-        return { handled: true, consumed: useResult.consumed !== false, messages };
+        return this.handleDefaultInventoryUse(context);
     },
 
     unequipPlayerInventorySlot(slot, item, options = {}) {
@@ -414,7 +480,15 @@ Object.assign(Game.prototype, {
             return { success: true, messages: [`Unequipped ${itemLabel}`] };
         }
 
-        return { success: false, messages: [`${itemLabel} is cursed and cannot be unequipped`] };
+        if (typeof this.player?.canUnequipItem === 'function' && !this.player.canUnequipItem(item)) {
+            return { success: false, messages: [`${itemLabel} is cursed and cannot be unequipped`] };
+        }
+
+        if (typeof this.player?.hasInventorySpaceFor === 'function' && !this.player.hasInventorySpaceFor(item)) {
+            return { success: false, messages: [`Inventory is full. Cannot unequip ${itemLabel}.`] };
+        }
+
+        return { success: false, messages: [`Could not unequip ${itemLabel}`] };
     },
 
     unequipAllyInventorySlot(ally, slot, item, options = {}) {
@@ -429,11 +503,15 @@ Object.assign(Game.prototype, {
 
         const unequipped = ally.unequipSlot(slot);
         if (!unequipped) {
+            if (typeof this.player?.hasInventorySpaceFor === 'function' && !this.player.hasInventorySpaceFor(item)) {
+                return { success: false, messages: [`Inventory is full. Cannot take ${itemLabel} from ${ally.name}.`] };
+            }
             return { success: false, messages: [`${ally.name} cannot unequip ${itemLabel}`] };
         }
 
-        if (typeof this.player?.addItem === 'function') {
-            this.player.addItem(item);
+        if (typeof this.player?.addItem === 'function' && !this.player.addItem(item)) {
+            ally.equipItem?.(item);
+            return { success: false, messages: [`Inventory is full. Cannot take ${itemLabel} from ${ally.name}.`] };
         }
 
         return { success: true, messages: [`${ally.name} unequipped ${itemLabel}`] };
@@ -446,6 +524,7 @@ Object.assign(Game.prototype, {
 
         let equipped = false;
         let replacedItem = null;
+        let failureReason = '';
 
         if (equipTarget.kind === 'player') {
             equipped = item.equip(this.player);
@@ -453,6 +532,7 @@ Object.assign(Game.prototype, {
             const equipResult = this.player.equipItemOnAlly(equipTarget.ally, item);
             equipped = Boolean(equipResult?.success);
             replacedItem = equipResult?.replacedItem || null;
+            failureReason = String(equipResult?.reason || '');
         }
 
         if (!equipped) {
@@ -464,10 +544,14 @@ Object.assign(Game.prototype, {
                 };
             }
 
+            const allyMessage = failureReason === 'inventory full for replaced item'
+                ? `Inventory is full. ${equipTarget.ally.name} cannot return their replaced gear.`
+                : `${equipTarget.ally.name} could not equip ${formatItemLabel(item)}`;
+
             return {
                 success: false,
                 replacedItem: null,
-                messages: [`${equipTarget.ally.name} could not equip ${formatItemLabel(item)}`]
+                messages: [allyMessage]
             };
         }
 
@@ -502,6 +586,15 @@ Object.assign(Game.prototype, {
         const shopkeeper = standingOnShopTile && typeof this.getActiveShopkeeper === 'function'
             ? this.getActiveShopkeeper()
             : null;
+
+        if (standingOnShopTile && (item?.properties?.questReturnOnly || item?.properties?.questDeliveryOnly)) {
+            const blockedMessage = typeof item?.properties?.saleBlockMessage === 'string'
+                ? item.properties.saleBlockMessage
+                : (item?.properties?.questReturnOnly
+                    ? `${itemLabel} must be returned to the Questgiver, not sold.`
+                    : `${itemLabel} must be kept for its quest, not sold.`);
+            return { burned: false, messages: [blockedMessage] };
+        }
 
         this.player.removeItem(item);
         const dropResult = this.world.addItem(this.player.x, this.player.y, item);
