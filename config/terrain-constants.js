@@ -193,11 +193,11 @@ const TERRAIN_SPRITESHEET_TILE_SIZE = 16;
 const TERRAIN_SPRITESHEET_TILE_HEIGHT = 16;
 
 const ENTITY_VISUALS = {
-    player: { color: '#fff', miniMapInset: 0 },
-    enemy: { color: '#f00', miniMapInset: 0 },
-    ally: { color: '#22c55e', miniMapInset: 0 },
-    npc: { color: '#3b82f6', miniMapInset: 0 },
-    item: { color: '#ff0', miniMapInset: 4, miniMapInsetMap: 2 }
+    player: { color: '#66d9ff', miniMapInset: 0 },
+    enemy: { color: '#ff6b6b', miniMapInset: 0 },
+    ally: { color: '#7ee787', miniMapInset: 0 },
+    npc: { color: '#f6c177', miniMapInset: 0 },
+    item: { color: '#ffdf6b', miniMapInset: 4, miniMapInsetMap: 2 }
 };
 
 const UI_VISUALS = {

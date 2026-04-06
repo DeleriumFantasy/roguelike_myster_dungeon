@@ -441,10 +441,21 @@ Game.prototype.stallAllyWithHandler = function(ally) {
 };
 
 Game.prototype.getHandlerNpc = function() {
-    const floor = this.isOverworldFloor() ? this.world.getCurrentFloor() : null;
-    if (!floor || !Array.isArray(floor.enemies)) {
+    const overworldFloor = this.world?.getFloorAt?.(0, this.world?.getSelectedDungeonPathId?.())
+        || this.world?.floors?.[0]
+        || null;
+    if (!overworldFloor) {
         return null;
     }
 
-    return floor.enemies.find((enemy) => enemy?.monsterType === 'npcHandlerTier1') || null;
+    const npcHandler = Array.isArray(overworldFloor.npcs)
+        ? overworldFloor.npcs.find((npc) => npc?.monsterType === 'npcHandlerTier1')
+        : null;
+    if (npcHandler) {
+        return npcHandler;
+    }
+
+    return Array.isArray(overworldFloor.enemies)
+        ? overworldFloor.enemies.find((enemy) => enemy?.monsterType === 'npcHandlerTier1') || null
+        : null;
 };

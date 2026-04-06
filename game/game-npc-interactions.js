@@ -1040,9 +1040,10 @@ Object.assign(Game.prototype, {
         return this.promptForListSelection(enemy, header, filteredItems, (item) => getItemLabel(item), 'Choose item number:');
     },
 
-    promptForAlly(enemy, header, allies) {
+    promptForAlly(enemy, header, allies, options = {}) {
+        const { includeDefeated = false } = options;
         const availableAllies = Array.isArray(allies)
-            ? allies.filter((ally) => ally?.isAlive?.())
+            ? allies.filter((ally) => Boolean(ally) && (includeDefeated || ally?.isAlive?.()))
             : [];
         return this.promptForListSelection(enemy, header, availableAllies, (ally) => ally.name, 'Choose ally number:');
     },
@@ -1116,7 +1117,7 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        const selectedAlly = this.promptForAlly(enemy, 'Which ally do you want back?', stalledAllies);
+        const selectedAlly = this.promptForAlly(enemy, 'Which ally do you want back?', stalledAllies, { includeDefeated: true });
         if (!selectedAlly) {
             this.ui.addMessage(`${enemy.name}: Retrieval canceled.`);
             return;
@@ -1397,8 +1398,8 @@ Object.assign(Game.prototype, {
 
         const entries = [];
         for (const [key, items] of currentFloor.items.entries()) {
-            const position = fromGridKey(key);
-            if (!position) {
+            const [x, y] = fromGridKey(key);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
                 continue;
             }
 
@@ -1409,8 +1410,8 @@ Object.assign(Game.prototype, {
 
                 entries.push({
                     item,
-                    x: position.x,
-                    y: position.y,
+                    x,
+                    y,
                     price: this.getShopSellPrice(item),
                     shopkeeper
                 });

@@ -5,6 +5,7 @@ class World {
         this.baseSeed = seed;
         this.floors = [];
         this.pathFloors = {};
+        this.pathSeedVersions = {};
         this.currentFloor = 0;
         this.selectedDungeonPathId = getDungeonPathDefinition('waterfallPath')
             ? 'waterfallPath'
@@ -14,9 +15,26 @@ class World {
         this.generateFloor();
     }
 
+    getDungeonPathSeedVersion(pathId = this.selectedDungeonPathId) {
+        const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+        if (!normalizedPathId) {
+            return 0;
+        }
+
+        if (!this.pathSeedVersions || typeof this.pathSeedVersions !== 'object') {
+            this.pathSeedVersions = {};
+        }
+
+        if (!Number.isFinite(this.pathSeedVersions[normalizedPathId])) {
+            this.pathSeedVersions[normalizedPathId] = 0;
+        }
+
+        return Math.max(0, Math.floor(Number(this.pathSeedVersions[normalizedPathId]) || 0));
+    }
+
     getDungeonPathSeedOffset(pathId = this.selectedDungeonPathId) {
         const normalizedPathId = typeof pathId === 'string' ? pathId : '';
-        let hash = 0;
+        let hash = this.getDungeonPathSeedVersion(normalizedPathId) % 1000003;
 
         for (let i = 0; i < normalizedPathId.length; i++) {
             hash = ((hash * 31) + normalizedPathId.charCodeAt(i)) % 1000003;
@@ -118,6 +136,21 @@ class World {
 
         this.completedDungeonPathIds.add(pathId);
         this.unlockDungeonPath(pathId);
+        return true;
+    }
+
+    rerollDungeonPath(pathId = this.selectedDungeonPathId) {
+        const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+        if (!normalizedPathId || !getDungeonPathDefinition(normalizedPathId)) {
+            return false;
+        }
+
+        if (!this.pathSeedVersions || typeof this.pathSeedVersions !== 'object') {
+            this.pathSeedVersions = {};
+        }
+
+        this.pathSeedVersions[normalizedPathId] = this.getDungeonPathSeedVersion(normalizedPathId) + 1;
+        delete this.pathFloors[normalizedPathId];
         return true;
     }
 

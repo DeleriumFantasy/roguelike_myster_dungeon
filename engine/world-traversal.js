@@ -38,6 +38,7 @@ Object.assign(World.prototype, {
             if (Number.isFinite(maxDepth) && this.currentFloor >= maxDepth) {
                 const completedPathId = this.selectedDungeonPathId;
                 this.currentFloor = 0;
+                this.rerollDungeonPath?.(completedPathId);
                 // Place player in the middle of the overworld
                 player.x = Math.floor(GRID_SIZE / 2);
                 player.y = Math.floor(GRID_SIZE / 2);

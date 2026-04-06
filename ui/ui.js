@@ -87,6 +87,9 @@ class UI {
         this.mapOpen = false;
         this.settingsOpen = false;
         this.dungeonSelectionOpen = false;
+        this.angledTopDown = true;
+        this.perspectiveRowStepRatio = 1;
+        this.perspectiveWallLiftRatio = 0.18;
         this.currentCameraTarget = null;
         this.mapTileSize = 8; // Will be dynamically set in updateCamera
         this.cameraBounds = {
@@ -227,6 +230,20 @@ class UI {
         return fromGridKey(key);
     }
 
+    isAngledTopDownEnabled() {
+        return Boolean(this.angledTopDown && !this.mapOpen);
+    }
+
+    getPerspectiveMetrics(tileSize = this.getTileSize()) {
+        const baseSize = Math.max(1, Math.floor(Number(tileSize) || 1));
+        return {
+            rowStep: baseSize,
+            wallLift: this.isAngledTopDownEnabled()
+                ? Math.max(0, Math.round(baseSize * this.perspectiveWallLiftRatio))
+                : 0
+        };
+    }
+
     getVisibilityAlpha(isVisible) {
         return isVisible ? COLORS.VISIBLE : COLORS.EXPLORED;
     }
@@ -244,20 +261,32 @@ class UI {
 
     updateCamera(player) {
         const cameraTarget = this.getCameraTarget(player);
-        // Always show 15 vertical tiles: tile size = renderer height / 15
         if (this.pixiOverlay && this.pixiOverlay.app && this.pixiOverlay.app.renderer) {
             const renderer = this.pixiOverlay.app.renderer;
             const width = renderer.width;
             const height = renderer.height;
+
+            if (this.mapOpen) {
+                this.mapTileSize = Math.max(1, Math.floor(Math.min(width / GRID_SIZE, height / GRID_SIZE)));
+                this.topDownOffsetX = Math.floor((width - this.mapTileSize * GRID_SIZE) / 2);
+                this.topDownOffsetY = Math.floor((height - this.mapTileSize * GRID_SIZE) / 2);
+                this.cameraBounds = {
+                    minX: 0,
+                    maxX: GRID_SIZE - 1,
+                    minY: 0,
+                    maxY: GRID_SIZE - 1
+                };
+                return;
+            }
+
             this.mapTileSize = Math.floor(height / 15);
-            // Get visible tile counts
-            const visibleTilesY = 15;
-            const visibleTilesX = Math.round(visibleTilesY * width / height);
-            // Center the camera viewport (not the full grid)
-            this.topDownOffsetX = Math.floor((width - this.mapTileSize * visibleTilesX) / 2);
-            this.topDownOffsetY = Math.floor((height - this.mapTileSize * visibleTilesY) / 2);
+            const visibleTiles = this.getVisibleTileCounts();
+            const perspective = this.getPerspectiveMetrics(this.mapTileSize);
+            const projectedHeight = this.mapTileSize + Math.max(0, visibleTiles.y - 1) * perspective.rowStep + perspective.wallLift;
+            this.topDownOffsetX = Math.floor((width - this.mapTileSize * visibleTiles.x) / 2);
+            this.topDownOffsetY = Math.floor((height - projectedHeight) / 2);
         } else {
-            this.mapTileSize = 8;
+            this.mapTileSize = this.mapOpen ? Math.max(1, Math.floor(120 / GRID_SIZE)) : 8;
             this.topDownOffsetX = 0;
             this.topDownOffsetY = 0;
         }
@@ -308,9 +337,10 @@ class UI {
 
     worldToTopDownScreen(worldX, worldY) {
         const tileSize = this.getTileSize();
+        const perspective = this.getPerspectiveMetrics(tileSize);
         return {
             x: this.topDownOffsetX + (worldX - this.cameraBounds.minX) * tileSize,
-            y: this.topDownOffsetY + (worldY - this.cameraBounds.minY) * tileSize
+            y: this.topDownOffsetY + (worldY - this.cameraBounds.minY) * perspective.rowStep
         };
     }
 
@@ -338,6 +368,10 @@ class UI {
     }
 
     getVisibleTileCounts() {
+        if (this.mapOpen) {
+            return { x: GRID_SIZE, y: GRID_SIZE };
+        }
+
         // Always show 15 vertical tiles, and as many horizontal as fit the aspect ratio
         if (this.pixiOverlay && this.pixiOverlay.app && this.pixiOverlay.app.renderer) {
             const renderer = this.pixiOverlay.app.renderer;

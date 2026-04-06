@@ -5,7 +5,11 @@ function toGridKey(x, y) {
 }
 
 function fromGridKey(key) {
-    return String(key).split(',').map(Number);
+    const [x, y] = String(key).split(',').map(Number);
+    const result = [x, y];
+    result.x = x;
+    result.y = y;
+    return result;
 }
 
 function distance(x1, y1, x2, y2) {

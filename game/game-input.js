@@ -185,6 +185,7 @@ class GameInputController {
                 this.toggleInventory();
                 return true;
             case 'toggle-map':
+                this.game.ui.toggleMapOverlay?.();
                 return true;
             case 'toggle-stats':
                 this.game.ui.toggleStatsOverlay?.();
@@ -248,7 +249,8 @@ class GameInputController {
         this.pendingMoveTimer = window.setTimeout(() => {
             this.pendingMoveTimer = null;
 
-            if (this.game.inventoryOpen) {
+            if (this.game.inventoryOpen || this.game.ui?.settingsOpen || this.game.ui?.dungeonSelectionOpen || this.game.ui?.mapOpen) {
+                this.reset();
                 return;
             }
 

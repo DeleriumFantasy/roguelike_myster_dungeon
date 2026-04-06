@@ -44,131 +44,30 @@ Object.assign(PixiSceneOverlay.prototype, {
             ? 'player'
             : (actor?.isAlly ? 'ally' : (isNeutralNpcActor(actor) ? 'npc' : 'enemy'));
         const quantizedSize = Math.max(8, Math.round(tileSize));
-        const key = `${role}:${quantizedSize}`;
+        const visual = getEntityVisual(role, actor);
+        const key = `${role}:${quantizedSize}:${visual?.color || 'default'}`;
         if (this.actorTextureCache.has(key)) {
             return this.actorTextureCache.get(key);
         }
 
-        const visual = isPlayer ? getEntityVisual('player', actor) : getEntityVisual('enemy', actor);
-        const color = this.toPixiColor(visual.color);
-        const outline = 0x111111;
-        const shadowColor = this.mixPixiColor(color, 0x05070a, 0.6);
-        const bodyColor = this.mixPixiColor(color, 0x0d1016, 0.14);
-        const accentColor = isPlayer
-            ? 0x8fe7ff
-            : (role === 'ally' ? 0x9ef0a8 : (role === 'npc' ? 0xf4cd84 : 0xff8b76));
-        const highlightColor = this.mixPixiColor(color, 0xffffff, 0.3);
-        const faceColor = isPlayer
-            ? 0xf4d6aa
-            : (role === 'npc' ? 0xe8c697 : this.mixPixiColor(color, 0xffffff, 0.12));
-        const center = quantizedSize / 2;
-        const spriteBottom = quantizedSize * 0.83;
+        const defaultBaseColor = role === 'player'
+            ? 0x66d9ff
+            : (role === 'ally' ? 0x7ee787 : (role === 'npc' ? 0xf6c177 : 0xff6b6b));
+        const baseColor = this.toPixiColor(visual?.color, defaultBaseColor);
+        const palette = this.getActorSpritePalette(role, baseColor);
         const graphic = new PIXI.Graphics();
 
-        graphic.beginFill(shadowColor, 0.28);
-        graphic.drawEllipse(center, quantizedSize * 0.84, quantizedSize * 0.24, quantizedSize * 0.1);
-        graphic.endFill();
+        graphic.lineStyle(Math.max(1, Math.floor(quantizedSize * 0.06)), palette.outline, 0.95);
 
-        graphic.lineStyle(Math.max(1, Math.floor(quantizedSize * 0.06)), outline, 0.95);
-        if (isPlayer) {
-            const bodyWidth = quantizedSize * 0.58;
-            const bodyHeight = quantizedSize * 0.34;
-            const cloakWidth = quantizedSize * 0.68;
-            const cloakHeight = quantizedSize * 0.42;
-
-            graphic.beginFill(this.mixPixiColor(bodyColor, 0x091a28, 0.5), 1);
-            graphic.drawRoundedRect(center - cloakWidth / 2, spriteBottom - cloakHeight, cloakWidth, cloakHeight, quantizedSize * 0.16);
-            graphic.endFill();
-
-            graphic.beginFill(bodyColor, 1);
-            graphic.drawRoundedRect(center - bodyWidth / 2, spriteBottom - bodyHeight - quantizedSize * 0.06, bodyWidth, bodyHeight, quantizedSize * 0.14);
-            graphic.endFill();
-
-            graphic.beginFill(accentColor, 0.95);
-            graphic.drawRect(center - quantizedSize * 0.05, spriteBottom - bodyHeight - quantizedSize * 0.05, quantizedSize * 0.1, bodyHeight * 0.9);
-            graphic.endFill();
-
-            graphic.beginFill(faceColor, 1);
-            graphic.drawCircle(center, quantizedSize * 0.28, quantizedSize * 0.15);
-            graphic.endFill();
-
-            graphic.beginFill(highlightColor, 0.85);
-            graphic.drawEllipse(center - quantizedSize * 0.08, quantizedSize * 0.23, quantizedSize * 0.08, quantizedSize * 0.05);
-            graphic.endFill();
+        if (role === 'player') {
+            this.drawPlayerSpriteGraphic(graphic, quantizedSize, palette);
         } else if (role === 'ally') {
-            graphic.beginFill(bodyColor, 1);
-            graphic.drawPolygon([
-                center, quantizedSize * 0.2,
-                quantizedSize * 0.8, quantizedSize * 0.46,
-                center, spriteBottom,
-                quantizedSize * 0.2, quantizedSize * 0.46
-            ]);
-            graphic.endFill();
-
-            graphic.beginFill(accentColor, 0.95);
-            graphic.drawPolygon([
-                center, quantizedSize * 0.34,
-                quantizedSize * 0.63, quantizedSize * 0.48,
-                center, quantizedSize * 0.68,
-                quantizedSize * 0.37, quantizedSize * 0.48
-            ]);
-            graphic.endFill();
-
-            graphic.beginFill(highlightColor, 0.8);
-            graphic.drawCircle(center, quantizedSize * 0.48, quantizedSize * 0.06);
-            graphic.endFill();
+            this.drawAllySpriteGraphic(graphic, quantizedSize, palette);
         } else if (role === 'npc') {
-            const torsoWidth = quantizedSize * 0.54;
-            const torsoHeight = quantizedSize * 0.34;
-            graphic.beginFill(bodyColor, 1);
-            graphic.drawRoundedRect(center - torsoWidth / 2, spriteBottom - torsoHeight - quantizedSize * 0.06, torsoWidth, torsoHeight, quantizedSize * 0.14);
-            graphic.endFill();
-
-            graphic.beginFill(faceColor, 1);
-            graphic.drawCircle(center, quantizedSize * 0.27, quantizedSize * 0.14);
-            graphic.endFill();
-
-            graphic.beginFill(accentColor, 0.95);
-            graphic.drawRect(center + torsoWidth * 0.08, spriteBottom - torsoHeight * 0.9, quantizedSize * 0.12, torsoHeight * 0.72);
-            graphic.endFill();
-
-            graphic.beginFill(highlightColor, 0.7);
-            graphic.drawEllipse(center - quantizedSize * 0.06, quantizedSize * 0.24, quantizedSize * 0.07, quantizedSize * 0.05);
-            graphic.endFill();
+            this.drawNpcSpriteGraphic(graphic, quantizedSize, palette);
         } else {
-            graphic.beginFill(bodyColor, 1);
-            graphic.drawPolygon([
-                center, quantizedSize * 0.12,
-                quantizedSize * 0.78, quantizedSize * 0.3,
-                quantizedSize * 0.84, quantizedSize * 0.62,
-                center, spriteBottom,
-                quantizedSize * 0.16, quantizedSize * 0.62,
-                quantizedSize * 0.22, quantizedSize * 0.3
-            ]);
-            graphic.endFill();
-
-            graphic.beginFill(accentColor, 0.95);
-            graphic.drawPolygon([
-                quantizedSize * 0.3, quantizedSize * 0.22,
-                quantizedSize * 0.4, quantizedSize * 0.1,
-                quantizedSize * 0.46, quantizedSize * 0.24
-            ]);
-            graphic.drawPolygon([
-                quantizedSize * 0.7, quantizedSize * 0.22,
-                quantizedSize * 0.6, quantizedSize * 0.1,
-                quantizedSize * 0.54, quantizedSize * 0.24
-            ]);
-            graphic.endFill();
-
-            graphic.beginFill(0xfff3bd, 0.95);
-            graphic.drawCircle(center - quantizedSize * 0.11, quantizedSize * 0.42, quantizedSize * 0.045);
-            graphic.drawCircle(center + quantizedSize * 0.11, quantizedSize * 0.42, quantizedSize * 0.045);
-            graphic.endFill();
+            this.drawEnemySpriteGraphic(graphic, quantizedSize, palette);
         }
-
-        graphic.beginFill(0xffffff, 0.14);
-        graphic.drawEllipse(center - quantizedSize * 0.1, quantizedSize * 0.2, quantizedSize * 0.12, quantizedSize * 0.08);
-        graphic.endFill();
 
         const texture = this.app.renderer.generateTexture(graphic, {
             resolution: window.devicePixelRatio || 1,
@@ -177,6 +76,197 @@ Object.assign(PixiSceneOverlay.prototype, {
         graphic.destroy(true);
         this.actorTextureCache.set(key, texture);
         return texture;
+    },
+
+    getActorSpritePalette(role, baseColor) {
+        const accentColor = role === 'player'
+            ? 0xf7d774
+            : (role === 'ally' ? 0xc9ffd7 : (role === 'npc' ? 0x8b5cf6 : 0xffd166));
+
+        return {
+            outline: 0x0b0f14,
+            shadow: this.mixPixiColor(baseColor, 0x05070a, 0.72),
+            primary: this.mixPixiColor(baseColor, 0x10141b, 0.18),
+            secondary: this.mixPixiColor(baseColor, 0x06080d, 0.44),
+            accent: accentColor,
+            highlight: this.mixPixiColor(baseColor, 0xffffff, 0.36),
+            face: role === 'enemy' ? this.mixPixiColor(baseColor, 0xffffff, 0.16) : 0xf2d3ad,
+            eye: role === 'enemy' ? 0xfff0a8 : 0x17202b,
+            metal: 0xd9e2ec
+        };
+    },
+
+    drawPlayerSpriteGraphic(graphic, size, palette) {
+        const center = size / 2;
+        const bottom = size * 0.84;
+
+        graphic.beginFill(palette.secondary, 1);
+        graphic.drawPolygon([
+            center, size * 0.13,
+            size * 0.74, size * 0.34,
+            size * 0.7, bottom,
+            size * 0.3, bottom,
+            size * 0.26, size * 0.34
+        ]);
+        graphic.endFill();
+
+        graphic.beginFill(palette.primary, 1);
+        graphic.drawRoundedRect(center - size * 0.19, bottom - size * 0.4, size * 0.38, size * 0.29, size * 0.09);
+        graphic.endFill();
+
+        graphic.beginFill(palette.accent, 0.98);
+        graphic.drawRect(center - size * 0.055, bottom - size * 0.36, size * 0.11, size * 0.24);
+        graphic.endFill();
+
+        graphic.beginFill(palette.metal, 0.95);
+        graphic.drawCircle(center + size * 0.09, bottom - size * 0.21, size * 0.03);
+        graphic.endFill();
+
+        graphic.beginFill(palette.face, 1);
+        graphic.drawCircle(center, size * 0.27, size * 0.13);
+        graphic.endFill();
+
+        graphic.beginFill(palette.highlight, 0.95);
+        graphic.drawEllipse(center - size * 0.07, size * 0.22, size * 0.07, size * 0.04);
+        graphic.endFill();
+
+        graphic.beginFill(palette.eye, 0.9);
+        graphic.drawCircle(center - size * 0.04, size * 0.28, size * 0.013);
+        graphic.drawCircle(center + size * 0.04, size * 0.28, size * 0.013);
+        graphic.endFill();
+    },
+
+    drawAllySpriteGraphic(graphic, size, palette) {
+        const center = size / 2;
+        const bottom = size * 0.84;
+
+        graphic.beginFill(palette.secondary, 1);
+        graphic.drawPolygon([
+            center, size * 0.1,
+            size * 0.84, size * 0.34,
+            size * 0.72, bottom,
+            center, size * 0.75,
+            size * 0.28, bottom,
+            size * 0.16, size * 0.34
+        ]);
+        graphic.endFill();
+
+        graphic.beginFill(palette.primary, 1);
+        graphic.drawPolygon([
+            center, size * 0.2,
+            size * 0.7, size * 0.38,
+            size * 0.62, size * 0.66,
+            center, size * 0.72,
+            size * 0.38, size * 0.66,
+            size * 0.3, size * 0.38
+        ]);
+        graphic.endFill();
+
+        graphic.beginFill(palette.accent, 0.98);
+        graphic.drawCircle(center, size * 0.47, size * 0.1);
+        graphic.endFill();
+
+        graphic.beginFill(palette.highlight, 0.9);
+        graphic.drawPolygon([
+            center, size * 0.28,
+            size * 0.58, size * 0.46,
+            center, size * 0.6,
+            size * 0.42, size * 0.46
+        ]);
+        graphic.endFill();
+    },
+
+    drawNpcSpriteGraphic(graphic, size, palette) {
+        const center = size / 2;
+        const bottom = size * 0.84;
+
+        graphic.beginFill(palette.secondary, 1);
+        graphic.drawRoundedRect(center - size * 0.23, bottom - size * 0.38, size * 0.46, size * 0.34, size * 0.12);
+        graphic.endFill();
+
+        graphic.beginFill(palette.primary, 1);
+        graphic.drawPolygon([
+            center - size * 0.18, bottom - size * 0.1,
+            center + size * 0.18, bottom - size * 0.1,
+            center + size * 0.26, bottom,
+            center - size * 0.26, bottom
+        ]);
+        graphic.endFill();
+
+        graphic.beginFill(palette.face, 1);
+        graphic.drawCircle(center, size * 0.27, size * 0.12);
+        graphic.endFill();
+
+        graphic.beginFill(palette.accent, 0.98);
+        graphic.drawRect(center + size * 0.1, bottom - size * 0.28, size * 0.1, size * 0.22);
+        graphic.endFill();
+
+        graphic.beginFill(palette.highlight, 0.9);
+        graphic.drawEllipse(center - size * 0.06, size * 0.22, size * 0.07, size * 0.04);
+        graphic.endFill();
+
+        graphic.beginFill(palette.eye, 0.85);
+        graphic.drawCircle(center - size * 0.035, size * 0.28, size * 0.012);
+        graphic.drawCircle(center + size * 0.035, size * 0.28, size * 0.012);
+        graphic.endFill();
+    },
+
+    drawEnemySpriteGraphic(graphic, size, palette) {
+        const center = size / 2;
+        const bottom = size * 0.84;
+
+        graphic.beginFill(palette.secondary, 1);
+        graphic.drawPolygon([
+            size * 0.18, bottom,
+            size * 0.14, size * 0.54,
+            size * 0.08, size * 0.36,
+            size * 0.24, size * 0.18,
+            center, size * 0.12,
+            size * 0.76, size * 0.18,
+            size * 0.92, size * 0.36,
+            size * 0.86, size * 0.54,
+            size * 0.82, bottom,
+            size * 0.62, size * 0.72,
+            size * 0.38, size * 0.72
+        ]);
+        graphic.endFill();
+
+        graphic.beginFill(palette.primary, 1);
+        graphic.drawPolygon([
+            center, size * 0.22,
+            size * 0.7, size * 0.36,
+            size * 0.66, size * 0.64,
+            center, size * 0.72,
+            size * 0.34, size * 0.64,
+            size * 0.3, size * 0.36
+        ]);
+        graphic.endFill();
+
+        graphic.beginFill(palette.accent, 0.98);
+        graphic.drawPolygon([
+            size * 0.28, size * 0.2,
+            size * 0.38, size * 0.07,
+            size * 0.46, size * 0.24
+        ]);
+        graphic.drawPolygon([
+            size * 0.72, size * 0.2,
+            size * 0.62, size * 0.07,
+            size * 0.54, size * 0.24
+        ]);
+        graphic.endFill();
+
+        graphic.beginFill(palette.eye, 0.98);
+        graphic.drawCircle(center - size * 0.1, size * 0.4, size * 0.03);
+        graphic.drawCircle(center + size * 0.1, size * 0.4, size * 0.03);
+        graphic.endFill();
+
+        graphic.beginFill(0x2a0f11, 0.9);
+        graphic.drawPolygon([
+            center - size * 0.1, size * 0.52,
+            center + size * 0.1, size * 0.52,
+            center, size * 0.62
+        ]);
+        graphic.endFill();
     },
 
     toPixiColor(colorValue, fallback = 0xffffff) {

@@ -13,6 +13,11 @@ Object.assign(UI.prototype, {
         }
     },
 
+    haltPlayerMovementForPopup() {
+        this.game?.stopAutoExplore?.();
+        this.game?.inputController?.reset?.();
+    },
+
     toggleStatsOverlay() {
         this.statsOpen = !this.statsOpen;
         this.applyOverlayVisibility();
@@ -23,12 +28,23 @@ Object.assign(UI.prototype, {
         this.applyOverlayVisibility();
     },
 
+    toggleMapOverlay() {
+        this.mapOpen = !this.mapOpen;
+        if (this.mapOpen) {
+            this.haltPlayerMovementForPopup();
+        }
+        if (this.game?.world && this.game?.player && this.game?.fov) {
+            this.render(this.game.world, this.game.player, this.game.fov);
+        }
+    },
+
     closeAuxiliaryOverlays() {
         let closedAny = false;
 
-        if (this.statsOpen || this.messagesOpen) {
+        if (this.statsOpen || this.messagesOpen || this.mapOpen) {
             this.statsOpen = false;
             this.messagesOpen = false;
+            this.mapOpen = false;
             this.applyOverlayVisibility();
             closedAny = true;
         }
@@ -44,7 +60,7 @@ Object.assign(UI.prototype, {
     openSettings() {
         const modal = document.getElementById('settings-modal');
         if (!modal) return;
-        this.game?.stopAutoExplore?.();
+        this.haltPlayerMovementForPopup();
         const cb = document.getElementById('setting-descend-immediately');
         if (cb && this.game?.settings) {
             cb.checked = this.game.settings.autoExploreDescendImmediately;
@@ -64,7 +80,7 @@ Object.assign(UI.prototype, {
             return;
         }
 
-        this.game?.stopAutoExplore?.();
+        this.haltPlayerMovementForPopup();
 
         const normalizedOptions = Array.isArray(options)
             ? options.filter((option) => option && typeof option.id === 'string')
@@ -139,8 +155,7 @@ Object.assign(UI.prototype, {
     },
 
     runNativePrompt(callback) {
-        this.game?.stopAutoExplore?.();
-        this.game?.inputController?.reset?.();
+        this.haltPlayerMovementForPopup();
         const result = typeof callback === 'function' ? callback() : null;
         this.game?.inputController?.reset?.();
         this.focusGameSurface();

@@ -254,6 +254,7 @@ Object.assign(UI.prototype, {
     },
 
     openInventory(player) {
+        this.haltPlayerMovementForPopup?.();
         this.game.inventoryOpen = true;
         this.updateInventoryTitle(player);
         const list = this.inventoryModal.querySelector('#inventory-list');

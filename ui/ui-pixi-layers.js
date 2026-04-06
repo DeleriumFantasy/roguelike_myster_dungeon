@@ -6,7 +6,7 @@
 Object.assign(PixiSceneOverlay.prototype, {
     renderTerrain(renderState) {
         // ...existing code...
-        const { ui, world, fov, tileSize, shouldUseFog, cameraBounds } = renderState;
+        const { ui, world, fov, tileSize, shouldUseFog, cameraBounds, projection } = renderState;
         if (!ui.tileset?.isReady?.() || !this.baseTexture) {
             return;
         }
@@ -23,20 +23,32 @@ Object.assign(PixiSceneOverlay.prototype, {
                 const metrics = ui.tileset.getRenderMetrics(tile, tileSize, world, x, y);
                 const screenPos = this.getScreenPositionFromState(renderState, x, y);
                 const isVisible = this.isTileVisibleInState(renderState, x, y);
+                const wallLift = tile === TILE_TYPES.WALL ? (projection?.wallLift || 0) : 0;
+                const wallOverhangHeight = tile === TILE_TYPES.WALL && wallLift > 0
+                    ? Math.max(wallLift, Math.round(tileSize * 0.32))
+                    : 0;
+                const overdrawSourceHeight = metrics.overdrawTop > 0
+                    ? metrics.overdrawTop
+                    : (wallOverhangHeight > 0
+                        ? Math.max(1, Math.min(metrics.sourceRect.height, Math.round(metrics.sourceRect.height * 0.35)))
+                        : 0);
+                const overdrawRenderHeight = overdrawSourceHeight > 0
+                    ? Math.max(metrics.overdrawTop + wallLift, wallOverhangHeight)
+                    : 0;
                 const texture = this.getTextureForRect(metrics.sourceRect);
                 if (texture) {
                     const sprite = this.acquireSprite(texture);
                     sprite.x = screenPos.x;
-                    sprite.y = screenPos.y - metrics.drawOffsetY;
+                    sprite.y = screenPos.y - metrics.drawOffsetY - wallLift;
                     sprite.width = tileSize;
-                    sprite.height = metrics.drawHeight;
+                    sprite.height = metrics.drawHeight + wallLift;
                     sprite.tint = tile === TILE_TYPES.SHOP ? 0xd9485f : 0xffffff;
                     this.terrainLayer.addChild(sprite);
                 } else {
                     // Fallback: draw a red rectangle if no texture is found
                     const fallback = this.acquireGraphics();
                     fallback.beginFill(0xff2222, 0.7);
-                    fallback.drawRect(screenPos.x, screenPos.y - metrics.drawOffsetY, tileSize, metrics.drawHeight);
+                    fallback.drawRect(screenPos.x, screenPos.y - metrics.drawOffsetY - wallLift, tileSize, metrics.drawHeight + wallLift);
                     fallback.endFill();
                     this.terrainLayer.addChild(fallback);
                 }
@@ -68,25 +80,25 @@ Object.assign(PixiSceneOverlay.prototype, {
                     const fogOverlay = this.acquireGraphics();
                     const fogColor = this.parseCssColor(COLORS.FOG_OVERLAY, 0x646464);
                     fogOverlay.beginFill(fogColor.color, fogColor.alpha);
-                    fogOverlay.drawRect(screenPos.x, screenPos.y - metrics.drawOffsetY, tileSize, metrics.drawHeight);
+                    fogOverlay.drawRect(screenPos.x, screenPos.y - metrics.drawOffsetY - wallLift, tileSize, metrics.drawHeight + wallLift);
                     fogOverlay.endFill();
                     this.terrainLayer.addChild(fogOverlay);
                 }
 
-                if (isVisible && metrics.drawOffsetY > 0) {
+                if (isVisible && overdrawRenderHeight > 0) {
                     const overdrawTexture = this.getTextureForRect({
                         x: metrics.sourceRect.x,
                         y: metrics.sourceRect.y,
                         width: metrics.sourceRect.width,
-                        height: metrics.overdrawTop
+                        height: overdrawSourceHeight
                     });
                     if (overdrawTexture) {
                         const overdrawSprite = this.acquireSprite(overdrawTexture);
                         overdrawSprite.x = screenPos.x;
-                        overdrawSprite.y = screenPos.y - metrics.drawOffsetY;
+                        overdrawSprite.y = screenPos.y - metrics.drawOffsetY - wallLift;
                         overdrawSprite.width = tileSize;
-                        overdrawSprite.height = metrics.overdrawTop;
-                        this.terrainLayer.addChild(overdrawSprite);
+                        overdrawSprite.height = overdrawRenderHeight;
+                        this.overdrawLayer.addChild(overdrawSprite);
                     }
                 }
             }
@@ -168,9 +180,9 @@ Object.assign(PixiSceneOverlay.prototype, {
     },
 
     renderDepth(renderState) {
-        const { world, tileSize, cameraBounds } = renderState;
+        const { world, tileSize, cameraBounds, projection } = renderState;
         const { minX, maxX, minY, maxY } = cameraBounds;
-        const depthHeight = Math.max(4, Math.round(tileSize * 0.22));
+        const depthHeight = Math.max(4, Math.round(tileSize * 0.22 + (projection?.wallLift || 0) * 0.5));
         const sideWidth = Math.max(3, Math.round(tileSize * 0.18));
 
         this.depthLayer.beginFill(0x0f1720, 0.28);
@@ -213,18 +225,25 @@ Object.assign(PixiSceneOverlay.prototype, {
     },
 
     renderActorShadows(renderState) {
-        const { tileSize, visibleActors } = renderState;
+        const { tileSize, visibleActors, projection } = renderState;
+        const depthHeight = Math.max(4, Math.round(tileSize * 0.22 + (projection?.wallLift || 0) * 0.5));
+        const sideWidth = Math.max(3, Math.round(tileSize * 0.18));
 
-        this.shadowLayer.beginFill(0x000000, 0.18);
+        this.shadowLayer.beginFill(0x0f1720, 0.22);
         for (const actor of visibleActors) {
             if (!renderState.ui.isInCameraBounds(actor.x, actor.y)) {
                 continue;
             }
 
             const center = this.getScreenCenterFromState(renderState, actor.x, actor.y);
-            const radiusX = tileSize * 0.34;
-            const radiusY = tileSize * 0.18;
-            this.shadowLayer.drawEllipse(center.x + tileSize * 0.08, center.y + tileSize * 0.24, radiusX, radiusY);
+            const radiusX = Math.max(2, tileSize * 0.3 + sideWidth * 0.12);
+            const radiusY = Math.max(2, tileSize * 0.14);
+            this.shadowLayer.drawEllipse(
+                center.x + sideWidth * 0.55,
+                center.y + tileSize * 0.28 + depthHeight * 0.35,
+                radiusX,
+                radiusY
+            );
         }
         this.shadowLayer.endFill();
     }

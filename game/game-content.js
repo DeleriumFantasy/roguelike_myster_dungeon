@@ -378,14 +378,14 @@ Object.assign(Game.prototype, {
         }
 
         for (const key of tileKeys) {
-            const position = fromGridKey(key);
-            if (!position) {
+            const [x, y] = fromGridKey(key);
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
                 continue;
             }
 
-            this.world.setTile(position.x, position.y, TILE_TYPES.FLOOR);
-            this.world.removeHazard?.(position.x, position.y);
-            this.world.removeTrap?.(position.x, position.y);
+            this.world.setTile(x, y, TILE_TYPES.FLOOR);
+            this.world.removeHazard?.(x, y);
+            this.world.removeTrap?.(x, y);
             if (floor.items instanceof Map) {
                 floor.items.delete(key);
             }
@@ -460,8 +460,10 @@ Object.assign(Game.prototype, {
             const candidate = { x, y, width, height };
 
             const touchesBlockedTile = Array.from(blockedKeys).some((key) => {
-                const position = fromGridKey(key);
-                return position && this.isPositionAdjacentToRoom(candidate, position.x, position.y, 1);
+                const [blockedX, blockedY] = fromGridKey(key);
+                return Number.isFinite(blockedX)
+                    && Number.isFinite(blockedY)
+                    && this.isPositionAdjacentToRoom(candidate, blockedX, blockedY, 1);
             });
 
             if (touchesBlockedTile) {
@@ -958,6 +960,42 @@ Object.assign(Game.prototype, {
         );
     },
 
+    getQuestEventInfoForFloor(floorIndex = this.world.currentFloor) {
+        const questEventTypes = ['save-lost-explorer', 'retrieve-item', 'material-delivery'];
+        for (const questType of questEventTypes) {
+            const activeQuest = this.getActiveQuestForFloor(questType, floorIndex);
+            if (activeQuest) {
+                return { questType, activeQuest };
+            }
+        }
+
+        return null;
+    },
+
+    ensureQuestEventForFloor(rng, floorIndex = this.world.currentFloor, options = {}) {
+        const floor = this.ensureFloorMeta();
+        const questInfo = this.getQuestEventInfoForFloor(floorIndex);
+        if (!floor || !questInfo) {
+            return false;
+        }
+
+        const activeEvent = floor.meta?.activeEvent || null;
+        const activeEventQuestId = Math.floor(Number(activeEvent?.questId));
+        const targetQuestId = Math.floor(Number(questInfo.activeQuest?.id));
+        if (activeEvent?.type === questInfo.questType && activeEventQuestId === targetQuestId) {
+            return true;
+        }
+
+        if (options.overrideExistingEvent && activeEvent) {
+            if (activeEvent.type === 'food-party') {
+                this.cleanupFoodPartyEventItems(activeEvent);
+            }
+            floor.meta.activeEvent = null;
+        }
+
+        return this.tryActivateQuestFloorEvent(rng, floorIndex);
+    },
+
     tryActivateQuestFloorEvent(rng, floorIndex = this.world.currentFloor) {
         const questActivators = [
             () => this.tryActivateSaveLostExplorerEvent(rng, floorIndex),
@@ -1280,16 +1318,17 @@ Object.assign(Game.prototype, {
 
     populateCurrentFloorIfNeeded() {
         const floor = this.ensureFloorMeta();
-        if (floor?.meta?.contentSpawned) {
-            return;
-        }
-
         const floorIndex = this.world.currentFloor;
         const itemFloorIndex = this.isOverworldFloor(floorIndex)
             ? 0
             : this.getDungeonDepthIndex(floorIndex);
         const enemyFloorIndex = itemFloorIndex;
         const rng = this.getFloorContentRng(floorIndex);
+
+        if (floor?.meta?.contentSpawned) {
+            this.ensureQuestEventForFloor(rng, floorIndex, { overrideExistingEvent: true });
+            return;
+        }
 
         this.spawnPremadeLegendEnemies(rng, enemyFloorIndex);
         if (this.isOverworldFloor(floorIndex)) {
@@ -1302,7 +1341,7 @@ Object.assign(Game.prototype, {
             this.populateDungeonShopIfPresent(rng, itemFloorIndex);
         }
 
-        const activatedQuestEvent = this.tryActivateQuestFloorEvent(rng, floorIndex);
+        const activatedQuestEvent = this.ensureQuestEventForFloor(rng, floorIndex);
         if (!activatedQuestEvent) {
             this.tryActivateRandomFloorEvent(rng, enemyFloorIndex);
         }

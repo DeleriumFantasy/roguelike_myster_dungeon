@@ -31,6 +31,7 @@ Object.assign(PixiSceneOverlay.prototype, {
             now,
             currentFloor,
             tileSize,
+            projection: ui.getPerspectiveMetrics(tileSize),
             shouldUseFog,
             shouldHideUnseenTiles,
             playerBlind: ui.isActorBlind(player),
