@@ -18,6 +18,253 @@ Object.assign(UI.prototype, {
         this.game?.inputController?.reset?.();
     },
 
+    getGamePromptElements() {
+        return {
+            modal: document.getElementById('game-prompt-modal'),
+            title: document.getElementById('game-prompt-title'),
+            message: document.getElementById('game-prompt-message'),
+            input: document.getElementById('game-prompt-input'),
+            buttons: document.getElementById('game-prompt-buttons')
+        };
+    },
+
+    closeGamePrompt(options = {}) {
+        const { invokeCancel = false, value = null, skipFocusRestore = false } = options;
+        const promptConfig = this.activeGamePromptConfig || null;
+        this.activeGamePromptConfig = null;
+
+        const { modal, title, message, input, buttons } = this.getGamePromptElements();
+        if (modal && title && message && input && buttons) {
+            modal.classList.remove('is-open');
+            modal.setAttribute('aria-hidden', 'true');
+            title.textContent = '';
+            message.textContent = '';
+            input.style.display = 'none';
+            input.value = '';
+            input.onkeydown = null;
+            buttons.innerHTML = '';
+        }
+
+        this.gamePromptOpen = false;
+
+        if (invokeCancel && typeof promptConfig?.onCancel === 'function') {
+            promptConfig.onCancel(value);
+        }
+
+        if (!skipFocusRestore && !this.gamePromptOpen) {
+            this.focusGameSurface();
+        }
+    },
+
+    openGamePrompt(options = {}) {
+        const { modal, title, message, input, buttons } = this.getGamePromptElements();
+        if (!modal || !title || !message || !input || !buttons) {
+            return false;
+        }
+
+        if (this.gamePromptOpen) {
+            this.closeGamePrompt({ invokeCancel: true, skipFocusRestore: true });
+        }
+
+        this.haltPlayerMovementForPopup();
+
+        const {
+            titleText = 'Prompt',
+            messageText = '',
+            defaultValue = '',
+            useInput = false,
+            placeholder = '',
+            buttons: buttonOptions = [],
+            onSubmit = null,
+            onCancel = null
+        } = options;
+
+        this.activeGamePromptConfig = { onSubmit, onCancel };
+
+        const finalize = (value = null, canceled = false) => {
+            const promptConfig = this.activeGamePromptConfig || { onSubmit, onCancel };
+            this.closeGamePrompt({ skipFocusRestore: true });
+            if (canceled) {
+                if (typeof promptConfig?.onCancel === 'function') {
+                    promptConfig.onCancel(value);
+                }
+            } else if (typeof promptConfig?.onSubmit === 'function') {
+                promptConfig.onSubmit(value);
+            }
+
+            if (!this.gamePromptOpen) {
+                this.focusGameSurface();
+            }
+        };
+
+        title.textContent = String(titleText || 'Prompt');
+        message.textContent = String(messageText || '');
+        buttons.innerHTML = '';
+
+        input.style.display = useInput ? 'block' : 'none';
+        input.value = String(defaultValue ?? '');
+        input.placeholder = String(placeholder || '');
+        input.onkeydown = (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                finalize(input.value, false);
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                finalize(null, true);
+            }
+        };
+
+        const normalizedButtons = this.normalizeGamePromptButtons(buttonOptions, {
+            useInput,
+            defaultValue
+        });
+        const useListLayout = normalizedButtons.some((buttonOption) => Boolean(buttonOption?.listStyle || buttonOption?.description));
+
+        buttons.style.flexDirection = useListLayout ? 'column' : 'row';
+        buttons.style.alignItems = useListLayout ? 'stretch' : 'center';
+        buttons.style.justifyContent = useListLayout ? 'flex-start' : 'flex-end';
+        buttons.style.flexWrap = useListLayout ? 'nowrap' : 'wrap';
+
+        for (const buttonOption of normalizedButtons) {
+            const button = document.createElement('button');
+            button.type = 'button';
+
+            if (useListLayout) {
+                button.style.width = '100%';
+                button.style.display = 'flex';
+                button.style.flexDirection = 'column';
+                button.style.alignItems = 'flex-start';
+                button.style.textAlign = 'left';
+                button.style.whiteSpace = 'normal';
+                button.style.gap = '2px';
+
+                const labelSpan = document.createElement('span');
+                labelSpan.textContent = String(buttonOption?.label || 'OK');
+                button.appendChild(labelSpan);
+
+                const descriptionText = String(buttonOption?.description || '').trim();
+                if (descriptionText) {
+                    const descriptionSpan = document.createElement('span');
+                    descriptionSpan.textContent = descriptionText;
+                    descriptionSpan.style.fontSize = '0.9em';
+                    descriptionSpan.style.opacity = '0.8';
+                    button.appendChild(descriptionSpan);
+                }
+            } else {
+                button.textContent = String(buttonOption?.label || 'OK');
+            }
+
+            if (buttonOption?.primary) {
+                button.classList.add('game-prompt-primary');
+            }
+            button.addEventListener('click', () => {
+                const value = buttonOption?.value === '__INPUT__'
+                    ? input.value
+                    : buttonOption?.value;
+                finalize(value, Boolean(buttonOption?.cancel));
+            });
+            buttons.appendChild(button);
+        }
+
+        modal.classList.add('is-open');
+        modal.setAttribute('aria-hidden', 'false');
+        this.gamePromptOpen = true;
+
+        window.requestAnimationFrame(() => {
+            if (useInput) {
+                input.focus();
+                input.select();
+                return;
+            }
+
+            const firstButton = buttons.querySelector('button');
+            if (firstButton && typeof firstButton.focus === 'function') {
+                firstButton.focus();
+            }
+        });
+
+        return true;
+    },
+
+    normalizeGamePromptButtons(buttonOptions = [], options = {}) {
+        const { useInput = false, defaultValue = '' } = options;
+        if (Array.isArray(buttonOptions) && buttonOptions.length > 0) {
+            return buttonOptions;
+        }
+
+        return [{
+            label: 'OK',
+            value: useInput ? String(defaultValue ?? '') : true,
+            primary: true
+        }];
+    },
+
+    openChoicePrompt(titleText, messageText, choices = [], onSelect = null, options = {}) {
+        const normalizedChoices = Array.isArray(choices) ? choices.filter(Boolean) : [];
+        return this.openGamePrompt({
+            titleText,
+            messageText,
+            buttons: normalizedChoices,
+            onSubmit: (value) => {
+                if (typeof onSelect === 'function') {
+                    onSelect(value);
+                }
+            },
+            onCancel: () => {
+                if (typeof options.onCancel === 'function') {
+                    options.onCancel();
+                }
+            }
+        });
+    },
+
+    openConfirmPrompt(titleText, messageText, onDecision = null, options = {}) {
+        return this.openChoicePrompt(
+            titleText,
+            messageText,
+            [
+                { label: options.confirmLabel || 'Confirm', value: true, primary: true },
+                { label: options.cancelLabel || 'Cancel', value: false, cancel: true }
+            ],
+            (value) => {
+                if (typeof onDecision === 'function') {
+                    onDecision(Boolean(value));
+                }
+            },
+            {
+                onCancel: () => {
+                    if (typeof onDecision === 'function') {
+                        onDecision(false);
+                    }
+                }
+            }
+        );
+    },
+
+    openTextPrompt(titleText, messageText, defaultValue = '', onSubmit = null, options = {}) {
+        return this.openGamePrompt({
+            titleText,
+            messageText,
+            useInput: true,
+            defaultValue,
+            placeholder: options.placeholder || '',
+            buttons: [
+                { label: options.confirmLabel || 'OK', value: '__INPUT__', primary: true },
+                { label: options.cancelLabel || 'Cancel', value: null, cancel: true }
+            ],
+            onSubmit: (value) => {
+                if (typeof onSubmit === 'function') {
+                    onSubmit(value);
+                }
+            },
+            onCancel: () => {
+                if (typeof options.onCancel === 'function') {
+                    options.onCancel();
+                }
+            }
+        });
+    },
+
     toggleStatsOverlay() {
         this.statsOpen = !this.statsOpen;
         this.applyOverlayVisibility();
@@ -32,25 +279,88 @@ Object.assign(UI.prototype, {
         this.mapOpen = !this.mapOpen;
         if (this.mapOpen) {
             this.haltPlayerMovementForPopup();
+        } else {
+            this.focusGameSurface();
         }
+
         if (this.game?.world && this.game?.player && this.game?.fov) {
             this.render(this.game.world, this.game.player, this.game.fov);
         }
     },
 
-    closeAuxiliaryOverlays() {
-        let closedAny = false;
+    isBlockingOverlayOpen(options = {}) {
+        const { includeMap = false } = options;
+        return Boolean(
+            this.game?.inventoryOpen
+            || this.gamePromptOpen
+            || this.settingsOpen
+            || this.dungeonSelectionOpen
+            || (includeMap && this.mapOpen)
+        );
+    },
 
-        if (this.statsOpen || this.messagesOpen || this.mapOpen) {
-            this.statsOpen = false;
-            this.messagesOpen = false;
-            this.mapOpen = false;
-            this.applyOverlayVisibility();
-            closedAny = true;
+    shouldBlockGameplayInput(key, lowerKey) {
+        const action = getInputActionForKey(lowerKey);
+
+        if (this.game?.inventoryOpen) {
+            return key !== 'Escape' && action !== 'open-inventory';
+        }
+
+        if (this.gamePromptOpen || this.settingsOpen || this.dungeonSelectionOpen) {
+            return key !== 'Escape';
+        }
+
+        if (this.mapOpen) {
+            return key !== 'Escape' && action !== 'toggle-map';
+        }
+
+        return false;
+    },
+
+    closeTopmostOverlay() {
+        if (this.gamePromptOpen) {
+            this.closeGamePrompt({ invokeCancel: true });
+            return true;
+        }
+
+        if (this.game?.inventoryOpen) {
+            this.closeInventory?.();
+            return true;
+        }
+
+        if (this.settingsOpen) {
+            this.closeSettings();
+            return true;
         }
 
         if (this.dungeonSelectionOpen) {
             this.closeDungeonSelection();
+            return true;
+        }
+
+        if (this.mapOpen) {
+            this.mapOpen = false;
+            if (this.game?.world && this.game?.player && this.game?.fov) {
+                this.render(this.game.world, this.game.player, this.game.fov);
+            }
+            this.focusGameSurface();
+            return true;
+        }
+
+        return false;
+    },
+
+    closeAuxiliaryOverlays() {
+        let closedAny = false;
+
+        while (this.closeTopmostOverlay()) {
+            closedAny = true;
+        }
+
+        if (this.statsOpen || this.messagesOpen) {
+            this.statsOpen = false;
+            this.messagesOpen = false;
+            this.applyOverlayVisibility();
             closedAny = true;
         }
 
@@ -162,10 +472,19 @@ Object.assign(UI.prototype, {
         return result;
     },
 
-    confirmPickupShopItem(item, price, message) {
+    confirmPickupShopItem(item, price, message, onDecision = null) {
         const itemName = item?.getDisplayName?.() || item?.name || 'item';
         const promptText = message || `This item costs ${price} gold. Pick up ${itemName}?`;
-        return Boolean(this.runNativePrompt(() => window.confirm(promptText)));
+
+        if (typeof onDecision === 'function') {
+            this.openConfirmPrompt('Shop item', promptText, onDecision, {
+                confirmLabel: 'Pick up',
+                cancelLabel: 'Leave it'
+            });
+            return null;
+        }
+
+        return false;
     },
 
     buildShopSettlementPromptText(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine, footerLine) {
@@ -184,7 +503,7 @@ Object.assign(UI.prototype, {
         return sections.join('\n\n');
     },
 
-    confirmShopSettlement(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine) {
+    confirmShopSettlement(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine, onDecision = null) {
         const promptText = this.buildShopSettlementPromptText(
             shopkeeperName,
             settlementSummary,
@@ -193,27 +512,45 @@ Object.assign(UI.prototype, {
             balanceLine,
             'Complete the transaction?'
         );
-        return Boolean(this.runNativePrompt(() => window.confirm(promptText)));
+
+        if (typeof onDecision === 'function') {
+            this.openConfirmPrompt(shopkeeperName || 'Shopkeeper', promptText, onDecision, {
+                confirmLabel: 'Settle up',
+                cancelLabel: 'Later'
+            });
+            return null;
+        }
+
+        return false;
     },
 
-    promptShopExitDecision(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine) {
+    promptShopExitDecision(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine, onDecision = null) {
         const promptText = this.buildShopSettlementPromptText(
             shopkeeperName,
             settlementSummary,
             buyTotal,
             sellTotal,
             balanceLine,
-            'Choose: yes / no / run away'
+            'Choose what to do:'
         );
-        const response = this.runNativePrompt(() => window.prompt(promptText, 'no'));
 
-        const normalized = String(response || '').trim().toLowerCase();
-        if (['yes', 'y', '1', 'buy'].includes(normalized)) {
-            return 'yes';
+        if (typeof onDecision === 'function') {
+            this.openChoicePrompt(
+                shopkeeperName || 'Shopkeeper',
+                promptText,
+                [
+                    { label: 'Pay now', value: 'yes', primary: true },
+                    { label: 'Stay in shop', value: 'no', cancel: true },
+                    { label: 'Run away', value: 'run-away' }
+                ],
+                (value) => onDecision(String(value || 'no')),
+                {
+                    onCancel: () => onDecision('no')
+                }
+            );
+            return null;
         }
-        if (['run', 'run away', 'runaway', '3', 'r'].includes(normalized)) {
-            return 'run-away';
-        }
+
         return 'no';
     },
 

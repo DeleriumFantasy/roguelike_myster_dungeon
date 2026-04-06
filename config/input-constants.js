@@ -12,6 +12,7 @@ const INPUT_DIRECTION_BINDINGS = {
 };
 
 const INPUT_ACTION_BINDINGS = {
+    b: 'grant-debug-loadout',
     i: 'open-inventory',
     n: 'toggle-messages',
     m: 'toggle-map',

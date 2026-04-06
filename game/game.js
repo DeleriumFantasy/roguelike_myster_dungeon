@@ -100,27 +100,19 @@ class Game {
 
         this.world.markDungeonPathCompleted(pathId);
         this.ui.addMessage(`Path completed: ${definition.name || pathId}.`);
-        const newlyUnlocked = [];
-        let secondQuestgiverUnlocked = false;
 
-        if (pathId === 'waterfallPath') {
-            if (this.world.unlockDungeonPath('graspingPillars')) {
-                newlyUnlocked.push(getDungeonPathDefinition('graspingPillars')?.name || 'graspingPillars');
-            }
-            if (this.world.unlockDungeonPath('anomalousRuins')) {
-                newlyUnlocked.push(getDungeonPathDefinition('anomalousRuins')?.name || 'anomalousRuins');
-            }
-            if (newlyUnlocked.length > 0) {
-                this.ui.addMessage(`New paths unlocked: ${newlyUnlocked.join(', ')}.`);
-            }
+        const newlyUnlocked = getDungeonPathUnlocksOnComplete(pathId)
+            .filter((unlockPathId) => this.world.unlockDungeonPath(unlockPathId))
+            .map((unlockPathId) => getDungeonPathDefinition(unlockPathId)?.name || unlockPathId);
+        if (newlyUnlocked.length > 0) {
+            this.ui.addMessage(`New paths unlocked: ${newlyUnlocked.join(', ')}.`);
         }
 
-        const advancedPathsCompleted = this.world.hasCompletedDungeonPath('graspingPillars')
-            && this.world.hasCompletedDungeonPath('anomalousRuins');
-        if (advancedPathsCompleted) {
-            secondQuestgiverUnlocked = true;
-            const secondQuestgiver = this.ensureSecondQuestgiverAvailability?.();
-            if (secondQuestgiver && this.isOverworldFloor(this.world.currentFloor)) {
+        const hadSecondQuestgiver = Array.isArray(this.persistentOverworldNpcs)
+            && this.persistentOverworldNpcs.some((npc) => npc?.isSecondQuestgiver);
+        const secondQuestgiver = this.ensureSecondQuestgiverAvailability?.();
+        if (secondQuestgiver && !hadSecondQuestgiver) {
+            if (this.isOverworldFloor(this.world.currentFloor)) {
                 const spawnRng = this.getFloorContentRng?.(this.world.currentFloor + 424242) || createMathRng();
                 const spawn = this.world.findRandomOpenTile(spawnRng, this.player, 200, secondQuestgiver);
                 if (spawn) {
@@ -128,7 +120,11 @@ class Game {
                     this.addEnemyIfMissing(secondQuestgiver);
                 }
             }
-            this.ui.addMessage('A second Questgiver has appeared in the overworld.');
+
+            const unlockMessage = getDungeonWorldEventUnlockMessage('secondQuestgiver');
+            if (unlockMessage) {
+                this.ui.addMessage(unlockMessage);
+            }
         }
 
     }

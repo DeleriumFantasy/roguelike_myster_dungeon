@@ -7,10 +7,9 @@ class World {
         this.pathFloors = {};
         this.pathSeedVersions = {};
         this.currentFloor = 0;
-        this.selectedDungeonPathId = getDungeonPathDefinition('waterfallPath')
-            ? 'waterfallPath'
-            : getDefaultDungeonPathId();
-        this.unlockedDungeonPathIds = new Set([this.selectedDungeonPathId]);
+        this.selectedDungeonPathId = getDefaultDungeonPathId();
+        this.unlockedDungeonPathIds = new Set(getInitiallyUnlockedDungeonPathIds());
+        this.unlockedDungeonPathIds.add(this.selectedDungeonPathId);
         this.completedDungeonPathIds = new Set();
         this.generateFloor();
     }

@@ -36,11 +36,6 @@ Object.assign(UI.prototype, {
         return outcome;
     },
 
-    runManagedInventoryPrompt(callback) {
-        return typeof this.runNativePrompt === 'function'
-            ? this.runNativePrompt(callback)
-            : (typeof callback === 'function' ? callback() : null);
-    },
 
     createInventoryListItem(text, onClick = null, textColor = null, item = null) {
         const div = document.createElement('div');
@@ -376,6 +371,32 @@ Object.assign(UI.prototype, {
         this.applyInventoryOutcome(outcome);
     },
 
+    openInventoryChoicePrompt(titleText, messageText, choices = [], onSelect = null, options = {}) {
+        const normalizedChoices = Array.isArray(choices) ? choices.filter(Boolean) : [];
+        if (normalizedChoices.length === 0) {
+            if (typeof onSelect === 'function') {
+                onSelect(null);
+            }
+            return;
+        }
+
+        this.openChoicePrompt?.(titleText, messageText, normalizedChoices, onSelect, {
+            onCancel: typeof options.onCancel === 'function'
+                ? options.onCancel
+                : (() => {
+                    if (typeof onSelect === 'function') {
+                        onSelect(null);
+                    }
+                })
+        });
+    },
+
+    getActiveInventoryAllies() {
+        return Array.isArray(this.game?.player?.allies)
+            ? this.game.player.allies.filter((ally) => ally?.isAlive?.())
+            : [];
+    },
+
     runInventoryAction(choice, item, actionContext = {}) {
         const itemLabel = actionContext.itemLabel || this.formatInventoryItemLabel(item);
         const formatItemLabel = typeof actionContext.formatItemLabel === 'function'
@@ -384,26 +405,84 @@ Object.assign(UI.prototype, {
 
         const actionHandlers = {
             use: () => {
-                const useResult = this.game.useInventoryItem(item, {
-                    itemLabel,
-                    formatItemLabel,
-                    chooseTarget: (promptLabel, targets, promptOptions = {}) => this.promptForInventoryTarget(promptLabel, targets, promptOptions)
-                });
-                this.applyInventoryOutcome(useResult, {
-                    failureMessage: `Could not use ${itemLabel}`
-                });
+                const runUseSelection = (selectedTarget = undefined) => {
+                    let selectionPending = false;
+                    const useResult = this.game.useInventoryItem(item, {
+                        itemLabel,
+                        formatItemLabel,
+                        chooseTarget: (promptLabel, targets, promptOptions = {}) => {
+                            const normalizedTargets = Array.isArray(targets)
+                                ? targets.filter((entry) => entry?.item)
+                                : [];
+
+                            if (selectedTarget !== undefined) {
+                                return selectedTarget;
+                            }
+
+                            if (normalizedTargets.length === 1) {
+                                return normalizedTargets[0].item;
+                            }
+
+                            selectionPending = true;
+                            this.openInventoryTargetPrompt(promptLabel, normalizedTargets, promptOptions, (targetItem) => {
+                                if (!targetItem) {
+                                    this.reopenInventoryForCurrentPlayer();
+                                    return;
+                                }
+
+                                runUseSelection(targetItem);
+                            });
+                            return null;
+                        }
+                    });
+
+                    if (selectionPending) {
+                        return;
+                    }
+
+                    this.applyInventoryOutcome(useResult, {
+                        failureMessage: `Could not use ${itemLabel}`
+                    });
+                };
+
+                runUseSelection();
             },
             equip: () => {
-                const equipTarget = this.promptForEquipmentRecipient(itemLabel);
-                if (!equipTarget) {
-                    this.reopenInventoryForCurrentPlayer();
+                const allies = this.getActiveInventoryAllies();
+                if (allies.length === 0) {
+                    const outcome = this.game.equipInventoryItem(item, { kind: 'player' }, {
+                        formatItemLabel
+                    });
+                    this.applyInventoryOutcome(outcome);
                     return;
                 }
 
-                const outcome = this.game.equipInventoryItem(item, equipTarget, {
-                    formatItemLabel
+                const buttons = [{ label: 'Equip yourself', value: 'player', primary: true }]
+                    .concat(allies.map((ally, index) => ({ label: `Equip ${ally.name}`, value: index })));
+                buttons.push({ label: 'Cancel', value: 'cancel', cancel: true });
+
+                this.openInventoryChoicePrompt('Choose recipient', `Who should equip ${itemLabel}?`, buttons, (choice) => {
+                    if (choice === null || choice === 'cancel') {
+                        this.reopenInventoryForCurrentPlayer();
+                        return;
+                    }
+
+                    const equipTarget = choice === 'player'
+                        ? { kind: 'player' }
+                        : { kind: 'ally', ally: allies[Math.floor(Number(choice))] || null };
+                    if (equipTarget.kind === 'ally' && !equipTarget.ally) {
+                        this.addMessage('Invalid selection.');
+                        this.reopenInventoryForCurrentPlayer();
+                        return;
+                    }
+
+                    const outcome = this.game.equipInventoryItem(item, equipTarget, {
+                        formatItemLabel
+                    });
+                    this.applyInventoryOutcome(outcome);
+                }, {
+                    onCancel: () => this.reopenInventoryForCurrentPlayer()
                 });
-                this.applyInventoryOutcome(outcome);
             },
             throw: () => {
                 this.closeInventory();
@@ -430,13 +509,23 @@ Object.assign(UI.prototype, {
         const itemLabel = this.formatInventoryItemLabel(item);
         const formatItemLabel = (target) => this.formatInventoryItemLabel(target);
         const actions = this.getAvailableInventoryActions(item);
-        const choice = this.promptForInventoryAction(itemLabel, actions);
-        if (!choice) {
-            this.reopenInventoryForCurrentPlayer();
-            return;
-        }
+        const buttons = actions.map((action, index) => ({
+            label: action.charAt(0).toUpperCase() + action.slice(1),
+            value: action,
+            primary: index === 0
+        }));
+        buttons.push({ label: 'Cancel', value: 'cancel', cancel: true });
 
-        this.runInventoryAction(choice, item, { itemLabel, formatItemLabel });
+        this.openInventoryChoicePrompt('Inventory action', `Choose action for ${itemLabel}:`, buttons, (choice) => {
+            if (!choice || choice === 'cancel') {
+                this.reopenInventoryForCurrentPlayer();
+                return;
+            }
+
+            this.runInventoryAction(choice, item, { itemLabel, formatItemLabel });
+        }, {
+            onCancel: () => this.reopenInventoryForCurrentPlayer()
+        });
     },
 
     pluralizeItemLabel(label) {
@@ -474,40 +563,55 @@ Object.assign(UI.prototype, {
         return label;
     },
 
-    promptForInventoryTarget(itemLabel, targets, options = {}) {
-        if (!Array.isArray(targets) || targets.length === 0) {
-            return null;
+    openInventoryTargetPrompt(itemLabel, targets, options = {}, onSelect = null) {
+        const normalizedTargets = Array.isArray(targets)
+            ? targets.filter((entry) => entry?.item)
+            : [];
+        if (normalizedTargets.length === 0) {
+            if (typeof onSelect === 'function') {
+                onSelect(null);
+            }
+            return;
+        }
+
+        if (normalizedTargets.length === 1) {
+            if (typeof onSelect === 'function') {
+                onSelect(normalizedTargets[0].item);
+            }
+            return;
         }
 
         const header = typeof options.header === 'string'
             ? options.header
             : `Choose target for ${itemLabel}:`;
-        const defaultValue = String(options.defaultValue ?? '1');
-        const optionsText = targets
-            .map((entry, index) => `${index + 1}. ${this.formatInventoryItemLabel(entry.item)} (${entry.locationLabel})`)
-            .join('\n');
-        const response = this.runManagedInventoryPrompt(
-            () => window.prompt(`${header}\n${optionsText}`, defaultValue)
-        );
-        if (!response) {
-            return null;
-        }
+        const buttons = normalizedTargets.map((entry, index) => ({
+            label: `${index + 1}) ${this.formatInventoryItemLabel(entry.item)} (${entry.locationLabel})`,
+            value: index,
+            primary: index === 0
+        }));
+        buttons.push({ label: 'Cancel', value: -1, cancel: true });
 
-        const selectedIndex = Number.parseInt(String(response).trim(), 10) - 1;
-        if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= targets.length) {
-            this.addMessage('Invalid selection.');
-            return null;
-        }
+        this.openInventoryChoicePrompt('Choose target', header, buttons, (value) => {
+            const selectedIndex = Number.parseInt(String(value).trim(), 10);
+            if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= normalizedTargets.length) {
+                if (typeof onSelect === 'function') {
+                    onSelect(null);
+                }
+                return;
+            }
 
-        return targets[selectedIndex].item;
-    },
-
-    promptForImprovementTarget(scrollLabel, targets) {
-        return this.promptForInventoryTarget(scrollLabel, targets, {
-            header: `Choose equipment to improve with ${scrollLabel}:`,
-            defaultValue: '1'
+            if (typeof onSelect === 'function') {
+                onSelect(normalizedTargets[selectedIndex].item);
+            }
+        }, {
+            onCancel: () => {
+                if (typeof onSelect === 'function') {
+                    onSelect(null);
+                }
+            }
         });
     },
+
 
     getAvailableInventoryActions(item) {
         const configuredActions = Array.isArray(item?.properties?.inventoryActions)
@@ -528,53 +632,4 @@ Object.assign(UI.prototype, {
         });
     },
 
-    promptForEquipmentRecipient(itemLabel) {
-        const allies = Array.isArray(this.game?.player?.allies)
-            ? this.game.player.allies.filter((ally) => ally?.isAlive?.())
-            : [];
-
-        if (allies.length === 0) {
-            return { kind: 'player' };
-        }
-
-        const optionsText = ['0) yourself']
-            .concat(allies.map((ally, index) => `${index + 1}) ${ally.name}`))
-            .join('\n');
-        const response = this.runManagedInventoryPrompt(
-            () => window.prompt(`Who should equip ${itemLabel}?\n${optionsText}\nChoose number:`, '0')
-        );
-        if (response === null) {
-            return null;
-        }
-
-        const selectedIndex = Math.floor(Number(response.trim()));
-        if (!Number.isFinite(selectedIndex) || selectedIndex < 0 || selectedIndex > allies.length) {
-            this.addMessage('Invalid selection.');
-            return null;
-        }
-
-        if (selectedIndex === 0) {
-            return { kind: 'player' };
-        }
-
-        return { kind: 'ally', ally: allies[selectedIndex - 1] };
-    },
-
-    promptForInventoryAction(itemLabel, actions) {
-        const optionsText = actions.join('/');
-        const response = this.runManagedInventoryPrompt(
-            () => window.prompt(`Choose action for ${itemLabel}: ${optionsText}`, actions[0])
-        );
-        if (!response) {
-            return null;
-        }
-
-        const normalized = response.trim().toLowerCase();
-        if (!actions.includes(normalized)) {
-            this.addMessage(`Invalid action. Choose one of: ${optionsText}`);
-            return null;
-        }
-
-        return normalized;
-    }
 });

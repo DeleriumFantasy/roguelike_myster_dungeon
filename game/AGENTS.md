@@ -8,7 +8,7 @@
 ## File Roles
 
 	Also coordinates overworld dungeon path selection (`openDungeonSelectionFromOverworldStairs`) and applies selected descent transitions.
-- `game.js`: bootstrap, high-level turn loop, weather FOV modifier application, and trap handling. Processes only hostile enemies, not NPCs. Holds `this.settings` object (e.g. `autoExploreDescendImmediately`).
+- `game.js`: bootstrap, high-level turn loop, config-driven dungeon path completion/unlock announcements, weather FOV modifier application, and trap handling. Processes only hostile enemies, not NPCs. Holds `this.settings` object (e.g. `autoExploreDescendImmediately`).
 	Also coordinates overworld dungeon path selection (`openDungeonSelectionFromOverworldStairs`) and applies selected descent transitions.
 	`getFovRangeForFloor()` reads floor weather and applies `WEATHER_DEFINITIONS` modifier. `applyPlayerTrapAtCurrentPosition()` handles `TRAP_TRIP` via `dropPlayerItems()` which drops equipped items first, then inventory if no equipped items.
 - `game-input.js`: browser keyboard input, held-move orchestration, and centralized overlay close/focus restoration (`toggleInventory`, `handleEscapeKey`, `closeOverlayAndFocus`). Any keydown stops auto-explore. Escape exclusively toggles the settings modal.
@@ -16,7 +16,7 @@
 - `game-content.js`: setup, floor population flow, floor event lifecycle (hoard room wake mechanics, event activation/progression/cleanup), and dungeon shop population.
 - `game-content-utils.js`: shared content-selection helpers like weighted picks and floor content RNG.
 - `game-content-registry.js`: content-registry helpers for enemy templates and weighted item entry selection.
-- `game-enemy-content.js`: enemy spawning, configurable family-balancing (`ENEMY_FAMILY_SPAWN_BALANCING`), creation, promotion, and explicit overworld NPC placement.
+- `game-enemy-content.js`: enemy spawning, configurable family-balancing (`ENEMY_FAMILY_SPAWN_BALANCING`), creation, promotion, and explicit overworld NPC placement, including config-driven second-questgiver availability.
 - `game-item-generation.js`: floor-banded item spawn counts, floor-scaled item-tier weighting, premade item placement, starter loadout, and event-reward item helpers.
 - `game-item-state.js`: throw resolution, pickup/drop mutation, and defeat drop state changes.
 - `game-inventory-actions.js`: inventory action resolution that mutates gameplay state (use/equip/unequip/drop orchestration, floor-effect scroll outcomes, shared player-target helpers, inventory-use subhelpers, pot storage messaging, inventory-cap handling, and staging shop sales when items are dropped on shop tiles).
@@ -44,6 +44,7 @@
 - Input event plumbing should stay in `game-input.js`, not in `game.js`.
 - Keep prompt/canvas focus restoration centralized in `ui/ui-panels.js` and have `game-input.js` call those helpers instead of duplicating DOM focus logic.
 - If behavior depends on ordering between pickup and stair/hazard transitions, keep orchestration in `game-player-turns.js`.
+- Keep dungeon path unlock chains, starting availability, and overworld progression prerequisites/messages in `config/generation-constants.js`; `game.js` and `game-enemy-content.js` should consume the helpers.
 
 ## Fast Orientation
 

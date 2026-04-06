@@ -26,8 +26,10 @@ const AREA_SELECTION_RULES = {
     dungeonRemainder: 2
 };
 
-// Edit dungeon choices and their floor area progression here.
+// Edit dungeon choices, progression, and unlock flow here.
 // - name: shown in the overworld stairs selection prompt.
+// - startsUnlocked: whether the path is available at the start of a new run.
+// - unlocksOnComplete: path ids unlocked after beating this path.
 // - areaSequence: ordered area types encountered by dungeon depth.
 // - loopSequence: when true, repeats areaSequence after the last entry.
 // - maxDepth: maximum dungeon depth reachable for this path.
@@ -50,19 +52,35 @@ const WEATHER_SPAWN_WEIGHTS = {
 };
 
 const DUNGEON_PATH_DEFINITIONS = {
+    anomalousRuins: {
+        id: 'anomalousRuins',
+        name: 'Anomalous Ruins',
+        startsUnlocked: true,
+        unlocksOnComplete: ['waterfallPath', 'graspingPillars'],
+        areaSequence: [
+            AREA_TYPES.CATACOMBS,
+        ],
+        loopSequence: true,
+        maxDepth: 10,
+        disallowedTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER, TILE_TYPES.SPIKE]
+    },
     waterfallPath: {
         id: 'waterfallPath',
         name: 'Waterfall path',
+        startsUnlocked: false,
+        unlocksOnComplete: [],
         areaSequence: [
             AREA_TYPES.SWAMP
         ],
         loopSequence: true,
-        maxDepth: 10,
+        maxDepth: 15,
         disallowedTiles: [TILE_TYPES.LAVA, TILE_TYPES.SPIKE]
     },
     graspingPillars: {
         id: 'graspingPillars',
         name: 'Grasping Pillars',
+        startsUnlocked: false,
+        unlocksOnComplete: [],
         areaSequence: [
             AREA_TYPES.DUNGEON,
         ],
@@ -70,15 +88,14 @@ const DUNGEON_PATH_DEFINITIONS = {
         maxDepth: 15,
         disallowedTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER]
     },
-    anomalousRuins: {
-        id: 'anomalousRuins',
-        name: 'Anomalous Ruins',
-        areaSequence: [
-            AREA_TYPES.CATACOMBS,
-        ],
-        loopSequence: true,
-        maxDepth: 15,
-        disallowedTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER, TILE_TYPES.SPIKE]
+};
+
+const DUNGEON_WORLD_EVENT_RULES = {
+    secondQuestgiver: {
+        requiredCompletedPaths: ['anomalousRuins', 'graspingPillars'],
+        npcTypeKey: 'npcQuestgiverTier1',
+        npcName: 'Questgiver (second)',
+        unlockMessage: 'A second Questgiver has appeared in the overworld.'
     }
 };
 
@@ -236,12 +253,43 @@ function getDungeonPathDefinitions() {
 
 function getDefaultDungeonPathId() {
     const pathIds = Object.keys(DUNGEON_PATH_DEFINITIONS);
-    return pathIds[0] || 'waterfallPath';
+    const initiallyUnlockedPathId = pathIds.find((pathId) => Boolean(DUNGEON_PATH_DEFINITIONS[pathId]?.startsUnlocked));
+    return initiallyUnlockedPathId || pathIds[0] || 'anomalousRuins';
 }
 
 function getDungeonPathDefinition(pathId) {
     const normalizedPathId = typeof pathId === 'string' ? pathId : '';
     return DUNGEON_PATH_DEFINITIONS[normalizedPathId] || null;
+}
+
+function getInitiallyUnlockedDungeonPathIds() {
+    const pathIds = Object.keys(DUNGEON_PATH_DEFINITIONS)
+        .filter((pathId) => Boolean(DUNGEON_PATH_DEFINITIONS[pathId]?.startsUnlocked));
+    return pathIds.length > 0 ? pathIds : [getDefaultDungeonPathId()];
+}
+
+function getDungeonPathUnlocksOnComplete(pathId) {
+    const unlocksOnComplete = getDungeonPathDefinition(pathId)?.unlocksOnComplete;
+    return Array.isArray(unlocksOnComplete)
+        ? unlocksOnComplete.filter((unlockPathId) => Boolean(getDungeonPathDefinition(unlockPathId)))
+        : [];
+}
+
+function getDungeonWorldEventRule(eventId) {
+    const normalizedEventId = typeof eventId === 'string' ? eventId : '';
+    return DUNGEON_WORLD_EVENT_RULES[normalizedEventId] || null;
+}
+
+function getDungeonWorldEventRequiredCompletedPaths(eventId) {
+    const requiredCompletedPaths = getDungeonWorldEventRule(eventId)?.requiredCompletedPaths;
+    return Array.isArray(requiredCompletedPaths)
+        ? requiredCompletedPaths.filter((pathId) => Boolean(getDungeonPathDefinition(pathId)))
+        : [];
+}
+
+function getDungeonWorldEventUnlockMessage(eventId) {
+    const unlockMessage = getDungeonWorldEventRule(eventId)?.unlockMessage;
+    return typeof unlockMessage === 'string' ? unlockMessage : '';
 }
 
 function getDungeonPathMaxDepth(pathId) {

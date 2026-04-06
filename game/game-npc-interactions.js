@@ -850,21 +850,24 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        const accepted = this.confirmNpcDialog(
+        this.openNpcConfirmDialog(
             enemy,
-            `${nextQuest.display}\nReward: ${this.getQuestgiverQuestRewardSummary(nextQuest)}.\nAccept this task?`
+            `${nextQuest.display}\nReward: ${this.getQuestgiverQuestRewardSummary(nextQuest)}.\nAccept this task?`,
+            (accepted) => {
+                if (!accepted) {
+                    this.ui.addMessage(`${enemy.name}: Another time, then.`);
+                    return;
+                }
+
+                if (!this.prepareAcceptedQuestgiverQuest(enemy, nextQuest)) {
+                    return;
+                }
+
+                questState.activeQuest = nextQuest;
+                this.ui.addMessage(`${enemy.name}: Task accepted. ${nextQuest.display}`);
+            },
+            { confirmLabel: 'Accept', cancelLabel: 'Decline' }
         );
-        if (!accepted) {
-            this.ui.addMessage(`${enemy.name}: Another time, then.`);
-            return;
-        }
-
-        if (!this.prepareAcceptedQuestgiverQuest(enemy, nextQuest)) {
-            return;
-        }
-
-        questState.activeQuest = nextQuest;
-        this.ui.addMessage(`${enemy.name}: Task accepted. ${nextQuest.display}`);
     },
 
     interactWithQuestgiver(enemy) {
@@ -994,58 +997,198 @@ Object.assign(Game.prototype, {
         return 1;
     },
 
-    runNpcDialog(callback) {
-        if (typeof this.ui?.runNativePrompt === 'function') {
-            return this.ui.runNativePrompt(callback);
+    invokeNpcSelectionCallback(callback, value = null) {
+        if (typeof callback === 'function') {
+            callback(value);
+        }
+    },
+
+    resolveNpcSelectionByIndex(value, entries = []) {
+        const selectedIndex = Math.floor(Number(value));
+        if (!Number.isFinite(selectedIndex) || selectedIndex < 0 || selectedIndex >= entries.length) {
+            return null;
         }
 
-        return typeof callback === 'function' ? callback() : null;
+        return entries[selectedIndex] || null;
     },
 
-    confirmNpcDialog(enemy, message) {
-        return Boolean(this.runNpcDialog(() => window.confirm(`${enemy.name}: ${message}`)));
+    getNpcPromptTitle(enemy) {
+        return String(enemy?.name || 'NPC');
     },
 
-    promptNpcDialog(enemy, message, defaultValue = '') {
-        return this.runNpcDialog(() => window.prompt(`${enemy.name}: ${message}`, String(defaultValue ?? '')));
+    getNpcItemChoiceDisplay(item) {
+        const label = typeof this.ui?.formatInventoryItemLabel === 'function'
+            ? this.ui.formatInventoryItemLabel(item)
+            : getItemLabel(item);
+        const typeLabel = String(item?.type || 'item');
+        const prettyTypeLabel = typeLabel
+            ? `${typeLabel.charAt(0).toUpperCase()}${typeLabel.slice(1)}`
+            : 'Item';
+        const details = [prettyTypeLabel];
+        const power = Math.floor(Number(item?.properties?.power));
+        const armor = Math.floor(Number(item?.properties?.armor));
+        const quantity = typeof item?.getQuantity === 'function'
+            ? Math.max(1, Math.floor(Number(item.getQuantity()) || 1))
+            : Math.max(1, Math.floor(Number(item?.properties?.quantity) || 1));
+
+        if (Number.isFinite(power) && power !== 0) {
+            details.push(`POW ${power}`);
+        }
+        if (Number.isFinite(armor) && armor !== 0) {
+            details.push(`ARM ${armor}`);
+        }
+        if (item?.type === ITEM_TYPES.THROWABLE && quantity > 1) {
+            details.push(`Qty ${quantity}`);
+        }
+        if (item?.type === ITEM_TYPES.POT) {
+            const storedItems = typeof item?.getStoredItems === 'function' ? item.getStoredItems() : [];
+            const potCapacity = typeof item?.getPotCapacity === 'function'
+                ? item.getPotCapacity()
+                : Math.max(1, Math.floor(Number(item?.properties?.potCapacity) || 1));
+            details.push(`${storedItems.length}/${potCapacity} stored`);
+        }
+
+        return {
+            label: String(label || 'Item'),
+            description: details.join(' • ')
+        };
     },
 
-    promptForListSelection(enemy, header, entries, getLabel, promptLabel = 'Choose number:') {
+    getNpcAllyChoiceDisplay(ally) {
+        const level = Math.max(1, Math.floor(Number(ally?.allyLevel) || 1));
+        const health = Math.max(0, Math.floor(Number(ally?.health) || 0));
+        const maxHealth = Math.max(1, Math.floor(Number(ally?.maxHealth) || 1));
+        return {
+            label: String(ally?.name || 'Ally'),
+            description: `Ally • Lv ${level} • HP ${health}/${maxHealth}`
+        };
+    },
+
+    openNpcActionPrompt(enemy, messageText, buttons = [], onSubmit = null, options = {}) {
+        const titleText = this.getNpcPromptTitle(enemy);
+        const normalizedButtons = Array.isArray(buttons) ? buttons.filter(Boolean) : [];
+        const cancelMessage = typeof options.cancelMessage === 'string' ? options.cancelMessage : '';
+        const hasCancelValue = Object.prototype.hasOwnProperty.call(options, 'cancelValue');
+
+        return this.ui?.openGamePrompt?.({
+            titleText,
+            messageText: String(messageText || ''),
+            buttons: normalizedButtons,
+            onSubmit: (choice) => {
+                if (hasCancelValue && choice === options.cancelValue) {
+                    if (cancelMessage) {
+                        this.ui.addMessage(`${titleText}: ${cancelMessage}`);
+                    }
+                    return;
+                }
+
+                if (typeof onSubmit === 'function') {
+                    onSubmit(choice);
+                }
+            },
+            onCancel: () => {
+                if (typeof options.onCancel === 'function') {
+                    options.onCancel();
+                    return;
+                }
+
+                if (cancelMessage) {
+                    this.ui.addMessage(`${titleText}: ${cancelMessage}`);
+                }
+            }
+        }) || false;
+    },
+
+    openNpcConfirmDialog(enemy, message, onDecision = null, options = {}) {
+        return this.ui?.openConfirmPrompt?.(
+            this.getNpcPromptTitle(enemy),
+            String(message || ''),
+            onDecision,
+            options
+        );
+    },
+
+    openNpcListSelection(enemy, header, entries, getLabel, onSelect = null, options = {}) {
         const availableEntries = Array.isArray(entries) ? entries.filter(Boolean) : [];
         if (availableEntries.length === 0) {
-            return null;
+            this.invokeNpcSelectionCallback(onSelect, null);
+            return false;
         }
 
-        const indexedList = availableEntries
-            .map((entry, index) => `${index + 1}) ${getLabel(entry, index)}`)
-            .join('\n');
-        const choiceValue = this.promptNpcDialog(enemy, `${header}\n${indexedList}\n${promptLabel}`, '1');
-        const selectedIndex = Math.floor(Number(choiceValue)) - 1;
-        if (!Number.isFinite(selectedIndex) || selectedIndex < 0 || selectedIndex >= availableEntries.length) {
-            return null;
-        }
+        const titleText = this.getNpcPromptTitle(enemy);
+        const labelBuilder = typeof getLabel === 'function'
+            ? getLabel
+            : (entry) => String(entry?.name || entry || 'Option');
+        const choices = availableEntries.map((entry, index) => {
+            const labelData = labelBuilder(entry, index);
+            const normalizedLabel = labelData && typeof labelData === 'object' && !Array.isArray(labelData)
+                ? labelData
+                : { label: labelData };
 
-        return availableEntries[selectedIndex] || null;
+            return {
+                label: String(normalizedLabel.label || normalizedLabel.title || entry?.name || `Option ${index + 1}`),
+                description: typeof normalizedLabel.description === 'string' ? normalizedLabel.description : '',
+                value: index,
+                primary: index === 0,
+                listStyle: true
+            };
+        });
+        choices.push({ label: options.cancelLabel || 'Cancel', value: -1, cancel: true, listStyle: true });
+
+        return this.ui?.openChoicePrompt?.(
+            titleText,
+            String(header || 'Choose an option:'),
+            choices,
+            (value) => {
+                this.invokeNpcSelectionCallback(
+                    onSelect,
+                    this.resolveNpcSelectionByIndex(value, availableEntries)
+                );
+            },
+            {
+                onCancel: () => {
+                    this.invokeNpcSelectionCallback(onSelect, null);
+                }
+            }
+        ) || false;
     },
 
-    promptForNumericAmount(enemy, message, defaultValue = 0) {
-        const promptValue = this.promptNpcDialog(enemy, message, defaultValue);
-        const amount = Math.floor(Number(promptValue));
-        return Number.isFinite(amount) ? amount : null;
+    openNpcNumericPrompt(enemy, message, defaultValue = 0, onSubmit = null, options = {}) {
+        return this.ui?.openTextPrompt?.(
+            this.getNpcPromptTitle(enemy),
+            String(message || ''),
+            String(defaultValue ?? ''),
+            (value) => {
+                const amount = Math.floor(Number(value));
+                this.invokeNpcSelectionCallback(onSubmit, Number.isFinite(amount) ? amount : null);
+            },
+            {
+                placeholder: options.placeholder || 'Enter a number',
+                confirmLabel: options.confirmLabel || 'OK',
+                cancelLabel: options.cancelLabel || 'Cancel',
+                onCancel: () => {
+                    this.invokeNpcSelectionCallback(onSubmit, null);
+                }
+            }
+        );
     },
 
-    promptForInventoryItem(enemy, header, itemFilter = () => true) {
+    openNpcInventoryItemPrompt(enemy, header, itemFilter = () => true, onSelect = null) {
         const inventory = Array.isArray(this.player.getInventory()) ? this.player.getInventory() : [];
         const filteredItems = inventory.filter((item) => itemFilter(item));
-        return this.promptForListSelection(enemy, header, filteredItems, (item) => getItemLabel(item), 'Choose item number:');
+        return this.openNpcListSelection(enemy, header, filteredItems, (item) => this.getNpcItemChoiceDisplay(item), onSelect, {
+            cancelLabel: 'Cancel'
+        });
     },
 
-    promptForAlly(enemy, header, allies, options = {}) {
+    openNpcAllyPrompt(enemy, header, allies, onSelect = null, options = {}) {
         const { includeDefeated = false } = options;
         const availableAllies = Array.isArray(allies)
             ? allies.filter((ally) => Boolean(ally) && (includeDefeated || ally?.isAlive?.()))
             : [];
-        return this.promptForListSelection(enemy, header, availableAllies, (ally) => ally.name, 'Choose ally number:');
+        return this.openNpcListSelection(enemy, header, availableAllies, (ally) => this.getNpcAllyChoiceDisplay(ally), onSelect, {
+            cancelLabel: 'Cancel'
+        });
     },
 
     getHandlerStoredAllies(enemy) {
@@ -1062,29 +1205,29 @@ Object.assign(Game.prototype, {
 
     interactWithHandler(enemy) {
         const stalledCount = this.getHandlerStoredAllies(enemy).length;
-        const options = [
-            '1) Stall ally',
-            `2) Retrieve ally (${stalledCount})`,
-            '3) Cancel'
-        ];
-        const choice = this.promptNpcDialog(
+        this.openNpcActionPrompt(
             enemy,
-            `I can stall one ally for later or return one I've kept safe.\n${options.join('\n')}\nChoose an option (1-3):`,
-            '3'
+            'I can stall one ally for later or return one I\'ve kept safe.',
+            [
+                { label: 'Stall ally', value: 'stall', primary: true },
+                { label: `Retrieve ally (${stalledCount})`, value: 'retrieve' },
+                { label: 'Cancel', value: 'cancel', cancel: true }
+            ],
+            (choice) => {
+                if (choice === 'stall') {
+                    this.handleAllyStall(enemy);
+                    return;
+                }
+
+                if (choice === 'retrieve') {
+                    this.handleAllyRetrieve(enemy);
+                }
+            },
+            {
+                cancelValue: 'cancel',
+                cancelMessage: 'Come back when you need a hand with your allies.'
+            }
         );
-        const normalizedChoice = String(choice || '').trim();
-
-        if (normalizedChoice === '1') {
-            this.handleAllyStall(enemy);
-            return;
-        }
-
-        if (normalizedChoice === '2') {
-            this.handleAllyRetrieve(enemy);
-            return;
-        }
-
-        this.ui.addMessage(`${enemy.name}: Come back when you need a hand with your allies.`);
     },
 
     handleAllyStall(enemy) {
@@ -1096,18 +1239,19 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        const selectedAlly = this.promptForAlly(enemy, 'Which ally should I keep safe for you?', allies);
-        if (!selectedAlly) {
-            this.ui.addMessage(`${enemy.name}: Stalling canceled.`);
-            return;
-        }
+        this.openNpcAllyPrompt(enemy, 'Which ally should I keep safe for you?', allies, (selectedAlly) => {
+            if (!selectedAlly) {
+                this.ui.addMessage(`${enemy.name}: Stalling canceled.`);
+                return;
+            }
 
-        const storedAllies = this.getHandlerStoredAllies(enemy);
+            const storedAllies = this.getHandlerStoredAllies(enemy);
 
-        this.player.removeAlly(selectedAlly);
-        storedAllies.push(selectedAlly);
-        this.world.removeEnemy(selectedAlly);
-        this.ui.addMessage(`${enemy.name}: I'll keep ${selectedAlly.name} safe until you return.`);
+            this.player.removeAlly(selectedAlly);
+            storedAllies.push(selectedAlly);
+            this.world.removeEnemy(selectedAlly);
+            this.ui.addMessage(`${enemy.name}: I'll keep ${selectedAlly.name} safe until you return.`);
+        });
     },
 
     handleAllyRetrieve(enemy) {
@@ -1117,29 +1261,29 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        const selectedAlly = this.promptForAlly(enemy, 'Which ally do you want back?', stalledAllies, { includeDefeated: true });
-        if (!selectedAlly) {
-            this.ui.addMessage(`${enemy.name}: Retrieval canceled.`);
-            return;
-        }
+        this.openNpcAllyPrompt(enemy, 'Which ally do you want back?', stalledAllies, (selectedAlly) => {
+            if (!selectedAlly) {
+                this.ui.addMessage(`${enemy.name}: Retrieval canceled.`);
+                return;
+            }
 
-        const allyIndex = stalledAllies.indexOf(selectedAlly);
-        if (allyIndex < 0) {
-            this.ui.addMessage(`${enemy.name}: I can't find that ally right now.`);
-            return;
-        }
+            const allyIndex = stalledAllies.indexOf(selectedAlly);
+            if (allyIndex < 0) {
+                this.ui.addMessage(`${enemy.name}: I can't find that ally right now.`);
+                return;
+            }
 
-        stalledAllies.splice(allyIndex, 1);
-        selectedAlly.isAlly = true;
-        selectedAlly.tamedBy = this.player;
-        // Restore full health when retrieved
-        selectedAlly.health = selectedAlly.maxHealth || selectedAlly.health;
-        this.player.addAlly(selectedAlly);
+            stalledAllies.splice(allyIndex, 1);
+            selectedAlly.isAlly = true;
+            selectedAlly.tamedBy = this.player;
+            selectedAlly.health = selectedAlly.maxHealth || selectedAlly.health;
+            this.player.addAlly(selectedAlly);
 
-        const spawn = this.findSpawnNearPlayer(selectedAlly, createMathRng());
-        this.assignActorPosition(selectedAlly, spawn);
-        this.addEnemyIfMissing(selectedAlly);
-        this.ui.addMessage(`${enemy.name}: ${selectedAlly.name} is back by your side, fully healed.`);
+            const spawn = this.findSpawnNearPlayer(selectedAlly, createMathRng());
+            this.assignActorPosition(selectedAlly, spawn);
+            this.addEnemyIfMissing(selectedAlly);
+            this.ui.addMessage(`${enemy.name}: ${selectedAlly.name} is back by your side, fully healed.`);
+        }, { includeDefeated: true });
     },
 
     createNpcRewardEquipmentForTier(tier, rng = null) {
@@ -1173,50 +1317,52 @@ Object.assign(Game.prototype, {
     },
 
     interactWithStarvingNpc(enemy) {
-        const selectedFood = this.promptForInventoryItem(
+        this.openNpcInventoryItemPrompt(
             enemy,
             'I am starving. Please offer one food item.',
-            (item) => this.isFoodItemForNpcTrade(item)
-        );
+            (item) => this.isFoodItemForNpcTrade(item),
+            (selectedFood) => {
+                if (!selectedFood) {
+                    this.ui.addMessage(`${enemy.name}: I can only accept food.`);
+                    return;
+                }
 
-        if (!selectedFood) {
-            this.ui.addMessage(`${enemy.name}: I can only accept food.`);
-            return;
-        }
+                this.player.removeItem(selectedFood);
+                const foodTier = this.getFoodTierForNpcTrade(selectedFood);
+                const rewardItem = this.createNpcRewardEquipmentForTier(foodTier);
+                if (rewardItem) {
+                    const rewardResult = this.tryAddItemToPlayerInventory?.(rewardItem, { dropIfFull: true });
+                    if (rewardResult?.added) {
+                        this.ui.addMessage(`${enemy.name}: Thank you. Please take ${getItemLabel(rewardItem)}.`);
+                    } else {
+                        this.ui.addMessage(`${enemy.name}: Thank you. ${getItemLabel(rewardItem)} is left at your feet because your inventory is full.`);
+                    }
+                } else {
+                    this.ui.addMessage(`${enemy.name}: Thank you for the meal.`);
+                }
 
-        this.player.removeItem(selectedFood);
-        const foodTier = this.getFoodTierForNpcTrade(selectedFood);
-        const rewardItem = this.createNpcRewardEquipmentForTier(foodTier);
-        if (rewardItem) {
-            const rewardResult = this.tryAddItemToPlayerInventory?.(rewardItem, { dropIfFull: true });
-            if (rewardResult?.added) {
-                this.ui.addMessage(`${enemy.name}: Thank you. Please take ${getItemLabel(rewardItem)}.`);
-            } else {
-                this.ui.addMessage(`${enemy.name}: Thank you. ${getItemLabel(rewardItem)} is left at your feet because your inventory is full.`);
+                this.completeOneTimeNpcInteraction(enemy);
             }
-        } else {
-            this.ui.addMessage(`${enemy.name}: Thank you for the meal.`);
-        }
-
-        this.completeOneTimeNpcInteraction(enemy);
+        );
     },
 
     interactWithHomeboundNpc(enemy) {
-        const selectedItem = this.promptForInventoryItem(
+        this.openNpcInventoryItemPrompt(
             enemy,
             'I can send one item safely to your bank.',
-            () => true
+            () => true,
+            (selectedItem) => {
+                if (!selectedItem) {
+                    this.ui.addMessage(`${enemy.name}: Choose one item if you want me to carry it home.`);
+                    return;
+                }
+
+                this.player.removeItem(selectedItem);
+                this.player.bankItems.push(selectedItem);
+                this.ui.addMessage(`${enemy.name}: ${getItemLabel(selectedItem)} is now stored in your bank.`);
+                this.completeOneTimeNpcInteraction(enemy);
+            }
         );
-
-        if (!selectedItem) {
-            this.ui.addMessage(`${enemy.name}: Choose one item if you want me to carry it home.`);
-            return;
-        }
-
-        this.player.removeItem(selectedItem);
-        this.player.bankItems.push(selectedItem);
-        this.ui.addMessage(`${enemy.name}: ${getItemLabel(selectedItem)} is now stored in your bank.`);
-        this.completeOneTimeNpcInteraction(enemy);
     },
 
     interactWithShamanNpc(enemy) {
@@ -1348,28 +1494,29 @@ Object.assign(Game.prototype, {
 
         const itemLabel = getItemLabel(enemy.shopOfferItem);
         const price = enemy.shopOfferPrice;
-        const confirmed = this.confirmNpcDialog(enemy, `I offer ${itemLabel} for ${price} money. Buy it?`);
-        if (!confirmed) {
-            this.ui.addMessage(`${enemy.name}: Maybe next time.`);
-            return;
-        }
+        this.openNpcConfirmDialog(enemy, `I offer ${itemLabel} for ${price} money. Buy it?`, (confirmed) => {
+            if (!confirmed) {
+                this.ui.addMessage(`${enemy.name}: Maybe next time.`);
+                return;
+            }
 
-        if ((this.player.money || 0) < price) {
-            this.ui.addMessage(`${enemy.name}: You don't have enough money.`);
-            return;
-        }
+            if ((this.player.money || 0) < price) {
+                this.ui.addMessage(`${enemy.name}: You don't have enough money.`);
+                return;
+            }
 
-        if (typeof this.player?.hasInventorySpaceFor === 'function' && !this.player.hasInventorySpaceFor(enemy.shopOfferItem)) {
-            this.ui.addMessage(`${enemy.name}: Your inventory is full.`);
-            return;
-        }
+            if (typeof this.player?.hasInventorySpaceFor === 'function' && !this.player.hasInventorySpaceFor(enemy.shopOfferItem)) {
+                this.ui.addMessage(`${enemy.name}: Your inventory is full.`);
+                return;
+            }
 
-        this.player.money -= price;
-        this.player.addItem(enemy.shopOfferItem);
-        this.ui.addMessage(`You buy ${itemLabel} for ${price} money.`);
-        enemy.shopOfferItem = null;
-        enemy.shopOfferPrice = null;
-        enemy.shopSoldOut = true;
+            this.player.money -= price;
+            this.player.addItem(enemy.shopOfferItem);
+            this.ui.addMessage(`You buy ${itemLabel} for ${price} money.`);
+            enemy.shopOfferItem = null;
+            enemy.shopOfferPrice = null;
+            enemy.shopSoldOut = true;
+        }, { confirmLabel: 'Buy', cancelLabel: 'Leave' });
     },
 
     tryTalkToFacingNpc(facing) {
@@ -1536,59 +1683,114 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        const confirmed = typeof this.ui?.confirmShopSettlement === 'function'
-            ? this.ui.confirmShopSettlement(
+        this.openNpcActionPrompt(
+            enemy,
+            this.ui.buildShopSettlementPromptText(
                 enemy.name,
                 settlement.summaryText,
                 settlement.buyTotal,
                 settlement.sellTotal,
-                settlement.balanceLine
-            )
-            : window.confirm(
-                `${enemy.name}: Let's settle up.\n\n${settlement.summaryText}\n\nBuying total: ${settlement.buyTotal} money\nSelling total: ${settlement.sellTotal} money\n${settlement.balanceLine}\n\nComplete the transaction?`
-            );
-
-        if (!confirmed) {
-            this.ui.addMessage(`${enemy.name}: Take your time. We can settle up whenever you're ready.`);
-            return;
-        }
-
-        this.attemptShopSettlement(enemy, settlement);
+                settlement.balanceLine,
+                'Complete the transaction?'
+            ),
+            [
+                { label: 'Settle up', value: true, primary: true },
+                { label: 'Later', value: false, cancel: true }
+            ],
+            () => {
+                this.attemptShopSettlement(enemy, settlement);
+            },
+            {
+                cancelValue: false,
+                cancelMessage: 'Take your time. We can settle up whenever you\'re ready.'
+            }
+        );
     },
 
     interactWithBanker(enemy) {
         const bankBalance = Math.max(0, Math.floor(Number(this.player.bankMoney) || 0));
-        const options = [
-            '1) Deposit money',
-            `2) Withdraw money (${bankBalance})`,
-            '3) Store item',
-            '4) Withdraw item',
-            '5) Cancel'
-        ];
-        const choice = this.promptNpcDialog(enemy, `Welcome.\n${options.join('\n')}\nChoose an option (1-5):`, '5');
-        const normalizedChoice = String(choice || '').trim();
+        this.openNpcActionPrompt(
+            enemy,
+            'Welcome. Choose a banking service:',
+            [
+                { label: 'Deposit money', value: 'deposit', primary: true },
+                { label: `Withdraw money (${bankBalance})`, value: 'withdraw-money' },
+                { label: 'Store item', value: 'store-item' },
+                { label: 'Withdraw item', value: 'withdraw-item' },
+                { label: 'Cancel', value: 'cancel', cancel: true }
+            ],
+            (choice) => {
+                if (choice === 'deposit') {
+                    this.handleBankMoneyDeposit(enemy);
+                    return;
+                }
 
-        if (normalizedChoice === '1') {
-            this.handleBankMoneyDeposit(enemy);
-            return;
-        }
+                if (choice === 'withdraw-money') {
+                    this.handleBankMoneyWithdraw(enemy);
+                    return;
+                }
 
-        if (normalizedChoice === '2') {
-            this.handleBankMoneyWithdraw(enemy);
-            return;
-        }
+                if (choice === 'store-item') {
+                    this.handleBankItemDeposit(enemy);
+                    return;
+                }
 
-        if (normalizedChoice === '3') {
-            this.handleBankItemDeposit(enemy);
-            return;
-        }
+                if (choice === 'withdraw-item') {
+                    this.handleBankItemWithdraw(enemy);
+                }
+            },
+            {
+                cancelValue: 'cancel',
+                cancelMessage: 'Come back any time.'
+            }
+        );
+    },
 
-        if (normalizedChoice === '4') {
-            this.handleBankItemWithdraw(enemy);
-            return;
-        }
+    runBankItemSelectionLoop(enemy, options = {}) {
+        const {
+            emptyMessage = '',
+            promptHeader = 'Choose an item:',
+            onCancelMessage = '',
+            getEntries = () => [],
+            onSelection = null
+        } = options;
+        let completedSelection = false;
 
-        this.ui.addMessage(`${enemy.name}: Come back any time.`);
+        const openSelection = () => {
+            const sourceEntries = Array.isArray(getEntries()) ? getEntries() : [];
+            const entries = sourceEntries.filter(Boolean);
+            if (entries.length === 0) {
+                if (!completedSelection && emptyMessage) {
+                    this.ui.addMessage(`${enemy.name}: ${emptyMessage}`);
+                }
+                return;
+            }
+
+            this.openNpcListSelection(
+                enemy,
+                promptHeader,
+                entries,
+                (item) => this.getNpcItemChoiceDisplay(item),
+                (selectedItem) => {
+                    if (!selectedItem) {
+                        if (onCancelMessage) {
+                            this.ui.addMessage(`${enemy.name}: ${onCancelMessage}`);
+                        }
+                        return;
+                    }
+
+                    completedSelection = true;
+                    const shouldContinue = typeof onSelection === 'function'
+                        ? onSelection(selectedItem, sourceEntries, entries) !== false
+                        : false;
+                    if (shouldContinue) {
+                        openSelection();
+                    }
+                }
+            );
+        };
+
+        openSelection();
     },
 
     handleBankMoneyDeposit(enemy) {
@@ -1598,18 +1800,18 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        const amount = this.promptForNumericAmount(enemy, `You carry ${available} money. Deposit how much?`, available);
-        if (!Number.isFinite(amount) || amount <= 0) {
-            this.ui.addMessage(`${enemy.name}: Deposit canceled.`);
-            return;
-        }
+        this.openNpcNumericPrompt(enemy, `You carry ${available} money. Deposit how much?`, available, (amount) => {
+            if (!Number.isFinite(amount) || amount <= 0) {
+                this.ui.addMessage(`${enemy.name}: Deposit canceled.`);
+                return;
+            }
 
-        const safeAmount = Math.min(amount, available);
-        this.player.money -= safeAmount;
-        this.player.bankMoney = Math.max(0, Math.floor(Number(this.player.bankMoney) || 0)) + safeAmount;
-        this.ui.addMessage(`${enemy.name}: Stored ${safeAmount} money. Bank balance: ${this.player.bankMoney}.`);
+            const safeAmount = Math.min(amount, available);
+            this.player.money -= safeAmount;
+            this.player.bankMoney = Math.max(0, Math.floor(Number(this.player.bankMoney) || 0)) + safeAmount;
+            this.ui.addMessage(`${enemy.name}: Stored ${safeAmount} money. Bank balance: ${this.player.bankMoney}.`);
+        });
     },
-
     handleBankMoneyWithdraw(enemy) {
         const available = Math.max(0, Math.floor(Number(this.player.bankMoney) || 0));
         if (available <= 0) {
@@ -1617,69 +1819,58 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        const amount = this.promptForNumericAmount(enemy, `Your bank balance is ${available}. Withdraw how much?`, available);
-        if (!Number.isFinite(amount) || amount <= 0) {
-            this.ui.addMessage(`${enemy.name}: Withdrawal canceled.`);
-            return;
-        }
+        this.openNpcNumericPrompt(enemy, `Your bank balance is ${available}. Withdraw how much?`, available, (amount) => {
+            if (!Number.isFinite(amount) || amount <= 0) {
+                this.ui.addMessage(`${enemy.name}: Withdrawal canceled.`);
+                return;
+            }
 
-        const safeAmount = Math.min(amount, available);
-        this.player.bankMoney -= safeAmount;
-        this.player.money = Math.max(0, Math.floor(Number(this.player.money) || 0)) + safeAmount;
-        this.ui.addMessage(`${enemy.name}: Withdrew ${safeAmount} money. Bank balance: ${this.player.bankMoney}.`);
+            const safeAmount = Math.min(amount, available);
+            this.player.bankMoney -= safeAmount;
+            this.player.money = Math.max(0, Math.floor(Number(this.player.money) || 0)) + safeAmount;
+            this.ui.addMessage(`${enemy.name}: Withdrew ${safeAmount} money. Bank balance: ${this.player.bankMoney}.`);
+        });
     },
 
     handleBankItemDeposit(enemy) {
-        const inventory = this.player.getInventory();
-        if (!Array.isArray(inventory) || inventory.length === 0) {
-            this.ui.addMessage(`${enemy.name}: You have no items to store.`);
-            return;
-        }
-
-        const selectedItem = this.promptForInventoryItem(enemy, 'Which item should I store?', () => true);
-        if (!selectedItem) {
-            this.ui.addMessage(`${enemy.name}: Storage canceled.`);
-            return;
-        }
-
-        this.player.removeItem(selectedItem);
-        this.player.bankItems.push(selectedItem);
-        this.ui.addMessage(`${enemy.name}: Stored ${getItemLabel(selectedItem)}.`);
+        this.runBankItemSelectionLoop(enemy, {
+            emptyMessage: 'You have no items to store.',
+            promptHeader: 'Which item should I store?',
+            onCancelMessage: 'Storage canceled.',
+            getEntries: () => this.player.getInventory(),
+            onSelection: (selectedItem) => {
+                this.player.removeItem(selectedItem);
+                this.player.bankItems.push(selectedItem);
+                this.ui.addMessage(`${enemy.name}: Stored ${getItemLabel(selectedItem)}.`);
+                return true;
+            }
+        });
     },
 
     handleBankItemWithdraw(enemy) {
-        const storedItems = this.player.bankItems;
-        if (!Array.isArray(storedItems) || storedItems.length === 0) {
-            this.ui.addMessage(`${enemy.name}: You have no stored items.`);
-            return;
-        }
+        this.runBankItemSelectionLoop(enemy, {
+            emptyMessage: 'You have no stored items.',
+            promptHeader: 'Which stored item do you want back?',
+            onCancelMessage: 'Withdrawal canceled.',
+            getEntries: () => this.player.bankItems,
+            onSelection: (selectedItem, storedItems) => {
+                const selectedIndex = storedItems.indexOf(selectedItem);
+                if (selectedIndex < 0) {
+                    this.ui.addMessage(`${enemy.name}: I cannot find that item right now.`);
+                    return false;
+                }
 
-        const selectedItem = this.promptForListSelection(
-            enemy,
-            'Which stored item do you want back?',
-            storedItems,
-            (item) => getItemLabel(item),
-            'Choose item number:'
-        );
-        if (!selectedItem) {
-            this.ui.addMessage(`${enemy.name}: Withdrawal canceled.`);
-            return;
-        }
+                const [returnedItem] = storedItems.splice(selectedIndex, 1);
+                if (!this.player.addItem(returnedItem)) {
+                    storedItems.splice(selectedIndex, 0, returnedItem);
+                    this.ui.addMessage(`${enemy.name}: Your inventory is full.`);
+                    return false;
+                }
 
-        const selectedIndex = storedItems.indexOf(selectedItem);
-        if (selectedIndex < 0) {
-            this.ui.addMessage(`${enemy.name}: I cannot find that item right now.`);
-            return;
-        }
-
-        const [returnedItem] = storedItems.splice(selectedIndex, 1);
-        if (!this.player.addItem(returnedItem)) {
-            storedItems.splice(selectedIndex, 0, returnedItem);
-            this.ui.addMessage(`${enemy.name}: Your inventory is full.`);
-            return;
-        }
-
-        this.ui.addMessage(`${enemy.name}: Returned ${getItemLabel(returnedItem)}.`);
+                this.ui.addMessage(`${enemy.name}: Returned ${getItemLabel(returnedItem)}.`);
+                return true;
+            }
+        });
     },
 
     generateNpcOffer(enemy) {

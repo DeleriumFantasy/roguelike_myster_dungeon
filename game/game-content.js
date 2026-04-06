@@ -1195,11 +1195,21 @@ Object.assign(Game.prototype, {
     initializeGame() {
         this.populateCurrentFloorIfNeeded();
         this.spawnPlayerOnFloor();
-        this.seedPlayerInventory();
-        this.spawnStartingAlly();
 
         this.updateFOV();
         this.ui.render(this.world, this.player, this.fov);
+    },
+
+    grantDebugCheaterLoadout() {
+        const equippedCount = Number(this.equipStartingCheaterLoadout?.() || 0);
+        const allyGranted = Boolean(this.spawnStartingAlly?.());
+        const message = equippedCount > 0 || allyGranted
+            ? 'Debug loadout granted.'
+            : 'Debug loadout refreshed.';
+
+        this.ui?.addMessage?.(message);
+        this.updateFOV();
+        this.ui?.render?.(this.world, this.player, this.fov);
     },
 
     getDungeonDepthIndex(floorIndex = this.world.currentFloor) {
@@ -1271,17 +1281,25 @@ Object.assign(Game.prototype, {
     },
 
     spawnStartingAlly() {
-        const slime = this.createEnemyForType(0, 0, 'slimeTier1', 0);
-        const rng = new SeededRNG(this.seed + 888888);
-        const spawn = this.world.findRandomOpenTile(rng, this.player, 200, slime);
+        const existingAlly = Array.isArray(this.player?.allies)
+            ? this.player.allies.find((ally) => ally?.monsterType === 'slimeTier1')
+            : null;
+        const hadStarterAlly = Boolean(existingAlly && (typeof existingAlly.isAlive !== 'function' || existingAlly.isAlive()));
+        const slime = existingAlly || this.createEnemyForType(0, 0, 'slimeTier1', 0);
+        const rng = new SeededRNG(this.seed + 888888 + this.world.currentFloor * 31337);
+        const spawn = this.findSpawnNearPlayer(slime, rng);
+
         if (spawn) {
             this.assignActorPosition(slime, spawn);
         } else {
             slime.x = this.player.x;
             slime.y = this.player.y;
         }
+
+        slime.health = slime.maxHealth;
         slime.tame(this.player);
         this.addEnemyIfMissing(slime);
+        return !hadStarterAlly;
     },
 
     spawnAlliesOnCurrentFloor() {

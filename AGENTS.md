@@ -36,7 +36,7 @@
 - `player.js`: base player shell.
 - `combat-utils.js`: shared combat application helpers that mutate actor state (`applyDamageToActor`, `applyStandardAttackToTarget`).
 - `player-combat.js`: damage, attacks, conditions.
-- `player-inventory.js`: equipment, inventory, throwables, ally item handling, and carried-capacity helpers (the player's equipped gear counts toward the same 20-item limit).
+- `player-inventory.js`: equipment, inventory, throwables, ally item handling, and carried-capacity helpers (the player's equipped gear counts toward the same configurable carry limit; default 30 via `maxInventoryItems`).
 - `player-progression.js`: level and EXP handling.
 - `enemy.js`: base enemy shell, core type helpers, and persistent enemy-side state flags.
 - `enemy-item-behaviors.js`: thief, vandal, fuser, and carried-item logic.
@@ -62,13 +62,13 @@
 ### `game/`
 
 - High-level orchestration built on `Game.prototype` extensions.
-- `game.js`: game bootstrap and main loop.
+- `game.js`: game bootstrap and main loop, including config-driven dungeon-path completion unlock flow and overworld progression announcements.
 - `game-input.js`: browser keyboard input, held-move orchestration, and centralized overlay close/focus restoration.
 - `game-turn-results.js`: shared structured turn-result factories.
 - `game-content.js`: setup and floor population flow, including floor event lifecycle and dungeon shop population.
 - `game-content-utils.js`: shared content-selection helpers such as weighted rolls.
 - `game-content-registry.js`: content-registry helpers for enemy templates and weighted item entry selection.
-- `game-enemy-content.js`: enemy spawn tables, family-balancing curves, enemy creation, promotion, and overworld NPC roster placement.
+- `game-enemy-content.js`: enemy spawn tables, family-balancing curves, enemy creation, promotion, and overworld NPC roster placement, including config-driven second-questgiver availability.
 - `game-inventory-actions.js`: inventory action resolution, including shared target builders, inventory-use subhelpers, pot storage messaging, inventory-cap handling, and shop sale staging when items are dropped on shop tiles.
 - `game-item-generation.js`: floor-banded item spawn counts, floor-scaled tier weighting, random item generation, starter loadout, premade item placement.
 - `game-item-state.js`: throw resolution, pickup/drop mutation, defeat drop state changes.
@@ -129,6 +129,7 @@
 - For map or rendering issues: check `ui/ui-pixi-overlay.js` (orchestrator) and subsystems (`ui-pixi-sprites.js` for actor appearance, `ui-pixi-render-state.js` for per-frame shared state, `ui-pixi-layers.js` for tile/item/depth, `ui-pixi-actors.js` for health bars and labels, `ui-pixi-effects.js` for combat animations), then `engine/fov.js` for visibility logic.
 - For NPC or quest issues: check `game-npc-interactions.js`, `game-enemy-content.js`, and `entities/enemy-ai.js` if escort or passive ally behavior is involved.
 - For dungeon shop issues: check `config/generation-constants.js` (shop premade shape/chance), `engine/world-generation.js` (placement), `game/game-content.js` (shopkeeper + stock spawn), `game/game-player-turns.js` (pickup and exit interception), `game/game-npc-interactions.js` (combined buy/sell settlement), `game/game-inventory-actions.js` (sale staging), `entities/item-data.js` (prices), and `ui/ui-panels.js` / `ui/ui-pixi-layers.js` (prompts and visuals).
+- For dungeon path progression or unlock issues: check `config/generation-constants.js` (`DUNGEON_PATH_DEFINITIONS`, `DUNGEON_WORLD_EVENT_RULES`), `engine/world.js` (`selectedDungeonPathId`, `unlockedDungeonPathIds`, `completedDungeonPathIds`), `engine/world-generation.js` (`selectAreaTypeForFloor()`), and `game/game.js` / `game/game-enemy-content.js`.
 - For auto-explore issues: check `game-explore.js` (tick loop, sticky targets, oscillation breakout, forced detours, no-progress watchdog, damage-tile avoidance, BLIND/CONFUSED random movement, descent setting), `game-input.js` (any keypress stops explore), and `game.js` (`game.settings.autoExploreDescendImmediately`).
 - For settings menu issues: check `ui/ui-panels.js` (`openSettings`, `closeSettings`, `settingsOpen`), `game-input.js` (Escape toggles settings), `index.html` (`#settings-modal`), and `game.js` (`this.settings` object).
 - For inventory UI issues: check `ui/ui-inventory.js` (unified equipped/backpack list, ally equipment entries, hover details panel, unknown-item redaction, `runManagedInventoryPrompt`, `applyInventoryOutcome`, `buildInventoryDisplayEntries`), `ui/ui-panels.js` (`focusGameSurface`, `runNativePrompt`), `entities/player-inventory.js` (carried-count/capacity helpers), and `index.html` (`#inventory-item-details`, `#inventory-title`).

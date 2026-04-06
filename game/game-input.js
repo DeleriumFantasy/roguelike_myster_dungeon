@@ -65,17 +65,17 @@ class GameInputController {
     }
 
     handleEscapeKey() {
-        if (this.game.ui.settingsOpen) {
-            this.closeOverlayAndFocus(() => this.game.ui.closeSettings());
+        const ui = this.game.ui;
+        if (!ui) {
             return;
         }
 
-        if (this.game.ui.dungeonSelectionOpen) {
-            this.closeOverlayAndFocus(() => this.game.ui.closeDungeonSelection());
+        this.reset();
+        if (ui.closeTopmostOverlay?.()) {
             return;
         }
 
-        this.game.ui.openSettings();
+        ui.openSettings();
     }
 
     toggleInventory() {
@@ -85,7 +85,6 @@ class GameInputController {
         }
 
         this.game.ui.openInventory(this.game.player);
-        this.game.inventoryOpen = true;
     }
 
     reset() {
@@ -97,15 +96,8 @@ class GameInputController {
         const key = event.key;
         const lowerKey = key.toLowerCase();
 
-        if (this.game.inventoryOpen && key !== 'Escape' && lowerKey !== 'i') {
-            return;
-        }
-
-        if (this.game.ui.settingsOpen && key !== 'Escape') {
-            return;
-        }
-
-        if (this.game.ui.dungeonSelectionOpen && key !== 'Escape') {
+        if (this.game.ui?.shouldBlockGameplayInput?.(key, lowerKey)) {
+            event.preventDefault();
             return;
         }
 
@@ -200,6 +192,9 @@ class GameInputController {
                     this.game.startAutoExplore();
                 }
                 return true;
+            case 'grant-debug-loadout':
+                this.game.grantDebugCheaterLoadout?.();
+                return true;
             default:
                 return false;
         }
@@ -249,7 +244,7 @@ class GameInputController {
         this.pendingMoveTimer = window.setTimeout(() => {
             this.pendingMoveTimer = null;
 
-            if (this.game.inventoryOpen || this.game.ui?.settingsOpen || this.game.ui?.dungeonSelectionOpen || this.game.ui?.mapOpen) {
+            if (this.game.ui?.isBlockingOverlayOpen?.({ includeMap: true })) {
                 this.reset();
                 return;
             }

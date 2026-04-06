@@ -4,6 +4,112 @@
 // hazard overlays, item indicators, depth cues for walls, and actor shadows.
 
 Object.assign(PixiSceneOverlay.prototype, {
+    getTileMarkerStyle(kind, size, isMapView = false) {
+        const safeSize = Math.max(1, Math.floor(Number(size) || 1));
+
+        if (kind === 'shop') {
+            return isMapView
+                ? {
+                    inset: Math.max(1, Math.round(safeSize * 0.1)),
+                    lineWidth: Math.max(1, Math.round(safeSize * 0.05)),
+                    fillAlphaVisible: 0.18,
+                    fillAlphaHidden: 0.1,
+                    fontSize: Math.max(2, Math.floor(safeSize * 0.28)),
+                    fontWeight: '600',
+                    yOffset: 0
+                }
+                : {
+                    inset: 1,
+                    lineWidth: Math.max(1, Math.round(safeSize * 0.08)),
+                    fillAlphaVisible: 0.28,
+                    fillAlphaHidden: 0.16,
+                    fontSize: Math.max(10, Math.floor(safeSize * 0.72)),
+                    fontWeight: '700',
+                    yOffset: 0
+                };
+        }
+
+        return isMapView
+            ? {
+                inset: Math.max(1, Math.round(safeSize * 0.12)),
+                backdropAlphaMultiplier: 0.7,
+                fontSize: Math.max(2, Math.floor(safeSize * 0.28)),
+                fontWeight: '600',
+                yOffset: Math.max(0, safeSize * 0.02)
+            }
+            : {
+                inset: 1,
+                backdropAlphaMultiplier: 1,
+                fontSize: Math.max(8, Math.floor(safeSize * 0.55)),
+                fontWeight: '700',
+                yOffset: 0
+            };
+    },
+
+    renderCenteredTileLabel(cacheKey, label, x, y, size, style = {}) {
+        const text = this.acquireText(cacheKey, {
+            fontFamily: 'monospace',
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight || '700',
+            fill: style.fill || '#ffffff',
+            align: 'center'
+        }, label);
+        text.anchor.set(0.5, 0.5);
+        text.x = x + size / 2;
+        text.y = y + size / 2 - Number(style.yOffset || 0);
+        this.terrainLayer.addChild(text);
+        return text;
+    },
+
+    renderShopTileMarker(x, y, size, isVisible, isMapView = false) {
+        const style = this.getTileMarkerStyle('shop', size, isMapView);
+        const shopOverlay = this.acquireGraphics();
+        shopOverlay.lineStyle(style.lineWidth, 0xffd166, isVisible ? 0.9 : 0.55);
+        shopOverlay.beginFill(0x7f1d1d, isVisible ? style.fillAlphaVisible : style.fillAlphaHidden);
+        shopOverlay.drawRect(
+            x + style.inset,
+            y + style.inset,
+            Math.max(2, size - style.inset * 2),
+            Math.max(2, size - style.inset * 2)
+        );
+        shopOverlay.endFill();
+        this.terrainLayer.addChild(shopOverlay);
+
+        this.renderCenteredTileLabel('shop-tile', '$', x, y, size, {
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            fill: '#ffe08a',
+            yOffset: style.yOffset
+        });
+    },
+
+    renderTrapTileMarker(ui, trapType, x, y, size, isMapView = false) {
+        const icon = ui.getTrapIcon(trapType);
+        if (!icon) {
+            return;
+        }
+
+        const style = this.getTileMarkerStyle('trap', size, isMapView);
+        const trapBackdrop = this.acquireGraphics();
+        const backdrop = this.parseCssColor(UI_VISUALS.trapBackdrop, 0x000000);
+        trapBackdrop.beginFill(backdrop.color, backdrop.alpha * style.backdropAlphaMultiplier);
+        trapBackdrop.drawRect(
+            x + style.inset,
+            y + style.inset,
+            Math.max(2, size - style.inset * 2),
+            Math.max(2, size - style.inset * 2)
+        );
+        trapBackdrop.endFill();
+        this.terrainLayer.addChild(trapBackdrop);
+
+        this.renderCenteredTileLabel('trap-icon', icon, x, y, size, {
+            fontSize: style.fontSize,
+            fontWeight: style.fontWeight,
+            fill: UI_VISUALS.trapIcon,
+            yOffset: style.yOffset
+        });
+    },
+
     renderTerrain(renderState) {
         // ...existing code...
         const { ui, world, fov, tileSize, shouldUseFog, cameraBounds, projection } = renderState;
@@ -54,24 +160,7 @@ Object.assign(PixiSceneOverlay.prototype, {
                 }
 
                 if (tile === TILE_TYPES.SHOP) {
-                    const shopOverlay = this.acquireGraphics();
-                    shopOverlay.lineStyle(Math.max(1, Math.round(tileSize * 0.08)), 0xffd166, isVisible ? 0.9 : 0.55);
-                    shopOverlay.beginFill(0x7f1d1d, isVisible ? 0.28 : 0.16);
-                    shopOverlay.drawRect(screenPos.x + 1, screenPos.y + 1, Math.max(2, tileSize - 2), Math.max(2, tileSize - 2));
-                    shopOverlay.endFill();
-                    this.terrainLayer.addChild(shopOverlay);
-
-                    const shopText = this.acquireText('shop-tile', {
-                        fontFamily: 'monospace',
-                        fontSize: Math.max(8, Math.floor(tileSize * 0.58)),
-                        fontWeight: '700',
-                        fill: '#ffe08a',
-                        align: 'center'
-                    }, '$');
-                    shopText.anchor.set(0.5, 0.5);
-                    shopText.x = screenPos.x + tileSize / 2;
-                    shopText.y = screenPos.y + tileSize / 2;
-                    this.terrainLayer.addChild(shopText);
+                    this.renderShopTileMarker(screenPos.x, screenPos.y, tileSize, isVisible, Boolean(ui.mapOpen));
                 }
 
                 this.renderTileOverlays(ui, overlays, screenPos.x, screenPos.y, tileSize);
@@ -123,27 +212,7 @@ Object.assign(PixiSceneOverlay.prototype, {
         }
 
         if (overlays?.trapType && overlays?.trapRevealed) {
-            const trapBackdrop = this.acquireGraphics();
-            const backdrop = this.parseCssColor(UI_VISUALS.trapBackdrop, 0x000000);
-            trapBackdrop.beginFill(backdrop.color, backdrop.alpha);
-            trapBackdrop.drawRect(x + 1, y + 1, size - 2, size - 2);
-            trapBackdrop.endFill();
-            this.terrainLayer.addChild(trapBackdrop);
-
-            const icon = ui.getTrapIcon(overlays.trapType);
-            if (icon) {
-                const text = this.acquireText('trap-icon', {
-                    fontFamily: 'monospace',
-                    fontSize: Math.max(8, Math.floor(size * 0.55)),
-                    fontWeight: '700',
-                    fill: UI_VISUALS.trapIcon,
-                    align: 'center'
-                }, icon);
-                text.anchor.set(0.5, 0.5);
-                text.x = x + size / 2;
-                text.y = y + size / 2;
-                this.terrainLayer.addChild(text);
-            }
+            this.renderTrapTileMarker(ui, overlays.trapType, x, y, size, Boolean(ui.mapOpen));
         }
     },
 
@@ -163,7 +232,9 @@ Object.assign(PixiSceneOverlay.prototype, {
             }
 
             const screenPos = this.getScreenPositionFromState(renderState, x, y);
-            const inset = Math.max(1, Math.round(tileSize * 0.25));
+            const inset = ui.mapOpen
+                ? Math.max(1, Math.round(tileSize * 0.28))
+                : Math.max(1, Math.round(tileSize * 0.25));
             const itemType = ui.getItemTypeAt(world, x, y);
             const alpha = shouldUseFog ? ui.getVisibilityAlpha(isVisible) : 1;
             const item = this.acquireGraphics();

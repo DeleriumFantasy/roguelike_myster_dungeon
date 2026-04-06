@@ -1,5 +1,5 @@
 // Handles item pickup after player moves, including shop logic
-Game.prototype.pickupItemsAfterMove = function(x, y) {
+Game.prototype.pickupItemsAfterMove = function(x, y, shopPickupDecisions = null) {
     const items = this.world.getItems(x, y);
     if (!Array.isArray(items) || items.length === 0) return;
 
@@ -7,12 +7,9 @@ Game.prototype.pickupItemsAfterMove = function(x, y) {
         let shouldMarkUnpaid = false;
 
         if (item?.properties?.shopOwned) {
-            const price = this.getShopItemPrice(item);
-            const itemName = item.getDisplayName?.() || item.name || 'item';
-            const confirmMsg = `This item costs ${price} gold. Pick up ${itemName}?`;
-            const confirmed = typeof this.ui?.confirmPickupShopItem === 'function'
-                ? this.ui.confirmPickupShopItem(item, price, confirmMsg)
-                : window.confirm(confirmMsg);
+            const confirmed = shopPickupDecisions instanceof Map
+                ? shopPickupDecisions.get(item) === true
+                : false;
             if (!confirmed) {
                 continue;
             }
@@ -38,6 +35,35 @@ Game.prototype.pickupItemsAfterMove = function(x, y) {
     }
 
     this.checkShopTheftAfterMove();
+};
+
+Game.prototype.requestShopPickupDecisionsForTile = function(x, y, onComplete, decisionMap = null, promptItems = null, itemIndex = 0) {
+    const decisions = decisionMap instanceof Map ? decisionMap : new Map();
+    const itemsToPrompt = Array.isArray(promptItems)
+        ? promptItems
+        : ((this.world.getItems(x, y) || []).filter((item) => item?.properties?.shopOwned));
+
+    if (itemIndex >= itemsToPrompt.length) {
+        if (typeof onComplete === 'function') {
+            onComplete(decisions);
+        }
+        return;
+    }
+
+    const item = itemsToPrompt[itemIndex];
+    const price = this.getShopItemPrice(item);
+    const itemName = item?.getDisplayName?.() || item?.name || 'item';
+    const confirmMsg = `This item costs ${price} gold. Pick up ${itemName}?`;
+    if (typeof this.ui?.confirmPickupShopItem === 'function') {
+        this.ui.confirmPickupShopItem(item, price, confirmMsg, (confirmed) => {
+            decisions.set(item, Boolean(confirmed));
+            this.requestShopPickupDecisionsForTile(x, y, onComplete, decisions, itemsToPrompt, itemIndex + 1);
+        });
+        return;
+    }
+
+    decisions.set(item, false);
+    this.requestShopPickupDecisionsForTile(x, y, onComplete, decisions, itemsToPrompt, itemIndex + 1);
 };
 
 // Returns a price for a shop item (simple formula, can be improved)
@@ -135,7 +161,7 @@ Game.prototype.triggerShopkeeperHostility = function(shopkeeper = null) {
     return activated;
 };
 
-Game.prototype.handleUnpaidShopExitAttempt = function(targetX, targetY) {
+Game.prototype.handleUnpaidShopExitAttempt = function(targetX, targetY, input = null) {
     const currentTile = this.world.getTile(this.player.x, this.player.y);
     const targetTile = this.world.getTile(targetX, targetY);
     if (currentTile !== TILE_TYPES.SHOP || targetTile === TILE_TYPES.SHOP) {
@@ -158,15 +184,25 @@ Game.prototype.handleUnpaidShopExitAttempt = function(targetX, targetY) {
 
     this.teleportShopkeeperNextToPlayer(shopkeeper, [{ x: targetX, y: targetY }]);
 
-    const decision = typeof this.ui?.promptShopExitDecision === 'function'
-        ? this.ui.promptShopExitDecision(
-            shopkeeper.name,
-            settlement.summaryText,
-            settlement.buyTotal,
-            settlement.sellTotal,
-            settlement.balanceLine
-        )
-        : 'no';
+    if (!Object.prototype.hasOwnProperty.call(input || {}, 'shopExitDecision')) {
+        if (typeof this.ui?.promptShopExitDecision === 'function') {
+            this.ui.promptShopExitDecision(
+                shopkeeper.name,
+                settlement.summaryText,
+                settlement.buyTotal,
+                settlement.sellTotal,
+                settlement.balanceLine,
+                (decision) => {
+                    this.performTurn({ ...(input || {}), shopExitDecision: decision });
+                }
+            );
+            return { pendingPrompt: true };
+        }
+
+        return { stayOnShopTile: true };
+    }
+
+    const decision = String(input?.shopExitDecision || 'no');
 
     if (decision === 'yes') {
         const result = typeof this.attemptShopSettlement === 'function'
@@ -237,7 +273,7 @@ Game.prototype.getPlayerMoveTarget = function(input) {
     };
 };
 
-Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY) {
+Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY, input = null) {
     const actorAtTarget = this.world.getActorAt(targetX, targetY);
     const canSwapWithActor = actorAtTarget
         && (actorAtTarget.isAlly || isNeutralNpcActor(actorAtTarget));
@@ -245,7 +281,21 @@ Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY) {
         return null;
     }
 
-    const shopExitAttempt = this.handleUnpaidShopExitAttempt(targetX, targetY);
+    const pendingShopItems = !(input?.shopPickupDecisions instanceof Map)
+        ? (this.world.getItems(targetX, targetY) || []).filter((item) => item?.properties?.shopOwned)
+        : [];
+    if (pendingShopItems.length > 0) {
+        this.requestShopPickupDecisionsForTile(targetX, targetY, (shopPickupDecisions) => {
+            this.performTurn({ ...(input || {}), shopPickupDecisions });
+        }, new Map(), pendingShopItems, 0);
+        return this.createPlayerMoveResult({ consumed: false, moved: false, actionType: 'shop-pickup-prompt' });
+    }
+
+    const shopExitAttempt = this.handleUnpaidShopExitAttempt(targetX, targetY, input);
+    if (shopExitAttempt?.pendingPrompt) {
+        return this.createPlayerMoveResult({ consumed: false, moved: false, actionType: 'shop-intercept' });
+    }
+
     if (shopExitAttempt?.stayOnShopTile) {
         this.player.tickConditions();
         this.clearFailedMoveRecord();
@@ -272,7 +322,7 @@ Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY) {
     this.player.y = targetY;
     this.clearFailedMoveRecord();
     this.tryWakeGuardedRoomEvent?.();
-    this.pickupItemsAfterMove(targetX, targetY);
+    this.pickupItemsAfterMove(targetX, targetY, input?.shopPickupDecisions || null);
     return this.createPlayerMoveResult({
         consumed: true,
         moved: true,
@@ -286,7 +336,21 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
         return this.createPlayerMoveResult({ consumed: false, moved: false });
     }
 
-    const shopExitAttempt = this.handleUnpaidShopExitAttempt(targetX, targetY);
+    const pendingShopItems = !(input?.shopPickupDecisions instanceof Map)
+        ? (this.world.getItems(targetX, targetY) || []).filter((item) => item?.properties?.shopOwned)
+        : [];
+    if (pendingShopItems.length > 0) {
+        this.requestShopPickupDecisionsForTile(targetX, targetY, (shopPickupDecisions) => {
+            this.performTurn({ ...(input || {}), shopPickupDecisions });
+        }, new Map(), pendingShopItems, 0);
+        return this.createPlayerMoveResult({ consumed: false, moved: false, actionType: 'shop-pickup-prompt' });
+    }
+
+    const shopExitAttempt = this.handleUnpaidShopExitAttempt(targetX, targetY, input);
+    if (shopExitAttempt?.pendingPrompt) {
+        return this.createPlayerMoveResult({ consumed: false, moved: false, actionType: 'shop-intercept' });
+    }
+
     if (shopExitAttempt?.stayOnShopTile) {
         this.player.tickConditions();
         this.clearFailedMoveRecord();
@@ -304,7 +368,7 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
 
     this.clearFailedMoveRecord();
     this.applyPlayerTrapAtCurrentPosition();
-    this.pickupItemsAfterMove(targetX, targetY);
+    this.pickupItemsAfterMove(targetX, targetY, input?.shopPickupDecisions || null);
     const hazardTransition = this.player.checkHazards(this.world);
 
     if (hazardTransition?.requiresDungeonSelection) {
@@ -342,7 +406,7 @@ Game.prototype.processPlayerMoveTurn = function(input) {
     }
 
     const moveTarget = this.getPlayerMoveTarget(input);
-    const swapResult = this.trySwapPlayerWithFriendlyActor(moveTarget.x, moveTarget.y);
+    const swapResult = this.trySwapPlayerWithFriendlyActor(moveTarget.x, moveTarget.y, input);
     if (swapResult) {
         return this.createPlayerTurnResult({
             consumed: swapResult.consumed,

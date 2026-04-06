@@ -426,6 +426,13 @@ Game.prototype.stallAllyWithHandler = function(ally) {
         return;
     }
 
+    const currentAllyExp = Math.max(0, Math.floor(Number(ally.allyExp) || 0));
+    const lostExp = Math.floor(currentAllyExp / 2);
+    ally.allyExp = Math.max(0, currentAllyExp - lostExp);
+    if (typeof ally.getAllyExpToNextLevel === 'function') {
+        ally.allyExpToNextLevel = ally.getAllyExpToNextLevel();
+    }
+
     const handler = this.getHandlerNpc();
     if (!handler) {
         if (typeof ally.untame === 'function') {
@@ -438,6 +445,9 @@ Game.prototype.stallAllyWithHandler = function(ally) {
     this.player.removeAlly(ally);
     stalledAllies.push(ally);
     this.ui.addMessage(`${handler.name} brings ${ally.name} to safety.`);
+    if (lostExp > 0) {
+        this.ui.addMessage(`${ally.name} loses ${lostExp} ally EXP from the setback.`);
+    }
 };
 
 Game.prototype.getHandlerNpc = function() {

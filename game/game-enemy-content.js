@@ -43,8 +43,9 @@ Object.assign(Game.prototype, {
     },
 
     shouldUnlockSecondQuestgiver() {
-        return this.world?.hasCompletedDungeonPath?.('graspingPillars')
-            && this.world?.hasCompletedDungeonPath?.('anomalousRuins');
+        const requiredCompletedPaths = getDungeonWorldEventRequiredCompletedPaths('secondQuestgiver');
+        return requiredCompletedPaths.length > 0
+            && requiredCompletedPaths.every((pathId) => this.world?.hasCompletedDungeonPath?.(pathId));
     },
 
     ensureSecondQuestgiverAvailability() {
@@ -62,13 +63,15 @@ Object.assign(Game.prototype, {
             return existingSecond;
         }
 
-        const secondQuestgiver = this.createEnemyForType(0, 0, 'npcQuestgiverTier1', 0);
+        const eventRule = getDungeonWorldEventRule('secondQuestgiver') || {};
+        const npcTypeKey = typeof eventRule.npcTypeKey === 'string' ? eventRule.npcTypeKey : 'npcQuestgiverTier1';
+        const secondQuestgiver = this.createEnemyForType(0, 0, npcTypeKey, 0);
         if (!secondQuestgiver) {
             return null;
         }
 
         secondQuestgiver.isSecondQuestgiver = true;
-        secondQuestgiver.name = 'Questgiver (second)';
+        secondQuestgiver.name = typeof eventRule.npcName === 'string' ? eventRule.npcName : 'Questgiver (second)';
         this.persistentOverworldNpcs.push(secondQuestgiver);
         return secondQuestgiver;
     },

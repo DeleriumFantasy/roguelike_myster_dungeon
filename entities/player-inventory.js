@@ -5,7 +5,7 @@ Object.assign(Player.prototype, {
         const configuredLimit = Number(this.maxInventoryItems);
         return Number.isFinite(configuredLimit) && configuredLimit > 0
             ? Math.floor(configuredLimit)
-            : 20;
+            : 30;
     },
 
     getBackpackItems() {
@@ -29,6 +29,10 @@ Object.assign(Player.prototype, {
     },
 
     hasInventorySpaceFor(item = null, options = {}) {
+        if (item?.type === ITEM_TYPES.MONEY) {
+            return true;
+        }
+
         if (item && this.isStackableItem(item) && this.findMatchingThrowableStack(item)) {
             return true;
         }
@@ -107,6 +111,32 @@ Object.assign(Player.prototype, {
 
     isStackableItem(item) {
         return Boolean(item) && item.type === ITEM_TYPES.THROWABLE;
+    },
+
+    getMoneyItemValue(item) {
+        const configuredValue = Number(item?.properties?.value);
+        if (Number.isFinite(configuredValue) && configuredValue > 0) {
+            return Math.max(1, Math.floor(configuredValue));
+        }
+
+        const minValue = Number(item?.properties?.valueMin);
+        const maxValue = Number(item?.properties?.valueMax);
+        if (Number.isFinite(minValue) || Number.isFinite(maxValue)) {
+            const fallbackValue = Number.isFinite(maxValue) ? maxValue : minValue;
+            return Math.max(1, Math.floor(fallbackValue));
+        }
+
+        return 1;
+    },
+
+    collectMoneyItem(item) {
+        if (!item || item.type !== ITEM_TYPES.MONEY) {
+            return 0;
+        }
+
+        const value = this.getMoneyItemValue(item);
+        this.money = Math.max(0, Math.floor(Number(this.money) || 0)) + value;
+        return value;
     },
 
     getItemQuantity(item) {
@@ -207,6 +237,11 @@ Object.assign(Player.prototype, {
     addItem(item) {
         if (!item) {
             return false;
+        }
+
+        if (item.type === ITEM_TYPES.MONEY) {
+            this.collectMoneyItem(item);
+            return true;
         }
 
         if (this.isStackableItem(item)) {

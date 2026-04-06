@@ -239,12 +239,19 @@ class PixiSceneOverlay {
         return graphics;
     }
 
-    getTextStyle(styleKey, options) {
-        if (!this.textStyleCache.has(styleKey)) {
-            this.textStyleCache.set(styleKey, new PIXI.TextStyle(options));
+    getTextStyle(styleKey, options = {}) {
+        let cacheKey = String(styleKey || 'text');
+        try {
+            cacheKey = `${cacheKey}:${JSON.stringify(options || {})}`;
+        } catch (_error) {
+            // Fall back to the plain key if the options object cannot be serialized.
         }
 
-        return this.textStyleCache.get(styleKey);
+        if (!this.textStyleCache.has(cacheKey)) {
+            this.textStyleCache.set(cacheKey, new PIXI.TextStyle(options));
+        }
+
+        return this.textStyleCache.get(cacheKey);
     }
 
     acquireText(styleKey, options, text = '') {

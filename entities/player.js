@@ -17,7 +17,7 @@ class Player {
         this.equipmentGrantedConditions = new Set();
         this.equipment = new Map();
         this.inventory = [];
-        this.maxInventoryItems = 20;
+        this.maxInventoryItems = 30;
         this.allies = [];
         // EXP / level
         this.exp = 0;

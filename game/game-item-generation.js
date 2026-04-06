@@ -250,23 +250,34 @@ Object.assign(Game.prototype, {
     },
 
     seedPlayerInventory() {
-        this.equipStartingCheaterLoadout();
+        return this.equipStartingCheaterLoadout();
     },
 
     equipStartingCheaterLoadout() {
         const cheaterItems = [
-            createTieredItem('weapon', 0),
-            createTieredItem('armor', 0),
-            createTieredItem('shield', 0),
-            createTieredItem('accessory', 0)
+            { slot: ITEM_TYPES.WEAPON, item: createTieredItem('weapon', 0) },
+            { slot: ITEM_TYPES.ARMOR, item: createTieredItem('armor', 0) },
+            { slot: ITEM_TYPES.SHIELD, item: createTieredItem('shield', 0) },
+            { slot: ITEM_TYPES.ACCESSORY, item: createTieredItem('accessory', 0) }
         ];
+        let equippedCount = 0;
 
-        for (const item of cheaterItems) {
+        for (const entry of cheaterItems) {
+            const item = entry?.item;
             if (!item) {
                 continue;
             }
 
-            this.player.equipItem(item);
+            const equippedItem = this.player?.equipment?.get?.(entry.slot) || null;
+            if (equippedItem?.name && String(equippedItem.name).startsWith('Cheater ')) {
+                continue;
+            }
+
+            if (this.player.equipItem(item)) {
+                equippedCount += 1;
+            }
         }
+
+        return equippedCount;
     }
 });

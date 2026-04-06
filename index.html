@@ -155,6 +155,71 @@
             width: min(420px, calc(100vw - 24px));
             box-sizing: border-box;
         }
+        #game-prompt-modal {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 1150;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.45);
+            pointer-events: auto;
+        }
+        #game-prompt-modal.is-open {
+            display: flex;
+        }
+        #game-prompt-card {
+            width: min(480px, calc(100vw - 32px));
+            max-height: min(70vh, 560px);
+            overflow-y: auto;
+            box-sizing: border-box;
+            background: rgba(18, 18, 18, 0.98);
+            border: 1px solid #666;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+            padding: 16px;
+        }
+        #game-prompt-title {
+            margin: 0 0 10px;
+            font-size: 16px;
+        }
+        #game-prompt-message {
+            white-space: pre-wrap;
+            line-height: 1.35;
+            margin-bottom: 12px;
+            color: #e5e7eb;
+        }
+        #game-prompt-input {
+            display: none;
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 12px;
+            padding: 8px 10px;
+            background: #0f0f0f;
+            color: #fff;
+            border: 1px solid #666;
+            font-family: inherit;
+        }
+        #game-prompt-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+        }
+        #game-prompt-buttons button {
+            background: #111;
+            color: #fff;
+            border: 1px solid #666;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        #game-prompt-buttons button:hover {
+            background: #333;
+        }
+        #game-prompt-buttons button.game-prompt-primary {
+            border-color: #9bd1ff;
+            background: #17324a;
+        }
         #dungeon-selection-modal h3 {
             margin: 0 0 10px;
             font-size: 16px;
@@ -212,6 +277,14 @@
         <div id="info-panel">
             <div id="stats"></div>
             <div id="messages"></div>
+        </div>
+        <div id="game-prompt-modal" aria-hidden="true">
+            <div id="game-prompt-card" role="dialog" aria-modal="true" aria-labelledby="game-prompt-title">
+                <h3 id="game-prompt-title">Prompt</h3>
+                <div id="game-prompt-message"></div>
+                <input id="game-prompt-input" type="text" autocomplete="off">
+                <div id="game-prompt-buttons"></div>
+            </div>
         </div>
     </div>
     <div id="inventory-modal">

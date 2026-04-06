@@ -87,6 +87,8 @@ class UI {
         this.mapOpen = false;
         this.settingsOpen = false;
         this.dungeonSelectionOpen = false;
+        this.gamePromptOpen = false;
+        this.activeGamePromptConfig = null;
         this.angledTopDown = true;
         this.perspectiveRowStepRatio = 1;
         this.perspectiveWallLiftRatio = 0.18;

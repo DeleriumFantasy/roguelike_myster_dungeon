@@ -540,8 +540,12 @@ Object.assign(Game.prototype, {
         const pickedNames = [];
         for (const item of [...items]) {
             if (item.type === ITEM_TYPES.MONEY) {
-                const value = this.getValidMoneyValue(item);
-                this.player.money = (this.player.money || 0) + value;
+                const value = typeof this.player?.collectMoneyItem === 'function'
+                    ? this.player.collectMoneyItem(item)
+                    : this.getValidMoneyValue(item);
+                if (typeof this.player?.collectMoneyItem !== 'function') {
+                    this.player.money = (this.player.money || 0) + value;
+                }
                 this.world.removeItem(x, y, item);
                 pickedNames.push(`${value} money`);
                 continue;

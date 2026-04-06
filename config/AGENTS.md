@@ -11,7 +11,7 @@
 - `rules.js`: read-only helpers for interpreting condition, hazard, and traversal rule tables.
 - `terrain-constants.js`: tile visuals, autotiling helpers, terrain lookups, and static presentation for special tiles like the red shop floor.
 - `input-constants.js`: key bindings and input interpretation helpers.
-- `generation-constants.js`: area generation rules, premade terrain layouts, weather spawn weights per area type, dungeon path definitions, and dungeon shop placement data.
+- `generation-constants.js`: area generation rules, premade terrain layouts, weather spawn weights per area type, dungeon path definitions, path unlock chains, world-event progression rules, and dungeon shop placement data.
 - `enemy-definitions.js`: enemy templates and spawn-related enemy metadata.
 - `combat-rules.js`: shared pure combat math and EXP progression helpers (no actor state mutation).
 
@@ -29,10 +29,12 @@
 - Add new rule-table readers to `rules.js`.
 - Add new static visual mappings to `terrain-constants.js`.
 - Put premade shop layouts and placement chances in `generation-constants.js`.
+- Put dungeon path area sequences, `startsUnlocked`, `unlocksOnComplete`, and world progression event requirements/messages in `generation-constants.js`.
 - Add new key binding interpretation to `input-constants.js`.
 
 ## Common Mistakes
 
 - Do not move runtime behavior here just because it uses constants.
+- Do not hardcode dungeon path unlock chains or progression event requirements in runtime files when a config table in `generation-constants.js` can express them.
 - Do not create duplicate rule readers in runtime files when `rules.js` can expose them once.
 - Keep these files early-load safe because many later scripts assume their globals already exist.
