@@ -22,6 +22,8 @@ class Game {
             autoExploreDescendImmediately: false,
             alliesPassive: false
         };
+        this.maxUndoStates = 5;
+        this.undoHistory = [];
         this.inputController = new GameInputController(this);
 
         this.inputController.attach();
@@ -40,6 +42,301 @@ class Game {
         this.canvas.width = nextWidth;
         this.canvas.height = nextHeight;
         this.ui?.handleCanvasResize?.();
+    }
+
+    getAvailableUndoCount() {
+        return Array.isArray(this.undoHistory) ? this.undoHistory.length : 0;
+    }
+
+    cloneUndoValue(value, seen = new WeakMap()) {
+        if (value === null || typeof value !== 'object') {
+            return value;
+        }
+
+        if (seen.has(value)) {
+            return seen.get(value);
+        }
+
+        if (value instanceof Map) {
+            const clone = new Map();
+            seen.set(value, clone);
+            for (const [entryKey, entryValue] of value.entries()) {
+                clone.set(this.cloneUndoValue(entryKey, seen), this.cloneUndoValue(entryValue, seen));
+            }
+            return clone;
+        }
+
+        if (value instanceof Set) {
+            const clone = new Set();
+            seen.set(value, clone);
+            for (const entry of value.values()) {
+                clone.add(this.cloneUndoValue(entry, seen));
+            }
+            return clone;
+        }
+
+        if (Array.isArray(value)) {
+            const clone = [];
+            seen.set(value, clone);
+            for (const entry of value) {
+                clone.push(this.cloneUndoValue(entry, seen));
+            }
+            return clone;
+        }
+
+        const clone = {};
+        seen.set(value, clone);
+        for (const [key, entryValue] of Object.entries(value)) {
+            clone[key] = this.cloneUndoValue(entryValue, seen);
+        }
+        return clone;
+    }
+
+    looksLikeUndoWorld(value) {
+        return Boolean(
+            value
+            && Array.isArray(value.floors)
+            && value.pathFloors
+            && typeof value.currentFloor === 'number'
+            && value.unlockedDungeonPathIds instanceof Set
+            && value.completedDungeonPathIds instanceof Set
+        );
+    }
+
+    looksLikeUndoPlayer(value) {
+        return Boolean(
+            value
+            && Array.isArray(value.inventory)
+            && value.equipment instanceof Map
+            && value.conditions instanceof Map
+            && typeof value.maxHunger === 'number'
+            && value.questgiverState
+        );
+    }
+
+    looksLikeUndoEnemy(value) {
+        return Boolean(
+            value
+            && typeof value.aiType === 'string'
+            && typeof value.monsterType === 'string'
+            && value.equipment instanceof Map
+            && value.swallowedItems instanceof Map
+            && typeof value.isAlly === 'boolean'
+        );
+    }
+
+    looksLikeUndoItem(value) {
+        return Boolean(
+            value
+            && typeof value.name === 'string'
+            && typeof value.type === 'string'
+            && value.properties
+            && Object.prototype.hasOwnProperty.call(value, 'knowledgeState')
+        );
+    }
+
+    looksLikeUndoFov(value) {
+        return Boolean(
+            value
+            && Array.isArray(value.grid)
+            && value.visible instanceof Set
+            && value.explored instanceof Set
+            && !Object.prototype.hasOwnProperty.call(value, 'meta')
+        );
+    }
+
+    rehydrateUndoValue(value, seen = new WeakSet()) {
+        if (value === null || typeof value !== 'object' || seen.has(value)) {
+            return value;
+        }
+
+        seen.add(value);
+
+        if (value instanceof Map) {
+            for (const [entryKey, entryValue] of value.entries()) {
+                this.rehydrateUndoValue(entryKey, seen);
+                this.rehydrateUndoValue(entryValue, seen);
+            }
+            return value;
+        }
+
+        if (value instanceof Set) {
+            for (const entry of value.values()) {
+                this.rehydrateUndoValue(entry, seen);
+            }
+            return value;
+        }
+
+        if (this.looksLikeUndoWorld(value)) {
+            Object.setPrototypeOf(value, World.prototype);
+        } else if (this.looksLikeUndoPlayer(value)) {
+            Object.setPrototypeOf(value, Player.prototype);
+        } else if (this.looksLikeUndoEnemy(value)) {
+            Object.setPrototypeOf(value, Enemy.prototype);
+        } else if (this.looksLikeUndoItem(value)) {
+            Object.setPrototypeOf(value, Item.prototype);
+        } else if (this.looksLikeUndoFov(value)) {
+            Object.setPrototypeOf(value, FOV.prototype);
+        }
+
+        if (Array.isArray(value)) {
+            for (const entry of value) {
+                this.rehydrateUndoValue(entry, seen);
+            }
+            return value;
+        }
+
+        for (const entryValue of Object.values(value)) {
+            this.rehydrateUndoValue(entryValue, seen);
+        }
+
+        return value;
+    }
+
+    createUndoSnapshot() {
+        return this.cloneUndoValue({
+            seed: this.seed,
+            world: this.world,
+            player: this.player,
+            persistentOverworldNpcs: this.persistentOverworldNpcs,
+            settings: this.settings,
+            lastFailedMove: this.lastFailedMove,
+            uiMessages: this.ui?.messages || []
+        });
+    }
+
+    commitUndoSnapshot(snapshot) {
+        if (!snapshot) {
+            return;
+        }
+
+        if (!Array.isArray(this.undoHistory)) {
+            this.undoHistory = [];
+        }
+
+        this.undoHistory.push(snapshot);
+        if (this.undoHistory.length > this.maxUndoStates) {
+            this.undoHistory.splice(0, this.undoHistory.length - this.maxUndoStates);
+        }
+    }
+
+    rebuildUndoRuntimeState() {
+        const floorsToRepair = [];
+
+        if (Array.isArray(this.world?.floors)) {
+            floorsToRepair.push(...this.world.floors);
+        }
+
+        if (this.world?.pathFloors && typeof this.world.pathFloors === 'object') {
+            for (const floorList of Object.values(this.world.pathFloors)) {
+                if (Array.isArray(floorList)) {
+                    floorsToRepair.push(...floorList);
+                }
+            }
+        }
+
+        for (const floor of floorsToRepair) {
+            if (!floor || !Array.isArray(floor.grid)) {
+                continue;
+            }
+
+            if (!(floor.fov instanceof FOV)) {
+                floor.fov = new FOV(floor.grid);
+            } else {
+                floor.fov.grid = floor.grid;
+            }
+
+            if (!(floor.hazards instanceof Map)) {
+                floor.hazards = new Map(floor.hazards || []);
+            }
+
+            if (!(floor.traps instanceof Map)) {
+                floor.traps = new Map(floor.traps || []);
+            }
+
+            if (!(floor.revealedTraps instanceof Set)) {
+                floor.revealedTraps = new Set(floor.revealedTraps || []);
+            }
+
+            if (!(floor.items instanceof Map)) {
+                floor.items = new Map(floor.items || []);
+            }
+
+            if (!Array.isArray(floor.enemies)) {
+                floor.enemies = [];
+            }
+
+            if (!Array.isArray(floor.npcs)) {
+                floor.npcs = [];
+            }
+
+            floor.enemyOccupancy = new Map();
+            for (const enemy of floor.enemies) {
+                if (!enemy || !enemy.isAlive?.()) {
+                    continue;
+                }
+
+                const key = toGridKey(enemy.x, enemy.y);
+                floor.enemyOccupancy.set(key, enemy);
+                enemy._occupancyKey = key;
+                enemy._occupancyFloorIndex = this.world.currentFloor;
+            }
+        }
+    }
+
+    restoreUndoSnapshot(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') {
+            return false;
+        }
+
+        this.stopAutoExplore?.();
+        this.inputController?.reset?.();
+
+        this.rehydrateUndoValue(snapshot);
+
+        this.seed = Number.isFinite(snapshot.seed) ? snapshot.seed : this.seed;
+        this.world = snapshot.world;
+        this.player = snapshot.player;
+        this.persistentOverworldNpcs = Array.isArray(snapshot.persistentOverworldNpcs)
+            ? snapshot.persistentOverworldNpcs
+            : [];
+        this.settings = snapshot.settings && typeof snapshot.settings === 'object'
+            ? snapshot.settings
+            : this.settings;
+        this.lastFailedMove = snapshot.lastFailedMove || null;
+        this.inventoryOpen = false;
+        this.isGameOver = false;
+        this.fovCache = null;
+
+        if (this.ui) {
+            this.ui.closeInventory?.();
+            this.ui.activeVisualEffects = [];
+            this.ui.messages = Array.isArray(snapshot.uiMessages) ? [...snapshot.uiMessages] : [];
+        }
+
+        this.rebuildUndoRuntimeState();
+        this.updateFOV();
+        this.ui?.render?.(this.world, this.player, this.fov);
+        return true;
+    }
+
+    undoLastTurn() {
+        if (!Array.isArray(this.undoHistory) || this.undoHistory.length === 0) {
+            this.ui?.addMessage?.('No undo is available.');
+            this.ui?.render?.(this.world, this.player, this.fov);
+            return false;
+        }
+
+        const snapshot = this.undoHistory.pop();
+        if (!this.restoreUndoSnapshot(snapshot)) {
+            this.ui?.addMessage?.('Undo failed.');
+            this.ui?.render?.(this.world, this.player, this.fov);
+            return false;
+        }
+
+        this.ui?.addMessage?.(`Undid the last action. ${this.getAvailableUndoCount()}/${this.maxUndoStates} stored states remain.`);
+        this.ui?.render?.(this.world, this.player, this.fov);
+        return true;
     }
 
     lookTowards(dx, dy) {
@@ -218,6 +515,8 @@ class Game {
             return;
         }
 
+        this.player.hungerLossDisabled = this.isOverworldFloor(this.world.currentFloor);
+
         // Handle auto-explore
         if (this.autoExploreActive && !input) {
             const autoMoveInput = this.performAutoExploreTurn();
@@ -228,11 +527,14 @@ class Game {
         }
 
         const startFloor = this.world.currentFloor;
+        const pendingUndoSnapshot = this.createUndoSnapshot();
 
         const playerTurnResult = this.processPlayerTurn(input);
         if (!playerTurnResult?.consumed) {
             return;
         }
+
+        this.commitUndoSnapshot(pendingUndoSnapshot);
 
         if (!this.player.isAlive()) {
             this.finishGameOverState();
@@ -240,7 +542,9 @@ class Game {
         }
 
         // Per-turn player effects
-        this.player.applyPerTurnRegen();
+        this.player.applyPerTurnRegen({
+            disableHungerEffects: this.isOverworldFloor(this.world.currentFloor)
+        });
         this.advanceActiveFloorEventTurn?.();
 
         this.handleFloorChange(startFloor);
@@ -311,11 +615,12 @@ class Game {
         this.resetPlayerForNewRunPreservingBank();
         this.seed = this.generateNewSeed();
         this.world = new World(this.seed);
-        this.populateCurrentFloorIfNeeded();
         this.spawnPlayerOnFloor();
+        this.populateCurrentFloorIfNeeded();
+        this.clearNearbyHostileEnemiesFromPlayerSpawn?.();
         this.updateFOV();
         this.ui.render(this.world, this.player, this.fov);
-        this.ui.addMessage('A new run begins. Banked storage and overworld NPC state were preserved.');
+        this.ui.addMessage('A new run begins. Banked storage and overworld NPC state were preserved. Press U or Ctrl+Z to undo if needed.');
     }
 
     handleFloorChange(previousFloor) {
@@ -326,8 +631,12 @@ class Game {
         this.trackQuestProgressForFloorVisit?.(this.world.currentFloor);
         this.populateCurrentFloorIfNeeded();
         this.spawnAlliesOnCurrentFloor();
+        this.clearNearbyHostileEnemiesFromPlayerSpawn?.();
         if (this.isOverworldFloor(this.world.currentFloor)) {
-            this.ui.addMessage('You return to the overworld.');
+            this.player.heal(this.player.maxHealth);
+            this.player.restoreHunger(this.player.maxHunger);
+            this.player.hungerLossDisabled = true;
+            this.ui.addMessage('You return to the overworld, restored to full health and hunger.');
         } else if (this.isOverworldFloor(previousFloor)) {
             this.ui.addMessage(`You enter the dungeon on floor ${this.getDisplayFloorLabel(this.world.currentFloor)}.`);
         } else {
@@ -374,25 +683,35 @@ class Game {
 
     dropPlayerItems() {
         const itemsToDrop = [];
+        let removedEquippedItems = false;
 
-        // Collect equipped items
+        // Collect equipped items and remove them directly from equipment.
+        // Trip traps should drop gear to the ground, not route it through the backpack.
         if (typeof this.player?.getEquippedItems === 'function') {
             const equippedItems = this.player.getEquippedItems();
             for (const [slot, item] of equippedItems) {
-                if (item) {
-                    itemsToDrop.push(item);
-                    this.player.unequipItem(slot);
+                if (!item) {
+                    continue;
+                }
+
+                itemsToDrop.push(item);
+                if (this.player.equipment instanceof Map) {
+                    this.player.equipment.delete(slot);
+                    removedEquippedItems = true;
                 }
             }
         }
 
-        // If no equipped items, drop inventory instead
+        if (removedEquippedItems && typeof this.player?.updateStats === 'function') {
+            this.player.updateStats();
+        }
+
+        // If no equipped items, drop inventory instead.
         if (itemsToDrop.length === 0 && Array.isArray(this.player?.inventory)) {
             itemsToDrop.push(...this.player.inventory);
             this.player.inventory = [];
         }
 
-        // Drop items near player
         if (itemsToDrop.length > 0) {
             this.dropItemsNearEnemy(this.player, itemsToDrop);
         }

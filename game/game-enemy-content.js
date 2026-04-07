@@ -170,12 +170,37 @@ Object.assign(Game.prototype, {
         });
     },
 
+    getNewFloorEnemySpawnSafetyRadius() {
+        return 4;
+    },
+
+    clearNearbyHostileEnemiesFromPlayerSpawn(radius = this.getNewFloorEnemySpawnSafetyRadius()) {
+        const safeRadius = Math.max(0, Math.floor(Number(radius) || 0));
+        if (safeRadius <= 0 || !this.player || !this.world?.getEnemies) {
+            return 0;
+        }
+
+        const enemiesToRemove = (this.world.getEnemies() || [])
+            .filter((enemy) => enemy?.isAlive?.() && !enemy.isAlly)
+            .filter((enemy) => Math.max(
+                Math.abs(Number(enemy.x) - Number(this.player.x)),
+                Math.abs(Number(enemy.y) - Number(this.player.y))
+            ) <= safeRadius);
+
+        for (const enemy of enemiesToRemove) {
+            this.world.removeEnemy(enemy);
+        }
+
+        return enemiesToRemove.length;
+    },
+
     spawnPremadeLegendEnemies(rng, floorIndex = this.world.currentFloor) {
         const floor = this.world.getCurrentFloor();
         const premadeEnemySpawns = Array.isArray(floor?.meta?.premadeEnemySpawns)
             ? floor.meta.premadeEnemySpawns
             : [];
         const enemyEntries = this.getEnemySpawnEntriesForFloor(floorIndex);
+        const spawnSafetyRadius = this.getNewFloorEnemySpawnSafetyRadius();
 
         for (const spawn of premadeEnemySpawns) {
             const x = Number(spawn?.x);
@@ -190,7 +215,9 @@ Object.assign(Game.prototype, {
             }
 
             const enemy = this.createEnemyForType(0, 0, chosenEntry.key, floorIndex);
-            if (!this.world.canEnemyOccupy(x, y, this.player, null, enemy)) {
+            if (!this.world.canEnemyOccupy(x, y, this.player, null, enemy, {
+                minDistanceFromPlayer: spawnSafetyRadius
+            })) {
                 continue;
             }
 
@@ -211,13 +238,16 @@ Object.assign(Game.prototype, {
         }
 
         this.ensureSecondQuestgiverAvailability();
+        const spawnSafetyRadius = this.getNewFloorEnemySpawnSafetyRadius();
 
         for (const npc of this.persistentOverworldNpcs) {
             if (!npc?.isAlive?.()) {
                 continue;
             }
 
-            const spawn = this.world.findRandomOpenTile(rng, this.player, 200, npc);
+            const spawn = this.world.findRandomOpenTile(rng, this.player, 200, npc, {
+                minDistanceFromPlayer: spawnSafetyRadius
+            });
             if (!spawn) {
                 continue;
             }
@@ -247,6 +277,7 @@ Object.assign(Game.prototype, {
         const enemyEntries = this.getEnemySpawnEntriesForFloor(floorIndex);
         const npcEntries = enemyEntries.filter((entry) => this.isDungeonNpcTypeKey(entry.key));
         const nonNpcEntries = enemyEntries.filter((entry) => !this.isDungeonNpcTypeKey(entry.key));
+        const spawnSafetyRadius = this.getNewFloorEnemySpawnSafetyRadius();
 
         let remainingSpawns = enemyCount;
 
@@ -255,7 +286,9 @@ Object.assign(Game.prototype, {
             const npcEntry = this.chooseWeightedEntry(rng, npcEntries);
             if (npcEntry) {
                 const npc = this.createEnemyForType(0, 0, npcEntry.key, floorIndex);
-                const npcSpawn = this.world.findRandomOpenTile(rng, this.player, 200, npc);
+                const npcSpawn = this.world.findRandomOpenTile(rng, this.player, 200, npc, {
+                    minDistanceFromPlayer: spawnSafetyRadius
+                });
                 if (npcSpawn) {
                     this.assignActorPosition(npc, npcSpawn);
                     this.addEnemyIfMissing(npc);
@@ -273,7 +306,9 @@ Object.assign(Game.prototype, {
 
             const enemyTypeKey = chosenEntry.key;
             const enemy = this.createEnemyForType(0, 0, enemyTypeKey, floorIndex);
-            const spawn = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
+            const spawn = this.world.findRandomOpenTile(rng, this.player, 200, enemy, {
+                minDistanceFromPlayer: spawnSafetyRadius
+            });
             if (!spawn) {
                 continue;
             }

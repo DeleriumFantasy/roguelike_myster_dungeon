@@ -41,11 +41,11 @@ Object.assign(PixiSceneOverlay.prototype, {
     },
 
     getVisibleActors(ui, world, player, fov) {
-        const visibleActors = [player];
         if (ui.isActorBlind(player)) {
-            return visibleActors;
+            return [];
         }
 
+        const visibleActors = [player];
         for (const actor of world.getAllActors?.() || world.getEnemies?.() || []) {
             if (!actor || actor === player || !ui.isEnemyVisibleInFov(actor, fov)) {
                 continue;

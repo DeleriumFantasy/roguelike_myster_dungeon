@@ -164,7 +164,9 @@ Object.assign(Game.prototype, {
 
     buildPotTargetsForPlayer(potItem) {
         return this.buildPlayerInventoryTargets(
-            (candidate) => candidate !== potItem && !candidate?.properties?.shopUnpaid,
+            (candidate) => candidate !== potItem
+                && !candidate?.properties?.shopUnpaid
+                && !candidate?.isPotItem?.(),
             {
                 includeEquipped: false,
                 excludeItems: [potItem]
@@ -203,6 +205,10 @@ Object.assign(Game.prototype, {
 
         if (!potItem?.isPotItem?.() || !targetItem || targetItem === potItem) {
             return { stored: false, messages: [`Could not place an item into ${potLabel}.`] };
+        }
+
+        if (targetItem?.isPotItem?.()) {
+            return { stored: false, messages: ["Pots can't contain other pots."] };
         }
 
         if (targetItem?.properties?.shopUnpaid) {

@@ -288,7 +288,7 @@ function createRandomizedPotResultItem(sourceItem = null, rng = null, floorIndex
 
         if (Number.isFinite(chosenTier)) {
             const transformedItem = createTieredItem(match.category, chosenTier, rng);
-            if (transformedItem) {
+            if (transformedItem && !transformedItem?.isPotItem?.()) {
                 if (sourceItem?.type === ITEM_TYPES.THROWABLE && transformedItem.type === ITEM_TYPES.THROWABLE) {
                     transformedItem.setQuantity?.(sourceItem.getQuantity?.() || 1);
                 }
@@ -302,14 +302,27 @@ function createRandomizedPotResultItem(sourceItem = null, rng = null, floorIndex
         : clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 4);
     const weightedEntries = getWeightedItemEntriesForTier(fallbackTier)
         .filter((entry) => entry?.category !== 'money');
-    const chosenEntry = chooseWeightedItemEntry(weightedEntries, rng);
-    const transformedItem = chosenEntry?.create?.(rng) || createTieredItem('food', fallbackTier, rng);
 
-    if (sourceItem?.type === ITEM_TYPES.THROWABLE && transformedItem?.type === ITEM_TYPES.THROWABLE) {
-        transformedItem.setQuantity?.(sourceItem.getQuantity?.() || 1);
+    for (let attempt = 0; attempt < 12; attempt++) {
+        const chosenEntry = chooseWeightedItemEntry(weightedEntries, rng);
+        const transformedItem = chosenEntry?.create?.(rng) || null;
+        if (!transformedItem || transformedItem?.isPotItem?.()) {
+            continue;
+        }
+
+        if (sourceItem?.type === ITEM_TYPES.THROWABLE && transformedItem.type === ITEM_TYPES.THROWABLE) {
+            transformedItem.setQuantity?.(sourceItem.getQuantity?.() || 1);
+        }
+
+        return transformedItem;
     }
 
-    return transformedItem;
+    const fallbackItem = createTieredItem('food', fallbackTier, rng);
+    if (sourceItem?.type === ITEM_TYPES.THROWABLE && fallbackItem?.type === ITEM_TYPES.THROWABLE) {
+        fallbackItem.setQuantity?.(sourceItem.getQuantity?.() || 1);
+    }
+
+    return fallbackItem;
 }
 
 function transformItemForPot(sourceItem, potItem, options = {}) {

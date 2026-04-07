@@ -1193,8 +1193,9 @@ Object.assign(Game.prototype, {
     },
 
     initializeGame() {
-        this.populateCurrentFloorIfNeeded();
         this.spawnPlayerOnFloor();
+        this.populateCurrentFloorIfNeeded();
+        this.clearNearbyHostileEnemiesFromPlayerSpawn?.();
 
         this.updateFOV();
         this.ui.render(this.world, this.player, this.fov);

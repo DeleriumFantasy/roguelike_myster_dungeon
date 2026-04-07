@@ -7,6 +7,10 @@ Object.assign(PixiSceneOverlay.prototype, {
     renderActors(renderState) {
         const { ui, player, tileSize, visibleActors } = renderState;
 
+        if (renderState.playerBlind) {
+            return;
+        }
+
         for (const actor of visibleActors) {
             if (actor === player) {
                 continue;
@@ -47,6 +51,7 @@ Object.assign(PixiSceneOverlay.prototype, {
 
         if (isPlayer) {
             this.renderPlayerFacingArrow(actor, centerX, centerY + bobOffset, tileSize);
+            this.renderPlayerLowHungerAlert(actor, centerX, screenPos.y, tileSize, bobOffset);
             this.renderHealthBar(actor, screenPos.x, screenPos.y, HEALTH_BAR_PALETTES.player, tileSize);
             return;
         }
@@ -94,6 +99,27 @@ Object.assign(PixiSceneOverlay.prototype, {
         ]);
         this.actorLayer.endFill();
         this.actorLayer.lineStyle(0, 0, 0);
+    },
+
+    renderPlayerLowHungerAlert(player, centerX, screenY, tileSize, bobOffset = 0) {
+        const hunger = Number(player?.hunger || 0);
+        if (!Number.isFinite(hunger) || hunger > 5) {
+            return;
+        }
+
+        const text = this.acquireText('player-low-hunger-alert', {
+            fontFamily: 'monospace',
+            fontSize: Math.max(10, Math.floor(tileSize * 0.72)),
+            fontWeight: '900',
+            fill: '#ffdd57',
+            stroke: '#000000',
+            strokeThickness: Math.max(2, Math.round(tileSize * 0.08)),
+            align: 'center'
+        }, '!');
+        text.anchor.set(0.5, 0.5);
+        text.x = centerX;
+        text.y = screenY - Math.max(8, Math.round(tileSize * 0.22)) + bobOffset * 0.2;
+        this.actorLabelLayer.addChild(text);
     },
 
     renderHealthBar(actor, screenX, screenY, palette, tileSize, labelText = '') {

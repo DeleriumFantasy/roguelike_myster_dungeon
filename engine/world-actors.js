@@ -200,13 +200,24 @@ Object.assign(World.prototype, {
         return !this.getActorAt(x, y);
     },
 
-    canEnemyOccupy(x, y, player, enemy, candidateEnemy = null) {
+    canEnemyOccupy(x, y, player, enemy, candidateEnemy = null, options = {}) {
         if (!this.isWithinBounds(x, y)) {
             return false;
         }
 
         if (player && player.x === x && player.y === y) {
             return false;
+        }
+
+        const minDistanceFromPlayer = Math.max(0, Math.floor(Number(options?.minDistanceFromPlayer) || 0));
+        if (player && minDistanceFromPlayer > 0) {
+            const distanceFromPlayer = Math.max(
+                Math.abs(Number(player.x) - x),
+                Math.abs(Number(player.y) - y)
+            );
+            if (Number.isFinite(distanceFromPlayer) && distanceFromPlayer <= minDistanceFromPlayer) {
+                return false;
+            }
         }
 
         if (candidateEnemy && typeof candidateEnemy.canTraverseTile === 'function') {
@@ -229,7 +240,7 @@ Object.assign(World.prototype, {
         return true;
     },
 
-    findRandomOpenTile(rng, player = null, attempts = 200, candidateEnemy = null) {
-        return this.findRandomTile(rng, attempts, (x, y) => this.canEnemyOccupy(x, y, player, null, candidateEnemy));
+    findRandomOpenTile(rng, player = null, attempts = 200, candidateEnemy = null, options = {}) {
+        return this.findRandomTile(rng, attempts, (x, y) => this.canEnemyOccupy(x, y, player, null, candidateEnemy, options));
     }
 });

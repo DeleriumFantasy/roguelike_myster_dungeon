@@ -139,6 +139,12 @@ class GameInputController {
             return;
         }
 
+        if (event.ctrlKey && lowerKey === 'z') {
+            this.game.undoLastTurn?.();
+            event.preventDefault();
+            return;
+        }
+
         let handled = true;
         switch (key) {
             case ' ':
@@ -191,6 +197,9 @@ class GameInputController {
                 } else {
                     this.game.startAutoExplore();
                 }
+                return true;
+            case 'undo-last-turn':
+                this.game.undoLastTurn?.();
                 return true;
             case 'grant-debug-loadout':
                 this.game.grantDebugCheaterLoadout?.();

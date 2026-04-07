@@ -208,10 +208,18 @@ class UI {
     }
 
     isTileRevealed(x, y, fov, shouldHideUnseenTiles) {
+        if (this.isActorBlind(this.game?.player)) {
+            return false;
+        }
+
         return !shouldHideUnseenTiles || fov.isVisible(x, y) || fov.isExplored(x, y);
     }
 
     isTileCurrentlyVisible(x, y, fov, shouldHideUnseenTiles) {
+        if (this.isActorBlind(this.game?.player)) {
+            return false;
+        }
+
         return !shouldHideUnseenTiles || fov.isVisible(x, y);
     }
 

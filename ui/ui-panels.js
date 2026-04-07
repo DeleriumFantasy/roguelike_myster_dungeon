@@ -601,6 +601,10 @@ Object.assign(UI.prototype, {
                 ? this.game.describeQuestgiverQuest(activeQuest)
                 : (activeQuest.display || 'Active quest'))
             : 'none';
+        const undoCount = typeof this.game?.getAvailableUndoCount === 'function'
+            ? this.game.getAvailableUndoCount()
+            : 0;
+        const undoCapacity = Math.max(1, Math.floor(Number(this.game?.maxUndoStates) || 5));
         const statsDiv = this.statsDiv;
         if (!statsDiv) return;
         // Weather info
@@ -627,6 +631,7 @@ Object.assign(UI.prototype, {
             <p>Allies: ${allies.length}</p>
             <p>Position: ${player.x}, ${player.y}</p>
             <p>Quest: ${activeQuestText}</p>
+            <p>Undos: ${undoCount}/${undoCapacity}</p>
             <h3>Allies</h3>
             ${allyDebugHtml}
             <h3>Visible Enemies</h3>

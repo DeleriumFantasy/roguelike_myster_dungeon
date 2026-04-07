@@ -1,5 +1,7 @@
 // Player combat and status helpers
 
+const PLAYER_PASSIVE_HUNGER_LOSS_INTERVAL = 10;
+
 Object.assign(Player.prototype, {
     takeDamage(amount, attacker = null, options = {}) {
         const incomingDamage = Math.max(0, Number(amount) || 0);
@@ -103,7 +105,7 @@ Object.assign(Player.prototype, {
     },
 
     getPassiveHungerLossInterval() {
-        const baseInterval = 5;
+        const baseInterval = PLAYER_PASSIVE_HUNGER_LOSS_INTERVAL;
         const multiplier = Math.max(1, this.getEquipmentMultiplier('getPassiveHungerLossIntervalMultiplier'));
         return Math.max(1, Math.round(baseInterval * multiplier));
     },
@@ -236,7 +238,9 @@ Object.assign(Player.prototype, {
         return actorHasCondition(this, condition);
     },
 
-    tickConditions() {
+    tickConditions(options = {}) {
+        const suppressHungerLoss = Boolean(options?.suppressHungerLoss ?? this.hungerLossDisabled);
+
         for (const [condition, duration] of this.conditions) {
             const tickDamage = getConditionTickDamage(condition, 0);
             const tickHunger = getConditionTickHunger(condition, 0);
@@ -246,7 +250,9 @@ Object.assign(Player.prototype, {
                 this.takeDamage(tickDamage);
             }
 
-            if (tickHunger !== 0 && !(tickHunger < 0 && preventsPassiveHungerLoss)) {
+            if (tickHunger !== 0
+                && !(tickHunger < 0 && preventsPassiveHungerLoss)
+                && !(tickHunger < 0 && suppressHungerLoss)) {
                 this.hunger = clamp(this.hunger + tickHunger, 0, this.maxHunger);
             }
 
@@ -269,16 +275,17 @@ Object.assign(Player.prototype, {
         return multiplier;
     },
 
-    applyPerTurnRegen() {
+    applyPerTurnRegen(options = {}) {
         this.applyEquipmentGrantedConditions();
         this.turns += 1;
+        const disableHungerEffects = Boolean(options?.disableHungerEffects ?? this.hungerLossDisabled);
         const preventsPassiveHungerLoss = this.hasPassiveHungerLossProtection();
         const passiveHungerLossInterval = this.getPassiveHungerLossInterval();
-        if (this.turns % passiveHungerLossInterval === 0 && !preventsPassiveHungerLoss) {
+        if (!disableHungerEffects && this.turns % passiveHungerLossInterval === 0 && !preventsPassiveHungerLoss) {
             this.hunger = Math.max(0, this.hunger - 1);
         }
 
-        if (this.hunger <= 0) {
+        if (!disableHungerEffects && this.hunger <= 0) {
             this.takeDamage(1);
         } else {
             const regenAmount = (this.level >= 20 ? 3 : (this.level >= 10 ? 2 : 1)) + this.getPassiveHealingBonus();

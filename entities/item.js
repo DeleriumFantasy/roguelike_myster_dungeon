@@ -163,6 +163,10 @@ class Item {
             return { stored: false, reason: 'invalid-item' };
         }
 
+        if (item?.isPotItem?.()) {
+            return { stored: false, reason: 'pot-not-allowed' };
+        }
+
         if (this.isPotFull()) {
             return { stored: false, reason: 'full' };
         }

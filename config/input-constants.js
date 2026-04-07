@@ -17,6 +17,7 @@ const INPUT_ACTION_BINDINGS = {
     n: 'toggle-messages',
     m: 'toggle-map',
     p: 'toggle-stats',
+    u: 'undo-last-turn',
     x: 'toggle-auto-explore'
 };
 
