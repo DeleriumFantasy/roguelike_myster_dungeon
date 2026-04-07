@@ -43,8 +43,7 @@ Object.assign(Player.prototype, {
     },
 
     equipItem(item) {
-        const validSlots = Object.values(EQUIPMENT_SLOTS);
-        if (!validSlots.includes(item.type)) {
+        if (!item || !isEquippableItemType(item.type)) {
             return false;
         }
 
@@ -87,18 +86,21 @@ Object.assign(Player.prototype, {
 
     canUnequipItem(item) {
         if (!item) return true;
-        return !this.isItemCursed(item);
+        return !getItemCursedState(item);
+    },
+
+    getEquippedStatTotal(propertyKey, enchantmentMethodName) {
+        const baseTotal = getActorEquipmentPropertyTotal(this, propertyKey);
+        if (!enchantmentMethodName) {
+            return baseTotal;
+        }
+
+        return baseTotal + this.getEquipmentNumericSum(enchantmentMethodName);
     },
 
     updateStats() {
-        this.power = Math.max(1, Number(this.level) || 1);
-        this.armor = 0;
-        this.forEachEquippedItem((item) => {
-            if (item.properties.power) this.power += item.properties.power;
-            if (item.properties.armor) this.armor += item.properties.armor;
-            if (typeof item.getEnchantmentPowerBonus === 'function') this.power += item.getEnchantmentPowerBonus();
-            if (typeof item.getEnchantmentArmorBonus === 'function') this.armor += item.getEnchantmentArmorBonus();
-        });
+        this.power = Math.max(1, Number(this.level) || 1) + this.getEquippedStatTotal('power', 'getEnchantmentPowerBonus');
+        this.armor = this.getEquippedStatTotal('armor', 'getEnchantmentArmorBonus');
 
         const setStatBonuses = typeof this.getEquipmentSetStatBonuses === 'function'
             ? this.getEquipmentSetStatBonuses()
@@ -314,7 +316,7 @@ Object.assign(Player.prototype, {
         if (!this.allies.includes(ally)) {
             return { success: false, reason: 'ally is not bound to player' };
         }
-        if (!item || !Object.values(EQUIPMENT_SLOTS).includes(item.type)) {
+        if (!item || !isEquippableItemType(item.type)) {
             return { success: false, reason: 'item cannot be equipped' };
         }
 

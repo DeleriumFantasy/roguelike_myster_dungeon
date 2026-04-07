@@ -1,39 +1,9 @@
 // Game setup and floor population helpers
 
-const FLOOR_EVENT_DISPLAY = {
-    'food-party': {
-        title: () => 'Random Event: Food Party',
-        objective: ({ turnsRemaining }) => `Spawned food disappears in ${turnsRemaining} turns.`,
-        appendTurnsRemaining: false
-    },
-    'throwing-challenge': {
-        title: () => 'Random Event: Throwing Challenge',
-        objective: ({ currentKills, requiredKills }) => `Defeat enemies with thrown items (${currentKills}/${requiredKills}).`,
-        appendTurnsRemaining: false
-    },
-    hoard: {
-        title: () => 'Random Event: Guarded Hoard',
-        objective: () => 'Be careful, the hoard is protected.'
-    },
-    'save-lost-explorer': {
-        title: () => 'Quest: Save Lost Explorer',
-        objective: () => 'Find the lost explorer in the guarded room.',
-        appendTurnsRemaining: false
-    },
-    'retrieve-item': {
-        title: () => 'Quest: Retrieve Item',
-        objective: ({ itemName }) => `Recover ${itemName || 'the quest item'} and return it to the Questgiver.`,
-        appendTurnsRemaining: false
-    },
-    'material-delivery': {
-        title: () => 'Quest: Material Delivery',
-        objective: ({ engineerName, materialCount, materialName }) => `Bring ${materialCount || 1} ${materialName || 'delivery material'}${(materialCount || 1) === 1 ? '' : 's'} to ${engineerName || 'the engineer'}.`,
-        appendTurnsRemaining: false
-    }
-};
-
 function getFloorEventDisplayData(eventType, context = {}) {
-    const eventDisplay = FLOOR_EVENT_DISPLAY[eventType] || {};
+    const eventDisplay = typeof getFloorEventRule === 'function'
+        ? (getFloorEventRule(eventType) || {})
+        : {};
     const titleValue = eventDisplay.title;
     const objectiveValue = eventDisplay.objective;
     const appendTurnsRemaining = eventDisplay.appendTurnsRemaining !== false;
@@ -50,11 +20,21 @@ function getFloorEventDisplayData(eventType, context = {}) {
 
 Object.assign(Game.prototype, {
     getFloorRandomEventChance() {
-        return 0.02;
+        const globalRules = typeof getFloorEventGlobalRules === 'function'
+            ? getFloorEventGlobalRules()
+            : null;
+        return Math.min(1, Math.max(0, Number(globalRules?.randomEventChance) || 0.02));
+    },
+
+    getConfiguredFloorEventRule(eventType) {
+        return typeof getFloorEventRule === 'function'
+            ? (getFloorEventRule(eventType) || null)
+            : null;
     },
 
     getFoodPartyEventTurnLimit() {
-        return 50;
+        const foodPartyRule = this.getConfiguredFloorEventRule('food-party');
+        return Math.max(1, Math.floor(Number(foodPartyRule?.turnLimit) || 50));
     },
 
     createFloorEventDisplayData(eventType, context = {}) {
@@ -89,11 +69,19 @@ Object.assign(Game.prototype, {
     },
 
     shouldGuaranteeHoardEvent(floorIndex = this.world.currentFloor) {
-        return floorIndex === 1 && this.canActivateHoardEvent();
+        const globalRules = typeof getFloorEventGlobalRules === 'function'
+            ? getFloorEventGlobalRules()
+            : null;
+        const guaranteedFloors = Array.isArray(globalRules?.guaranteedHoardFloors)
+            ? globalRules.guaranteedHoardFloors
+            : [1];
+        return guaranteedFloors.includes(floorIndex) && this.canActivateHoardEvent();
     },
 
     rollRandomFloorEventType(rng) {
-        const eventTypes = ['food-party', 'throwing-challenge'];
+        const eventTypes = typeof getRandomFloorEventTypeKeys === 'function'
+            ? getRandomFloorEventTypeKeys()
+            : ['food-party', 'throwing-challenge'];
         if (this.canActivateHoardEvent()) {
             eventTypes.push('hoard');
         }
@@ -101,13 +89,16 @@ Object.assign(Game.prototype, {
     },
 
     activateRandomFloorEventByType(eventType, rng, floorIndex) {
-        const activators = {
-            'food-party': () => this.activateFoodPartyEvent(rng, floorIndex),
-            'throwing-challenge': () => this.activateThrowingChallengeEvent(),
-            hoard: () => this.activateHoardEvent(rng, floorIndex)
-        };
+        const activatorMethod = typeof getRandomFloorEventActivatorMethod === 'function'
+            ? getRandomFloorEventActivatorMethod(eventType)
+            : '';
+        if (!activatorMethod || typeof this[activatorMethod] !== 'function') {
+            return false;
+        }
 
-        return activators[eventType]?.() || false;
+        return eventType === 'throwing-challenge'
+            ? this[activatorMethod]()
+            : this[activatorMethod](rng, floorIndex);
     },
 
     tryActivateRandomFloorEvent(rng, floorIndex) {
@@ -222,15 +213,13 @@ Object.assign(Game.prototype, {
         }
 
         if (includeSpecialAreas) {
-            const specialAreas = Array.isArray(floor?.meta?.specialAreas) ? floor.meta.specialAreas : [];
-            for (const area of specialAreas) {
+            for (const area of this.getFloorMetaEntries(floor, 'specialAreas')) {
                 this.addBlockedAreaKeys(blockedKeys, area);
             }
         }
 
         if (includeQuestRooms) {
-            const questRooms = Array.isArray(floor?.meta?.questRooms) ? floor.meta.questRooms : [];
-            for (const room of questRooms) {
+            for (const room of this.getFloorMetaEntries(floor, 'questRooms')) {
                 this.addBlockedAreaKeys(blockedKeys, room, 1);
             }
         }
@@ -239,11 +228,13 @@ Object.assign(Game.prototype, {
     },
 
     getEligibleHoardEventRooms(floor = this.world.getCurrentFloor()) {
-        const rooms = Array.isArray(floor?.meta?.encounterRooms) ? floor.meta.encounterRooms : [];
+        const rooms = this.getFloorMetaEntries(floor, 'encounterRooms');
         const blockedKeys = this.getHoardEventBlockedKeys(floor);
+        const hoardRule = this.getConfiguredFloorEventRule('hoard');
+        const minRoomArea = Math.max(1, Math.floor(Number(hoardRule?.eligibleRoomAreaMin) || 25));
 
         return rooms.filter((room) => {
-            if (this.getRoomArea(room) < 25) {
+            if (this.getRoomArea(room) < minRoomArea) {
                 return false;
             }
 
@@ -262,11 +253,19 @@ Object.assign(Game.prototype, {
     },
 
     getGuardedEncounterEnemyCount(room) {
-        return clamp(Math.floor(this.getRoomArea(room) * 0.3), 5, 10);
+        const hoardRule = this.getConfiguredFloorEventRule('hoard');
+        const multiplier = Math.max(0, Number(hoardRule?.enemyCountMultiplier) || 0.3);
+        const minCount = Math.max(1, Math.floor(Number(hoardRule?.enemyCountMin) || 5));
+        const maxCount = Math.max(minCount, Math.floor(Number(hoardRule?.enemyCountMax) || 10));
+        return clamp(Math.floor(this.getRoomArea(room) * multiplier), minCount, maxCount);
     },
 
     getHoardEventItemCount(room) {
-        return clamp(Math.floor(this.getRoomArea(room) * 0.2), 4, 8);
+        const hoardRule = this.getConfiguredFloorEventRule('hoard');
+        const multiplier = Math.max(0, Number(hoardRule?.itemCountMultiplier) || 0.2);
+        const minCount = Math.max(1, Math.floor(Number(hoardRule?.itemCountMin) || 4));
+        const maxCount = Math.max(minCount, Math.floor(Number(hoardRule?.itemCountMax) || 8));
+        return clamp(Math.floor(this.getRoomArea(room) * multiplier), minCount, maxCount);
     },
 
     chooseHoardEventRoom(rng, floor = this.world.getCurrentFloor()) {
@@ -276,7 +275,9 @@ Object.assign(Game.prototype, {
             return null;
         }
 
-        const candidatePool = eligibleRooms.slice(0, Math.min(3, eligibleRooms.length));
+        const hoardRule = this.getConfiguredFloorEventRule('hoard');
+        const candidatePoolSize = Math.max(1, Math.floor(Number(hoardRule?.candidatePoolSize) || 3));
+        const candidatePool = eligibleRooms.slice(0, Math.min(candidatePoolSize, eligibleRooms.length));
         const chosenRoom = pickRandom(candidatePool, rng, candidatePool[0]);
         return chosenRoom ? { ...chosenRoom } : null;
     },
@@ -961,7 +962,9 @@ Object.assign(Game.prototype, {
     },
 
     getQuestEventInfoForFloor(floorIndex = this.world.currentFloor) {
-        const questEventTypes = ['save-lost-explorer', 'retrieve-item', 'material-delivery'];
+        const questEventTypes = typeof getQuestFloorEventTypeKeys === 'function'
+            ? getQuestFloorEventTypeKeys()
+            : ['save-lost-explorer', 'retrieve-item', 'material-delivery'];
         for (const questType of questEventTypes) {
             const activeQuest = this.getActiveQuestForFloor(questType, floorIndex);
             if (activeQuest) {
@@ -997,13 +1000,15 @@ Object.assign(Game.prototype, {
     },
 
     tryActivateQuestFloorEvent(rng, floorIndex = this.world.currentFloor) {
-        const questActivators = [
-            () => this.tryActivateSaveLostExplorerEvent(rng, floorIndex),
-            () => this.tryActivateRetrieveItemQuestEvent(rng, floorIndex),
-            () => this.tryActivateMaterialDeliveryQuestEvent(rng, floorIndex)
-        ];
+        const questActivatorMethods = typeof getQuestFloorEventActivatorMethods === 'function'
+            ? getQuestFloorEventActivatorMethods()
+            : [
+                'tryActivateSaveLostExplorerEvent',
+                'tryActivateRetrieveItemQuestEvent',
+                'tryActivateMaterialDeliveryQuestEvent'
+            ];
 
-        return questActivators.some((activate) => activate());
+        return questActivatorMethods.some((methodName) => typeof this[methodName] === 'function' && this[methodName](rng, floorIndex));
     },
 
     activateFoodPartyEvent(rng, floorIndex) {
@@ -1013,7 +1018,8 @@ Object.assign(Game.prototype, {
         }
 
         const spawnedItems = [];
-        const eventSpawnCount = 12;
+        const foodPartyRule = this.getConfiguredFloorEventRule('food-party');
+        const eventSpawnCount = Math.max(1, Math.floor(Number(foodPartyRule?.spawnCount) || 12));
         for (let i = 0; i < eventSpawnCount; i++) {
             const spawn = this.world.findRandomItemSpawnTile(rng, this.player);
             if (!spawn) {
@@ -1053,16 +1059,19 @@ Object.assign(Game.prototype, {
             return false;
         }
 
+        const throwingChallengeRule = this.getConfiguredFloorEventRule('throwing-challenge');
+        const requiredKills = Math.max(1, Math.floor(Number(throwingChallengeRule?.requiredKills) || 5));
+
         return this.setActiveFloorEvent(
             'throwing-challenge',
             {
-                requiredKills: 5,
+                requiredKills,
                 currentKills: 0,
                 rewardGranted: false
             },
             {
                 currentKills: 0,
-                requiredKills: 5
+                requiredKills
             },
             floor
         );
@@ -1282,9 +1291,7 @@ Object.assign(Game.prototype, {
     },
 
     spawnStartingAlly() {
-        const existingAlly = Array.isArray(this.player?.allies)
-            ? this.player.allies.find((ally) => ally?.monsterType === 'slimeTier1')
-            : null;
+        const existingAlly = this.getPlayerAllies().find((ally) => ally?.monsterType === 'slimeTier1') || null;
         const hadStarterAlly = Boolean(existingAlly && (typeof existingAlly.isAlive !== 'function' || existingAlly.isAlive()));
         const slime = existingAlly || this.createEnemyForType(0, 0, 'slimeTier1', 0);
         const rng = new SeededRNG(this.seed + 888888 + this.world.currentFloor * 31337);
@@ -1305,9 +1312,7 @@ Object.assign(Game.prototype, {
 
     spawnAlliesOnCurrentFloor() {
         const rng = new SeededRNG(this.seed + this.world.currentFloor * 31337);
-        for (const ally of this.player.allies) {
-            if (!ally.isAlive()) continue;
-
+        for (const ally of this.getPlayerAllies({ aliveOnly: true })) {
             const spawn = this.findSpawnNearPlayer(ally, rng);
             this.assignActorPosition(ally, spawn);
             this.addEnemyIfMissing(ally);

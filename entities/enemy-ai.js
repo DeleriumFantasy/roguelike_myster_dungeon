@@ -721,7 +721,7 @@ Object.assign(Enemy.prototype, {
             return 0;
         }
 
-        const activeConditions = Array.from(this.conditions?.keys?.() || []);
+        const activeConditions = getActorConditionKeys(this);
         if (activeConditions.some((condition) => conditionPreventsDamage(condition))) {
             return 0;
         }
@@ -729,8 +729,7 @@ Object.assign(Enemy.prototype, {
         const mitigationMultiplier = this.getIncomingDamageMultiplierAgainst(null);
         const adjustedIncomingDamage = Math.max(1, Math.round(normalizedIncomingDamage * mitigationMultiplier));
         const effectiveArmor = (this.getEffectiveArmor?.() || 0) * clamp(Number(armorEffectiveness) || 0, 0, 1);
-        const defenseMultiplier = 100 / (100 + Math.max(0, effectiveArmor));
-        return Math.max(1, Math.round(adjustedIncomingDamage * defenseMultiplier));
+        return getMitigatedDamageAmount(adjustedIncomingDamage, effectiveArmor);
     },
 
     getProjectedEnvironmentalDamageAt(world, x, y) {
@@ -759,7 +758,7 @@ Object.assign(Enemy.prototype, {
             return false;
         }
 
-        const activeConditions = Array.from(this.conditions?.keys?.() || []);
+        const activeConditions = getActorConditionKeys(this);
         if (activeConditions.some((condition) => conditionSurvivesFatalDamage(condition))) {
             return false;
         }

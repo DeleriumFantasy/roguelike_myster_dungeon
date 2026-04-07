@@ -1,6 +1,6 @@
 // Input bindings and action lookup helpers
 
-const INPUT_DIRECTION_BINDINGS = {
+const INPUT_DIRECTION_BINDINGS = deepFreezeConfig({
     ArrowUp: { dx: 0, dy: -1 },
     ArrowDown: { dx: 0, dy: 1 },
     ArrowLeft: { dx: -1, dy: 0 },
@@ -9,9 +9,9 @@ const INPUT_DIRECTION_BINDINGS = {
     s: { dx: 0, dy: 1 },
     a: { dx: -1, dy: 0 },
     d: { dx: 1, dy: 0 }
-};
+});
 
-const INPUT_ACTION_BINDINGS = {
+const INPUT_ACTION_BINDINGS = deepFreezeConfig({
     b: 'grant-debug-loadout',
     i: 'open-inventory',
     n: 'toggle-messages',
@@ -21,7 +21,7 @@ const INPUT_ACTION_BINDINGS = {
     x: 'toggle-auto-explore'
 };
 
-const INVENTORY_ACTIONS_BY_TYPE = {
+const INVENTORY_ACTIONS_BY_TYPE = deepFreezeConfig({
     [ITEM_TYPES.THROWABLE]: ['throw', 'drop'],
     [ITEM_TYPES.POT]: ['use', 'throw', 'drop'],
     [ITEM_TYPES.WEAPON]: ['equip', 'throw', 'drop'],
@@ -29,7 +29,17 @@ const INVENTORY_ACTIONS_BY_TYPE = {
     [ITEM_TYPES.SHIELD]: ['equip', 'throw', 'drop'],
     [ITEM_TYPES.ACCESSORY]: ['equip', 'throw', 'drop'],
     default: ['use', 'throw', 'drop']
-};
+});
+
+function getInputBinding(bindings, key, fallback = null) {
+    if (!bindings || typeof bindings !== 'object') {
+        return fallback;
+    }
+
+    return Object.prototype.hasOwnProperty.call(bindings, key)
+        ? bindings[key]
+        : fallback;
+}
 
 function normalizeMoveInputKey(key, lowerKey = String(key).toLowerCase()) {
     if (Object.prototype.hasOwnProperty.call(INPUT_DIRECTION_BINDINGS, key)) {
@@ -43,13 +53,14 @@ function normalizeMoveInputKey(key, lowerKey = String(key).toLowerCase()) {
 
 function getDirectionForInputKey(key, lowerKey = String(key).toLowerCase()) {
     const normalizedKey = normalizeMoveInputKey(key, lowerKey);
-    return normalizedKey ? INPUT_DIRECTION_BINDINGS[normalizedKey] : null;
+    return normalizedKey ? getInputBinding(INPUT_DIRECTION_BINDINGS, normalizedKey, null) : null;
 }
 
 function getInputActionForKey(lowerKey) {
-    return INPUT_ACTION_BINDINGS[lowerKey] || null;
+    return getInputBinding(INPUT_ACTION_BINDINGS, lowerKey, null);
 }
 
 function getInventoryActionsForItemType(itemType) {
-    return INVENTORY_ACTIONS_BY_TYPE[itemType] || INVENTORY_ACTIONS_BY_TYPE.default;
+    const actions = getInputBinding(INVENTORY_ACTIONS_BY_TYPE, itemType, INVENTORY_ACTIONS_BY_TYPE.default);
+    return Array.isArray(actions) ? [...actions] : [...INVENTORY_ACTIONS_BY_TYPE.default];
 }

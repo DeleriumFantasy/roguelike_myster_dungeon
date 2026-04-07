@@ -1,12 +1,12 @@
 // Enemy templates and AI action mappings
 
-const ENEMY_SPEED_MULTIPLIERS = {
+const ENEMY_SPEED_MULTIPLIERS = deepFreezeConfig({
     [ENEMY_SPEEDS.SLOW]: 0.5,
     [ENEMY_SPEEDS.NORMAL]: 1,
     [ENEMY_SPEEDS.FAST]: 2
-};
+});
 
-const ENEMY_AI_ACTION_METHODS = {
+const ENEMY_AI_ACTION_METHODS = deepFreezeConfig({
     [AI_TYPES.CHASE]: 'performChaseAction',
     [AI_TYPES.FLEE]: 'flee',
     [AI_TYPES.AMBUSH]: 'performAmbushAction',
@@ -15,7 +15,55 @@ const ENEMY_AI_ACTION_METHODS = {
     [AI_TYPES.WANDER]: 'performWanderAction'
 };
 
-const ENEMY_FAMILY_DEFINITIONS = {
+const ENEMY_FAMILY_SPAWN_BALANCING = deepFreezeConfig({
+    floorRange: {
+        min: 1,
+        max: 99
+    },
+    groups: {
+        core: {
+            families: ['slime', 'beast', 'aquatic', 'floating'],
+            startFloor: 1,
+            startBudget: 3.2,
+            endBudget: 1
+        },
+        mid: {
+            families: ['ghost', 'crafter', 'thief'],
+            startFloor: 20,
+            startBudget: 0.12,
+            endBudget: 1
+        },
+        late: {
+            families: ['vandal', 'fuser', 'pariah'],
+            startFloor: 45,
+            startBudget: 0.05,
+            endBudget: 1
+        }
+    }
+};
+
+const ENEMY_CONTENT_SPAWN_RULES = Object.freeze({
+    enemyCount: {
+        base: 4,
+        perFloorDivisor: 2,
+        min: 4,
+        max: 12
+    },
+    dungeonNpcChance: {
+        startDisplayFloor: 1,
+        endDisplayFloor: 99,
+        startChance: 0.15,
+        endChance: 0.05
+    },
+    slimeTinctureDropDenominatorsByTier: {
+        1: 100,
+        2: 50,
+        3: 25,
+        4: 10
+    }
+});
+
+const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
     slime: {
         defaults: { types: [ENEMY_TYPES.SLIME], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 9 },
         tiers: {
@@ -107,24 +155,24 @@ const ENEMY_FAMILY_DEFINITIONS = {
         }
     },
     escort: {
-        defaults: { types: [], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.GUARD, fovRange: 8 },
+        defaults: { types: [], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.GUARD, fovRange: 8, spawnContexts: ['quest'] },
         tiers: {
-            1: { key: 'escortPassengerTier1', displayName: 'Pilgrim', health: 50, power: 0, armor: 2, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 }
+            1: { key: 'escortPassengerTier1', displayName: 'Pilgrim', health: 50, power: 0, armor: 2, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0, npcRole: 'escort-passenger' }
         }
     },
     npc: {
-        defaults: { types: [ENEMY_TYPES.NPC], speed: ENEMY_SPEEDS.SLOW, aiType: AI_TYPES.WANDER, fovRange: 8 },
+        defaults: { types: [ENEMY_TYPES.NPC], speed: ENEMY_SPEEDS.SLOW, aiType: AI_TYPES.WANDER, fovRange: 8, spawnContexts: ['dungeon'] },
         tiers: {
-            1: { key: 'npcTier1', displayName: 'Wandering merchant', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
-            2: { key: 'npcBankerTier1', displayName: 'Banker', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 },
-            3: { key: 'npcStarvingTier1', displayName: 'Starving traveler', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
-            4: { key: 'npcHomeboundTier1', displayName: 'Homebound courier', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
-            5: { key: 'npcShamanTier1', displayName: 'Shaman', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1 },
-            6: { key: 'npcQuestgiverTier1', displayName: 'Questgiver', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 },
-            7: { key: 'npcHandlerTier1', displayName: 'Handler', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0 }
+            1: { key: 'npcTier1', displayName: 'Wandering merchant', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1, npcRole: 'merchant', spawnContexts: ['dungeon'] },
+            2: { key: 'npcBankerTier1', displayName: 'Banker', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0, npcRole: 'banker', spawnContexts: ['overworld'], persistentNpc: true },
+            3: { key: 'npcStarvingTier1', displayName: 'Starving traveler', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1, npcRole: 'starving', spawnContexts: ['dungeon'] },
+            4: { key: 'npcHomeboundTier1', displayName: 'Homebound courier', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1, npcRole: 'homebound', spawnContexts: ['dungeon'] },
+            5: { key: 'npcShamanTier1', displayName: 'Shaman', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 1, minFloor: 1, npcRole: 'shaman', spawnContexts: ['dungeon'] },
+            6: { key: 'npcQuestgiverTier1', displayName: 'Questgiver', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0, npcRole: 'questgiver', spawnContexts: ['overworld'], persistentNpc: true },
+            7: { key: 'npcHandlerTier1', displayName: 'Handler', health: 9999, power: 0, armor: 0, exp: 0, tameThreshold: 9999, spawnWeight: 0, minFloor: 0, npcRole: 'handler', spawnContexts: ['overworld'], persistentNpc: true }
         }
     }
-};
+});
 
 function getEnemySpeedMultiplier(speed) {
     return ENEMY_SPEED_MULTIPLIERS[speed] ?? ENEMY_SPEED_MULTIPLIERS[ENEMY_SPEEDS.NORMAL];
@@ -134,16 +182,72 @@ function getEnemyAiActionHandlerName(aiType) {
     return ENEMY_AI_ACTION_METHODS[aiType] || ENEMY_AI_ACTION_METHODS[AI_TYPES.WANDER];
 }
 
+function getEnemyContentSpawnRules() {
+    return ENEMY_CONTENT_SPAWN_RULES;
+}
+
+function getEnemySpawnCountForDepth(floorIndex) {
+    const rules = getEnemyContentSpawnRules()?.enemyCount || {};
+    const base = Math.max(0, Math.floor(Number(rules.base) || 4));
+    const perFloorDivisor = Math.max(1, Math.floor(Number(rules.perFloorDivisor) || 2));
+    const minCount = Math.max(0, Math.floor(Number(rules.min) || base));
+    const maxCount = Math.max(minCount, Math.floor(Number(rules.max) || minCount));
+    const normalizedFloor = Math.max(0, Math.floor(Number(floorIndex) || 0));
+    return Math.max(minCount, Math.min(maxCount, base + Math.floor(normalizedFloor / perFloorDivisor)));
+}
+
+function getDungeonNpcSpawnChanceForFloorIndex(floorIndex) {
+    const rules = getEnemyContentSpawnRules()?.dungeonNpcChance || {};
+    const displayFloor = Math.max(1, Math.min(99, Math.floor(Number(floorIndex) || 0) + 1));
+    const startDisplayFloor = Math.max(1, Math.floor(Number(rules.startDisplayFloor) || 1));
+    const endDisplayFloor = Math.max(startDisplayFloor, Math.floor(Number(rules.endDisplayFloor) || startDisplayFloor));
+    const startChance = Math.min(1, Math.max(0, Number(rules.startChance) || 0.15));
+    const endChance = Math.min(1, Math.max(0, Number(rules.endChance) || 0.05));
+    const progress = endDisplayFloor === startDisplayFloor
+        ? 0
+        : (displayFloor - startDisplayFloor) / (endDisplayFloor - startDisplayFloor);
+    return startChance + (endChance - startChance) * Math.min(1, Math.max(0, progress));
+}
+
+function getSlimeTinctureDropDenominatorForTier(tier) {
+    const rules = getEnemyContentSpawnRules()?.slimeTinctureDropDenominatorsByTier || {};
+    const normalizedTier = Math.max(1, Math.floor(Number(tier) || 1));
+    const denominator = Number(rules[normalizedTier]);
+    return Number.isFinite(denominator) ? Math.max(0, Math.floor(denominator)) : 0;
+}
+
+function normalizeEnemySpawnContexts(spawnContexts) {
+    if (!Array.isArray(spawnContexts)) {
+        return [];
+    }
+
+    return [...new Set(spawnContexts.filter((context) => typeof context === 'string' && context.length > 0))];
+}
+
+function buildEnemyTemplateDefinition(familyId, family, tierKey, tierDefinition) {
+    const normalizedTier = Number.isFinite(Number(tierKey))
+        ? Math.max(1, Math.floor(Number(tierKey)))
+        : 1;
+
+    return {
+        ...family.defaults,
+        ...tierDefinition,
+        templateId: tierDefinition.key,
+        familyId,
+        tier: normalizedTier,
+        npcRole: typeof tierDefinition.npcRole === 'string' ? tierDefinition.npcRole : '',
+        spawnContexts: normalizeEnemySpawnContexts(tierDefinition.spawnContexts || family.defaults.spawnContexts),
+        persistentNpc: Boolean(tierDefinition.persistentNpc),
+        types: tierDefinition.types || family.defaults.types || []
+    };
+}
+
 function buildEnemyTemplates() {
     const templates = {};
-    for (const family of Object.values(ENEMY_FAMILY_DEFINITIONS)) {
-        for (const tierDefinition of Object.values(family.tiers)) {
-            templates[tierDefinition.key] = {
-                ...family.defaults,
-                ...tierDefinition,
-                types: tierDefinition.types || family.defaults.types || []
-            };
+    for (const [familyId, family] of Object.entries(ENEMY_FAMILY_DEFINITIONS)) {
+        for (const [tierKey, tierDefinition] of Object.entries(family.tiers || {})) {
+            templates[tierDefinition.key] = buildEnemyTemplateDefinition(familyId, family, tierKey, tierDefinition);
         }
     }
-    return templates;
+    return deepFreezeConfig(templates);
 }

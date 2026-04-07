@@ -81,19 +81,57 @@ function getTieredItemMatch(item) {
         return null;
     }
 
+    const stableItemId = typeof item?.properties?.itemId === 'string'
+        ? item.properties.itemId
+        : '';
+    const stableCategory = typeof item?.properties?.itemCategory === 'string'
+        ? item.properties.itemCategory
+        : '';
+    const stableTier = Number(item?.properties?.itemTier);
+
     for (const [category, tierDefinitions] of Object.entries(TIERED_ITEM_DEFINITIONS)) {
+        if (stableCategory && category !== stableCategory) {
+            continue;
+        }
+
         for (const [tierKey, tierDefinition] of Object.entries(tierDefinitions || {})) {
             const normalizedDefinitions = normalizeTierDefinitions(tierDefinition);
+            const numericTier = Number(tierKey);
 
             for (const definition of normalizedDefinitions) {
                 if (!definition) {
                     continue;
                 }
 
-                if (definition.name === item.name && definition.type === item.type) {
+                const definitionItemId = typeof definition?.properties?.itemId === 'string'
+                    ? definition.properties.itemId
+                    : '';
+
+                if (stableItemId && definitionItemId === stableItemId) {
                     return {
                         category,
-                        tier: Number(tierKey),
+                        tier: numericTier,
+                        definition
+                    };
+                }
+
+                if (!stableItemId
+                    && stableCategory
+                    && Number.isFinite(stableTier)
+                    && category === stableCategory
+                    && numericTier === stableTier
+                    && definition.type === item.type) {
+                    return {
+                        category,
+                        tier: numericTier,
+                        definition
+                    };
+                }
+
+                if (!stableItemId && definition.name === item.name && definition.type === item.type) {
+                    return {
+                        category,
+                        tier: numericTier,
                         definition
                     };
                 }

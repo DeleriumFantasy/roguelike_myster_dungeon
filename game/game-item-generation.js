@@ -10,9 +10,15 @@ Object.assign(Game.prototype, {
             return item;
         }
 
+        const improvementRules = typeof getItemSpawnImprovementRules === 'function'
+            ? getItemSpawnImprovementRules()
+            : null;
+        const rollCount = Math.max(0, Math.floor(Number(improvementRules?.rollCount) || 3));
+        const chancePerRoll = Math.min(1, Math.max(0, Number(improvementRules?.chancePerRoll) || 0.05));
+
         let improvementCount = 0;
-        for (let rollIndex = 0; rollIndex < 3; rollIndex++) {
-            if (getRngRoll(rng) < 0.05) {
+        for (let rollIndex = 0; rollIndex < rollCount; rollIndex++) {
+            if (getRngRoll(rng) < chancePerRoll) {
                 improvementCount += 1;
             }
         }
@@ -49,20 +55,11 @@ Object.assign(Game.prototype, {
 
     getItemSpawnCountForFloor(floorIndex, rng = null) {
         const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
-
-        let minCount = 1;
-        let maxCount = 2;
-        if (displayFloor <= 25) {
-            minCount = 4;
-            maxCount = 5;
-        } else if (displayFloor <= 50) {
-            minCount = 3;
-            maxCount = 4;
-        } else if (displayFloor <= 75) {
-            minCount = 2;
-            maxCount = 3;
-        }
-
+        const countRange = typeof getItemSpawnCountRangeForDisplayFloor === 'function'
+            ? getItemSpawnCountRangeForDisplayFloor(displayFloor)
+            : { minCount: 1, maxCount: 2 };
+        const minCount = Math.max(1, Math.floor(Number(countRange?.minCount) || 1));
+        const maxCount = Math.max(minCount, Math.floor(Number(countRange?.maxCount) || minCount));
         return getRngRandomInt(rng, minCount, maxCount);
     },
 
@@ -172,51 +169,33 @@ Object.assign(Game.prototype, {
 
     rollItemTierForFloor(floorIndex, rng) {
         const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
+        const weightedTiers = typeof getItemTierWeightsForDisplayFloor === 'function'
+            ? getItemTierWeightsForDisplayFloor(displayFloor)
+            : [{ tier: 1, weight: 1 }];
 
-        if (displayFloor <= 25) {
-            const earlyProgress = (displayFloor - 1) / 24;
-            const tier1Weight = Math.round(80 + (55 - 80) * earlyProgress);
-            const tier2Weight = Math.round(20 + (45 - 20) * earlyProgress);
-
-            const totalWeight = tier1Weight + tier2Weight;
-            let roll = getRngRoll(rng) * totalWeight;
-            roll -= tier1Weight;
-            return roll <= 0 ? 1 : 2;
-        }
-
-        const lateProgress = (displayFloor - 26) / 73;
-        const tier1Weight = Math.round(50 + (2 - 50) * lateProgress);
-        const tier2Weight = Math.round(30 + (8 - 30) * lateProgress);
-        const tier3Weight = Math.round(15 + (20 - 15) * lateProgress);
-        const tier4Weight = Math.round(5 + (70 - 5) * lateProgress);
-        const weightedTiers = [
-            { tier: 1, weight: Math.max(1, tier1Weight) },
-            { tier: 2, weight: Math.max(1, tier2Weight) },
-            { tier: 3, weight: Math.max(1, tier3Weight) },
-            { tier: 4, weight: Math.max(1, tier4Weight) }
-        ];
-
-        const totalWeight = weightedTiers.reduce((sum, entry) => sum + entry.weight, 0);
+        const totalWeight = weightedTiers.reduce((sum, entry) => sum + Math.max(1, Math.floor(Number(entry?.weight) || 1)), 0);
         let roll = getRngRoll(rng) * totalWeight;
         for (const entry of weightedTiers) {
-            roll -= entry.weight;
+            roll -= Math.max(1, Math.floor(Number(entry?.weight) || 1));
             if (roll <= 0) {
-                return entry.tier;
+                return Math.max(1, Math.floor(Number(entry?.tier) || 1));
             }
         }
 
-        return 4;
+        const fallbackEntry = weightedTiers[weightedTiers.length - 1];
+        return Math.max(1, Math.floor(Number(fallbackEntry?.tier) || 1));
     },
 
     rollBoostedRewardTierForFloor(floorIndex, rng) {
         let tier = this.rollItemTierForFloor(floorIndex, rng);
+        const boostChances = typeof getItemRewardTierBoostChances === 'function'
+            ? getItemRewardTierBoostChances()
+            : [0.7, 0.35];
 
-        if (tier < 4 && getRngRoll(rng) < 0.7) {
-            tier += 1;
-        }
-
-        if (tier < 4 && getRngRoll(rng) < 0.35) {
-            tier += 1;
+        for (const chance of boostChances) {
+            if (tier < 4 && getRngRoll(rng) < Math.min(1, Math.max(0, Number(chance) || 0))) {
+                tier += 1;
+            }
         }
 
         return clamp(tier, 1, 4);

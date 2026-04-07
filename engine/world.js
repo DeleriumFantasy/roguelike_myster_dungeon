@@ -4,8 +4,8 @@ class World {
     constructor(seed) {
         this.baseSeed = seed;
         this.floors = [];
-        this.pathFloors = {};
-        this.pathSeedVersions = {};
+        this.pathFloors = Object.create(null);
+        this.pathSeedVersions = Object.create(null);
         this.currentFloor = 0;
         this.selectedDungeonPathId = getDefaultDungeonPathId();
         this.unlockedDungeonPathIds = new Set(getInitiallyUnlockedDungeonPathIds());
@@ -14,25 +14,46 @@ class World {
         this.generateFloor();
     }
 
+    normalizePathId(pathId = this.selectedDungeonPathId) {
+        return normalizeStringValue(pathId, '');
+    }
+
+    normalizeFloorIndex(floorIndex = this.currentFloor) {
+        return normalizeInteger(floorIndex, 0, 0);
+    }
+
+    ensurePathFloorsStore() {
+        if (!this.pathFloors || typeof this.pathFloors !== 'object') {
+            this.pathFloors = Object.create(null);
+        }
+
+        return this.pathFloors;
+    }
+
+    ensurePathSeedVersionsStore() {
+        if (!this.pathSeedVersions || typeof this.pathSeedVersions !== 'object') {
+            this.pathSeedVersions = Object.create(null);
+        }
+
+        return this.pathSeedVersions;
+    }
+
     getDungeonPathSeedVersion(pathId = this.selectedDungeonPathId) {
-        const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+        const normalizedPathId = this.normalizePathId(pathId);
         if (!normalizedPathId) {
             return 0;
         }
 
-        if (!this.pathSeedVersions || typeof this.pathSeedVersions !== 'object') {
-            this.pathSeedVersions = {};
+        const pathSeedVersions = this.ensurePathSeedVersionsStore();
+        if (!Number.isFinite(pathSeedVersions[normalizedPathId])) {
+            pathSeedVersions[normalizedPathId] = 0;
         }
 
-        if (!Number.isFinite(this.pathSeedVersions[normalizedPathId])) {
-            this.pathSeedVersions[normalizedPathId] = 0;
-        }
-
-        return Math.max(0, Math.floor(Number(this.pathSeedVersions[normalizedPathId]) || 0));
+        return normalizeInteger(pathSeedVersions[normalizedPathId], 0, 0);
     }
 
     getDungeonPathSeedOffset(pathId = this.selectedDungeonPathId) {
-        const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+        const normalizedPathId = this.normalizePathId(pathId);
         let hash = this.getDungeonPathSeedVersion(normalizedPathId) % 1000003;
 
         for (let i = 0; i < normalizedPathId.length; i++) {
@@ -44,22 +65,23 @@ class World {
 
     getPathFloors(pathId = this.selectedDungeonPathId, options = {}) {
         const { createIfMissing = false } = options;
-        const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+        const normalizedPathId = this.normalizePathId(pathId);
         if (!normalizedPathId) {
             return null;
         }
 
-        if (!Array.isArray(this.pathFloors[normalizedPathId]) && createIfMissing) {
-            this.pathFloors[normalizedPathId] = [];
+        const pathFloors = this.ensurePathFloorsStore();
+        if (!Array.isArray(pathFloors[normalizedPathId]) && createIfMissing) {
+            pathFloors[normalizedPathId] = [];
         }
 
-        return Array.isArray(this.pathFloors[normalizedPathId])
-            ? this.pathFloors[normalizedPathId]
+        return Array.isArray(pathFloors[normalizedPathId])
+            ? pathFloors[normalizedPathId]
             : null;
     }
 
     getFloorAt(floorIndex = this.currentFloor, pathId = this.selectedDungeonPathId) {
-        const normalizedFloorIndex = Math.max(0, Math.floor(Number(floorIndex) || 0));
+        const normalizedFloorIndex = this.normalizeFloorIndex(floorIndex);
         if (normalizedFloorIndex === 0) {
             return this.floors[0] || null;
         }
@@ -69,7 +91,7 @@ class World {
     }
 
     setFloorAt(floorIndex, floorData, pathId = this.selectedDungeonPathId) {
-        const normalizedFloorIndex = Math.max(0, Math.floor(Number(floorIndex) || 0));
+        const normalizedFloorIndex = this.normalizeFloorIndex(floorIndex);
         if (normalizedFloorIndex === 0) {
             this.floors[0] = floorData;
             return;
@@ -99,12 +121,16 @@ class World {
         return this.getFloorAt(this.currentFloor, this.selectedDungeonPathId);
     }
 
+    getFloorGrid(floorIndex = this.currentFloor, pathId = this.selectedDungeonPathId) {
+        return this.getFloorAt(floorIndex, pathId)?.grid || null;
+    }
+
     getDisposalTiles() {
-        return this.getCurrentFloor().disposalTiles || [];
+        return this.getCurrentFloor()?.disposalTiles || [];
     }
 
     getAreaType(floorIndex = this.currentFloor) {
-        return this.getFloorAt(floorIndex, this.selectedDungeonPathId)?.meta?.areaType || AREA_TYPES.DUNGEON;
+        return this.getFloorAt(this.normalizeFloorIndex(floorIndex), this.selectedDungeonPathId)?.meta?.areaType || AREA_TYPES.DUNGEON;
     }
 
     getSelectedDungeonPathId() {
@@ -139,17 +165,15 @@ class World {
     }
 
     rerollDungeonPath(pathId = this.selectedDungeonPathId) {
-        const normalizedPathId = typeof pathId === 'string' ? pathId : '';
+        const normalizedPathId = this.normalizePathId(pathId);
         if (!normalizedPathId || !getDungeonPathDefinition(normalizedPathId)) {
             return false;
         }
 
-        if (!this.pathSeedVersions || typeof this.pathSeedVersions !== 'object') {
-            this.pathSeedVersions = {};
-        }
-
-        this.pathSeedVersions[normalizedPathId] = this.getDungeonPathSeedVersion(normalizedPathId) + 1;
-        delete this.pathFloors[normalizedPathId];
+        const pathSeedVersions = this.ensurePathSeedVersionsStore();
+        const pathFloors = this.ensurePathFloorsStore();
+        pathSeedVersions[normalizedPathId] = this.getDungeonPathSeedVersion(normalizedPathId) + 1;
+        delete pathFloors[normalizedPathId];
         return true;
     }
 
@@ -189,7 +213,11 @@ class World {
     }
 
     findFirstTile(tileType) {
-        const grid = this.getCurrentFloor().grid;
+        const grid = this.getFloorGrid();
+        if (!Array.isArray(grid)) {
+            return null;
+        }
+
         for (let y = 0; y < GRID_SIZE; y++) {
             for (let x = 0; x < GRID_SIZE; x++) {
                 if (grid[y][x] === tileType) {
@@ -213,8 +241,12 @@ class World {
     }
 
     getTile(x, y) {
-        if (!this.isWithinBounds(x, y)) return TILE_TYPES.WALL;
-        return this.getCurrentFloor().grid[y][x];
+        const grid = this.getFloorGrid();
+        if (!grid || !this.isWithinBounds(x, y)) {
+            return TILE_TYPES.WALL;
+        }
+
+        return grid[y][x];
     }
 
     findRandomTile(rng, attempts, predicate) {

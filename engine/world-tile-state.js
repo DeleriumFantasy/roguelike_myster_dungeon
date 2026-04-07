@@ -1,6 +1,30 @@
 // World tile state, hazard state, and item placement helpers
 
 Object.assign(World.prototype, {
+    getFloorMap(collectionName, floor = this.getCurrentFloor()) {
+        if (!floor) {
+            return new Map();
+        }
+
+        if (!(floor[collectionName] instanceof Map)) {
+            floor[collectionName] = new Map();
+        }
+
+        return floor[collectionName];
+    },
+
+    getFloorSet(collectionName, floor = this.getCurrentFloor()) {
+        if (!floor) {
+            return new Set();
+        }
+
+        if (!(floor[collectionName] instanceof Set)) {
+            floor[collectionName] = new Set();
+        }
+
+        return floor[collectionName];
+    },
+
     getEnvironmentalDamageProfile(x, y) {
         const tile = this.getTile(x, y);
         const hazard = typeof this.getHazard === 'function' ? this.getHazard(x, y) : null;
@@ -11,36 +35,32 @@ Object.assign(World.prototype, {
     },
 
     getHazard(x, y) {
-        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        return floor.hazards.get(key) || null;
+        return this.getFloorMap('hazards').get(key) || null;
     },
 
     getTrap(x, y) {
-        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        return floor.traps.get(key) || null;
+        return this.getFloorMap('traps').get(key) || null;
     },
 
     isTrapRevealed(x, y) {
-        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        return floor.revealedTraps.has(key);
+        return this.getFloorSet('revealedTraps').has(key);
     },
 
     revealTrap(x, y) {
-        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        if (floor.traps.has(key)) {
-            floor.revealedTraps.add(key);
+        const traps = this.getFloorMap('traps');
+        if (traps.has(key)) {
+            this.getFloorSet('revealedTraps').add(key);
         }
     },
 
     removeTrap(x, y) {
-        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        floor.traps.delete(key);
-        floor.revealedTraps.delete(key);
+        this.getFloorMap('traps').delete(key);
+        this.getFloorSet('revealedTraps').delete(key);
     },
 
     setTrap(x, y, trapType, revealed = false) {
@@ -48,29 +68,31 @@ Object.assign(World.prototype, {
             return false;
         }
 
-        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
+        const traps = this.getFloorMap('traps');
+        const revealedTraps = this.getFloorSet('revealedTraps');
         if (!trapType) {
-            floor.traps.delete(key);
-            floor.revealedTraps.delete(key);
+            traps.delete(key);
+            revealedTraps.delete(key);
             return true;
         }
 
-        floor.traps.set(key, trapType);
+        traps.set(key, trapType);
         if (revealed) {
-            floor.revealedTraps.add(key);
+            revealedTraps.add(key);
         } else {
-            floor.revealedTraps.delete(key);
+            revealedTraps.delete(key);
         }
 
         return true;
     },
 
     removeAllTrapsOnCurrentFloor() {
-        const floor = this.getCurrentFloor();
-        const removedCount = floor.traps.size;
-        floor.traps.clear();
-        floor.revealedTraps.clear();
+        const traps = this.getFloorMap('traps');
+        const revealedTraps = this.getFloorSet('revealedTraps');
+        const removedCount = traps.size;
+        traps.clear();
+        revealedTraps.clear();
         return removedCount;
     },
 
@@ -79,21 +101,20 @@ Object.assign(World.prototype, {
             return;
         }
 
-        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
+        const hazards = this.getFloorMap('hazards');
 
         if (!hazardType) {
-            floor.hazards.delete(key);
+            hazards.delete(key);
             return;
         }
 
-        floor.hazards.set(key, hazardType);
+        hazards.set(key, hazardType);
     },
 
     removeHazard(x, y) {
-        const floor = this.getCurrentFloor();
         const key = this.tileKey(x, y);
-        floor.hazards.delete(key);
+        this.getFloorMap('hazards').delete(key);
     },
 
     setTile(x, y, tile) {

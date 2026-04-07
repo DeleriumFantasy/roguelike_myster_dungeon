@@ -6,6 +6,14 @@ class Enemy {
         this.y = y;
         this.name = name;
         this.monsterType = stats.monsterType || name.toLowerCase();
+        this.templateId = stats.templateId || this.monsterType;
+        this.familyId = stats.familyId || this.monsterType;
+        this.tier = Number.isFinite(Number(stats.tier)) ? Math.max(1, Math.floor(Number(stats.tier))) : null;
+        this.npcRole = typeof stats.npcRole === 'string' ? stats.npcRole : '';
+        this.spawnContexts = Array.isArray(stats.spawnContexts)
+            ? [...new Set(stats.spawnContexts.filter((context) => typeof context === 'string' && context.length > 0))]
+            : [];
+        this.persistentNpc = Boolean(stats.persistentNpc);
         this.creatureTypes = this.normalizeCreatureTypes(stats.creatureTypes);
         this.aiType = aiType;
         this.baseAiType = aiType || AI_TYPES.WANDER;

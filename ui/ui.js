@@ -28,9 +28,7 @@ class UI {
                 durationMs: Math.max(1, Number(effect.durationMs) || 1)
             };
             this.activeVisualEffects.push(nextEffect);
-            if (this.game?.world && this.game?.player && this.game?.fov) {
-                this.render(this.game.world, this.game.player, this.game.fov);
-            }
+            this.renderCurrentGameState();
             this.scheduleVisualEffectRender();
         }
 
@@ -74,11 +72,10 @@ class UI {
         this.inventoryModal = inventoryModal;
         this.game = game;
         this.messages = [];
+        this.uiElementCache = new Map();
         this.tileset = new Tileset();
         this.tileset.tryLoadExternalSpriteSheet(() => {
-            if (this.game) {
-                this.render(this.game.world, this.game.player, this.game.fov);
-            }
+            this.renderCurrentGameState();
         });
         this.statsDiv = this.infoPanel.querySelector('#stats');
         this.messagesDiv = this.infoPanel.querySelector('#messages');
@@ -111,6 +108,84 @@ class UI {
     // Pixi is now always required for rendering.
     shouldRenderSceneWithPixi() {
         return true;
+    }
+
+    getUiElement(id) {
+        const elementId = typeof id === 'string' ? id : '';
+        if (!elementId) {
+            return null;
+        }
+
+        if (!(this.uiElementCache instanceof Map)) {
+            this.uiElementCache = new Map();
+        }
+
+        if (this.uiElementCache.has(elementId)) {
+            return this.uiElementCache.get(elementId);
+        }
+
+        const element = document.getElementById(elementId) || null;
+        if (element) {
+            this.uiElementCache.set(elementId, element);
+        }
+        return element;
+    }
+
+    getGameRenderContext() {
+        if (!this.game?.world || !this.game?.player || !this.game?.fov) {
+            return null;
+        }
+
+        return {
+            world: this.game.world,
+            player: this.game.player,
+            fov: this.game.fov
+        };
+    }
+
+    renderCurrentGameState() {
+        const renderContext = this.getGameRenderContext();
+        if (!renderContext) {
+            return false;
+        }
+
+        this.render(renderContext.world, renderContext.player, renderContext.fov);
+        return true;
+    }
+
+    getPlayerAllies(player = this.game?.player, options = {}) {
+        const { aliveOnly = false } = options;
+        const allies = Array.isArray(player?.allies) ? player.allies : [];
+        return allies.filter((ally) => Boolean(ally) && (!aliveOnly || ally?.isAlive?.()));
+    }
+
+    getPlayerInventoryItems(player = this.game?.player) {
+        const inventory = player?.getInventory?.();
+        return Array.isArray(inventory) ? inventory : [];
+    }
+
+    formatActorConditionText(actor) {
+        const conditionEntries = Array.from(actor?.conditions?.entries?.() || []);
+        return conditionEntries.length > 0
+            ? conditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
+            : 'none';
+    }
+
+    getWeatherDisplayName(world) {
+        const weatherType = world?.getCurrentFloor?.()?.meta?.weather
+            || world?.currentFloorObj?.meta?.weather
+            || WEATHER_TYPES.NONE;
+        const definition = typeof WEATHER_DEFINITIONS !== 'undefined'
+            ? WEATHER_DEFINITIONS[weatherType]
+            : null;
+
+        if (typeof definition?.name === 'string' && definition.name.length > 0) {
+            return definition.name;
+        }
+
+        return weatherType && weatherType.charAt
+            ? weatherType.charAt(0).toUpperCase() + weatherType.slice(1)
+            : 'None';
     }
 
     hasPendingPresentationAnimation() {
@@ -418,14 +493,15 @@ class UI {
                 return;
             }
 
-            if (!this.game || !this.game.world || !this.game.player || !this.game.fov) {
+            const renderContext = this.getGameRenderContext();
+            if (!renderContext) {
                 if (this.hasPendingPresentationAnimation()) {
                     this.scheduleVisualEffectRender();
                 }
                 return;
             }
 
-            this.render(this.game.world, this.game.player, this.game.fov);
+            this.render(renderContext.world, renderContext.player, renderContext.fov);
 
             if (this.hasPendingPresentationAnimation()) {
                 this.scheduleVisualEffectRender();

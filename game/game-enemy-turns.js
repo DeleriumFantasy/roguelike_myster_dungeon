@@ -335,8 +335,11 @@ Game.prototype.announceAllyExpGain = function(ally, expGain) {
 
 Game.prototype.awardPlayerKillExp = function(killer, defeatedExp) {
     const killerIsPlayer = killer === this.player;
-    const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
-    const hasAllies = allies.some((ally) => ally && ally.isAlive?.() && typeof ally.addAllyExp === 'function');
+    const allies = this.getPlayerAllies({
+        aliveOnly: true,
+        filter: (ally) => typeof ally.addAllyExp === 'function'
+    });
+    const hasAllies = allies.length > 0;
     const playerExpGain = killerIsPlayer
         ? (hasAllies ? Math.max(0, Math.ceil(defeatedExp * 0.75)) : defeatedExp)
         : defeatedExp;
@@ -362,7 +365,10 @@ Game.prototype.awardPlayerKillExp = function(killer, defeatedExp) {
 Game.prototype.awardAllyKillExp = function(killer, defeatedExp) {
     const playerShare = Math.max(0, Math.ceil(defeatedExp * 0.5));
     const allyShare = Math.max(0, Math.ceil(defeatedExp * 0.5));
-    const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
+    const allies = this.getPlayerAllies({
+        aliveOnly: true,
+        filter: (ally) => typeof ally.addAllyExp === 'function'
+    });
 
     if (playerShare > 0) {
         this.announcePlayerExpGain(playerShare);
@@ -451,21 +457,5 @@ Game.prototype.stallAllyWithHandler = function(ally) {
 };
 
 Game.prototype.getHandlerNpc = function() {
-    const overworldFloor = this.world?.getFloorAt?.(0, this.world?.getSelectedDungeonPathId?.())
-        || this.world?.floors?.[0]
-        || null;
-    if (!overworldFloor) {
-        return null;
-    }
-
-    const npcHandler = Array.isArray(overworldFloor.npcs)
-        ? overworldFloor.npcs.find((npc) => npc?.monsterType === 'npcHandlerTier1')
-        : null;
-    if (npcHandler) {
-        return npcHandler;
-    }
-
-    return Array.isArray(overworldFloor.enemies)
-        ? overworldFloor.enemies.find((enemy) => enemy?.monsterType === 'npcHandlerTier1') || null
-        : null;
+    return this.findNpcByRole?.('handler') || null;
 };

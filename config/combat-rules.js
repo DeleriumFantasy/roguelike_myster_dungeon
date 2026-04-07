@@ -1,7 +1,15 @@
 // Combat math and player EXP progression helpers
 
+function getPlayerExpProgressionTable() {
+    return PLAYER_LEVEL_TOTAL_EXP;
+}
+
+function getAttackVarianceConfig() {
+    return ATTACK_VARIANCE;
+}
+
 function getSortedDefinedPlayerExpLevels() {
-    return Object.keys(PLAYER_LEVEL_TOTAL_EXP)
+    return Object.keys(getPlayerExpProgressionTable())
         .map((value) => Number(value))
         .filter((value) => Number.isFinite(value))
         .sort((left, right) => left - right);
@@ -12,8 +20,9 @@ function getPlayerTotalExpForLevel(level) {
         return 0;
     }
 
-    if (Number.isFinite(PLAYER_LEVEL_TOTAL_EXP[level])) {
-        return PLAYER_LEVEL_TOTAL_EXP[level];
+    const expTable = getPlayerExpProgressionTable();
+    if (Number.isFinite(expTable[level])) {
+        return expTable[level];
     }
 
     const definedLevels = getSortedDefinedPlayerExpLevels();
@@ -25,9 +34,9 @@ function getPlayerTotalExpForLevel(level) {
     const previousDefinedLevel = definedLevels.length > 1
         ? definedLevels[definedLevels.length - 2]
         : 1;
-    const highestDefinedTotal = PLAYER_LEVEL_TOTAL_EXP[highestDefinedLevel];
+    const highestDefinedTotal = expTable[highestDefinedLevel];
     const previousDefinedTotal = previousDefinedLevel > 1
-        ? PLAYER_LEVEL_TOTAL_EXP[previousDefinedLevel]
+        ? expTable[previousDefinedLevel]
         : 0;
 
     let stepRequirement = Math.max(1, highestDefinedTotal - previousDefinedTotal);
@@ -50,7 +59,8 @@ function getExpRequiredForPlayerLevel(level) {
 function getAttackVarianceMultiplier(randomFn = Math.random) {
     const roll = typeof randomFn === 'function' ? randomFn() : Math.random();
     const normalizedRoll = Number.isFinite(roll) ? clamp(roll, 0, 1) : Math.random();
-    return ATTACK_VARIANCE.MIN + (ATTACK_VARIANCE.MAX - ATTACK_VARIANCE.MIN) * normalizedRoll;
+    const varianceConfig = getAttackVarianceConfig();
+    return varianceConfig.MIN + (varianceConfig.MAX - varianceConfig.MIN) * normalizedRoll;
 }
 
 function calculateStandardAttackDamage(attackPower, randomFn = Math.random) {

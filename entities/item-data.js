@@ -588,6 +588,38 @@ const TIERED_ITEM_DEFINITIONS = {
     },
 };
 
+function annotateTieredItemDefinitions(definitionsByCategory) {
+    for (const [categoryKey, tierDefinitions] of Object.entries(definitionsByCategory || {})) {
+        for (const [tierKey, tierDefinition] of Object.entries(tierDefinitions || {})) {
+            const normalizedTier = Number.isFinite(Number(tierKey)) ? Number(tierKey) : null;
+            const definitions = Array.isArray(tierDefinition) ? tierDefinition : [tierDefinition];
+
+            for (let definitionIndex = 0; definitionIndex < definitions.length; definitionIndex++) {
+                const definition = definitions[definitionIndex];
+                if (!definition || typeof definition !== 'object') {
+                    continue;
+                }
+
+                definition.properties = definition.properties || {};
+                const idSuffix = definitions.length > 1 ? `-${definitionIndex + 1}` : '';
+                if (typeof definition.properties.itemId !== 'string' || definition.properties.itemId.length === 0) {
+                    definition.properties.itemId = `${categoryKey}-tier-${tierKey}${idSuffix}`;
+                }
+                if (typeof definition.properties.itemCategory !== 'string' || definition.properties.itemCategory.length === 0) {
+                    definition.properties.itemCategory = categoryKey;
+                }
+                if (normalizedTier !== null && !Number.isFinite(Number(definition.properties.itemTier))) {
+                    definition.properties.itemTier = normalizedTier;
+                }
+            }
+        }
+    }
+
+    return definitionsByCategory;
+}
+
+annotateTieredItemDefinitions(TIERED_ITEM_DEFINITIONS);
+
 function sumEnchantmentBonus(enchantments, bonusKey) {
     return enchantments.reduce((sum, enchantmentId) => {
         const bonus = Number(ENCHANTMENT_DEFINITIONS[enchantmentId]?.[bonusKey] || 0);

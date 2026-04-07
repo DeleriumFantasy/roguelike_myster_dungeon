@@ -20,11 +20,26 @@ Object.assign(UI.prototype, {
 
     getGamePromptElements() {
         return {
-            modal: document.getElementById('game-prompt-modal'),
-            title: document.getElementById('game-prompt-title'),
-            message: document.getElementById('game-prompt-message'),
-            input: document.getElementById('game-prompt-input'),
-            buttons: document.getElementById('game-prompt-buttons')
+            modal: this.getUiElement('game-prompt-modal'),
+            title: this.getUiElement('game-prompt-title'),
+            message: this.getUiElement('game-prompt-message'),
+            input: this.getUiElement('game-prompt-input'),
+            buttons: this.getUiElement('game-prompt-buttons')
+        };
+    },
+
+    getSettingsElements() {
+        return {
+            modal: this.getUiElement('settings-modal'),
+            descendImmediately: this.getUiElement('setting-descend-immediately'),
+            alliesPassive: this.getUiElement('setting-allies-passive')
+        };
+    },
+
+    getDungeonSelectionElements() {
+        return {
+            modal: this.getUiElement('dungeon-selection-modal'),
+            list: this.getUiElement('dungeon-selection-list')
         };
     },
 
@@ -283,9 +298,7 @@ Object.assign(UI.prototype, {
             this.focusGameSurface();
         }
 
-        if (this.game?.world && this.game?.player && this.game?.fov) {
-            this.render(this.game.world, this.game.player, this.game.fov);
-        }
+        this.renderCurrentGameState();
     },
 
     isBlockingOverlayOpen(options = {}) {
@@ -340,9 +353,7 @@ Object.assign(UI.prototype, {
 
         if (this.mapOpen) {
             this.mapOpen = false;
-            if (this.game?.world && this.game?.player && this.game?.fov) {
-                this.render(this.game.world, this.game.player, this.game.fov);
-            }
+            this.renderCurrentGameState();
             this.focusGameSurface();
             return true;
         }
@@ -368,24 +379,21 @@ Object.assign(UI.prototype, {
     },
 
     openSettings() {
-        const modal = document.getElementById('settings-modal');
+        const { modal, descendImmediately, alliesPassive } = this.getSettingsElements();
         if (!modal) return;
         this.haltPlayerMovementForPopup();
-        const cb = document.getElementById('setting-descend-immediately');
-        if (cb && this.game?.settings) {
-            cb.checked = this.game.settings.autoExploreDescendImmediately;
+        if (descendImmediately && this.game?.settings) {
+            descendImmediately.checked = this.game.settings.autoExploreDescendImmediately;
         }
-        const cbPassive = document.getElementById('setting-allies-passive');
-        if (cbPassive && this.game?.settings) {
-            cbPassive.checked = this.game.settings.alliesPassive;
+        if (alliesPassive && this.game?.settings) {
+            alliesPassive.checked = this.game.settings.alliesPassive;
         }
         modal.style.display = 'block';
         this.settingsOpen = true;
     },
 
     openDungeonSelection(options = [], onSelect = null) {
-        const modal = document.getElementById('dungeon-selection-modal');
-        const list = document.getElementById('dungeon-selection-list');
+        const { modal, list } = this.getDungeonSelectionElements();
         if (!modal || !list) {
             return;
         }
@@ -416,7 +424,7 @@ Object.assign(UI.prototype, {
     },
 
     closeDungeonSelection() {
-        const modal = document.getElementById('dungeon-selection-modal');
+        const { modal } = this.getDungeonSelectionElements();
         if (!modal) {
             return;
         }
@@ -427,14 +435,12 @@ Object.assign(UI.prototype, {
     },
 
     closeSettings() {
-        const modal = document.getElementById('settings-modal');
+        const { modal, descendImmediately, alliesPassive } = this.getSettingsElements();
         if (!modal) return;
-        const cb = document.getElementById('setting-descend-immediately');
-        const cbPassive = document.getElementById('setting-allies-passive');
 
         this.game?.applySettingsChanges?.({
-            autoExploreDescendImmediately: Boolean(cb?.checked),
-            alliesPassive: Boolean(cbPassive?.checked)
+            autoExploreDescendImmediately: Boolean(descendImmediately?.checked),
+            alliesPassive: Boolean(alliesPassive?.checked)
         });
 
         modal.style.display = 'none';
@@ -558,13 +564,8 @@ Object.assign(UI.prototype, {
         if (!world) return;
         const areaType = world.getAreaType(world.currentFloor);
         const playerBlind = this.isActorBlind(player);
-        const conditionEntries = Array.from(player.conditions.entries());
-        const conditionText = conditionEntries.length > 0
-            ? conditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
-            : 'none';
-        const allies = Array.isArray(player?.allies)
-            ? player.allies.filter((ally) => ally?.isAlive?.())
-            : [];
+        const conditionText = this.formatActorConditionText(player);
+        const allies = this.getPlayerAllies(player, { aliveOnly: true });
         const visibleEnemyLines = [];
         if (!playerBlind) {
             for (const enemy of world.getEnemies()) {
@@ -582,10 +583,7 @@ Object.assign(UI.prototype, {
             : '<p>(none visible)</p>';
         const allyDebugHtml = allies.length > 0
             ? allies.map((ally) => {
-                const allyConditionEntries = Array.from(ally.conditions?.entries?.() || []);
-                const allyConditionText = allyConditionEntries.length > 0
-                    ? allyConditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
-                    : 'none';
+                const allyConditionText = this.formatActorConditionText(ally);
                 const allyPower = typeof ally.getAttackPower === 'function' ? ally.getAttackPower() : ally.power;
                 const allyArmor = typeof ally.getEffectiveArmor === 'function' ? ally.getEffectiveArmor() : ally.armor;
                 return `<p>${ally.name}: HP ${ally.health}/${ally.maxHealth}, LV ${ally.allyLevel}, EXP ${ally.allyExp}/${ally.allyExpToNextLevel}, POW ${allyPower}, ARM ${allyArmor}, Conditions ${allyConditionText}</p>`;
@@ -607,14 +605,7 @@ Object.assign(UI.prototype, {
         const undoCapacity = Math.max(1, Math.floor(Number(this.game?.maxUndoStates) || 5));
         const statsDiv = this.statsDiv;
         if (!statsDiv) return;
-        // Weather info
-        let weatherType = world.getCurrentFloor?.()?.meta?.weather || (world.currentFloorObj?.meta?.weather) || 'none';
-        let weatherName = weatherType;
-        if (typeof WEATHER_DEFINITIONS !== 'undefined' && WEATHER_DEFINITIONS[weatherType]) {
-            weatherName = WEATHER_DEFINITIONS[weatherType].name;
-        } else if (weatherType && weatherType.charAt) {
-            weatherName = weatherType.charAt(0).toUpperCase() + weatherType.slice(1);
-        }
+        const weatherName = this.getWeatherDisplayName(world);
         statsDiv.innerHTML = `
             <h3>Player Stats</h3>
             <p>Level: ${player.level}</p>
@@ -642,11 +633,19 @@ Object.assign(UI.prototype, {
     },
 
     addMessage(message) {
+        if (typeof message !== 'string' || message.length === 0) {
+            return;
+        }
+
         this.messages.push(message);
         this.renderMessages();
     },
 
     renderMessages() {
+        if (!this.messagesDiv) {
+            return;
+        }
+
         this.messagesDiv.innerHTML = '<h3>Messages</h3>' + this.messages.slice(-10).reverse().map((msg) => `<p>${msg}</p>`).join('');
     }
 });

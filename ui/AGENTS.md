@@ -3,53 +3,45 @@
 ## Purpose
 
 - `ui/` contains rendering and presentation logic only.
-- UI files should read world/player/enemy state and present it, but avoid becoming the place where gameplay state changes are decided.
+- Read world/player/enemy state here, but keep gameplay mutation in `game/`, `entities/`, or `engine/`.
+- PixiJS is the only renderer.
 
 ## File Roles
 
-- `ui-pixi-overlay.js`: PixiJS class orchestrator (~210 lines). Manages Pixi application and scene hierarchy, and delegates rendering to subsystems. Main render() method coordinates terrain, items, actors, effects, and panel updates in draw order.
-- `ui-pixi-sprites.js`: Procedural sprite generation (~220 lines). Generates actor sprites (player with cloak, ally diamond, NPC rounded torso, enemy polygon) via Pixi Graphics→texture, caches by role+size. Includes color mixing, CSS color parsing, and Pixi hex color utilities.
-- `ui-pixi-render-state.js`: Shared per-frame render-state helpers. Builds camera/visibility state once per frame and centralizes layer clearing helpers used by the overlay orchestrator.
-- `ui-pixi-layers.js`: World layer rendering (~220 lines). Terrain sprite placement, tile overlays (steam hazards, trap icons), item indicators, shop tile tint/`$` markers, wall depth cues, and actor shadows.
-- `ui-pixi-actors.js`: Actor sprite rendering (~130 lines). Places actor sprites with bob/breathe animations, renders acto glows, health bars (color-coded by ratio), player facing arrow, and enemy name labels.
-- `ui-pixi-effects.js`: Transient effects and banners (~150 lines). Melee strike trails, projectile throw paths with animated projectile circle, hit pulse overlays, and active-event banner rendering with objective + turn counter.
-- `ui.js`: base UI shell, shared DOM/canvas setup, shared scene/view helpers (camera bounds, visibility predicates, tile/item/enemy display helpers, banner data helpers), camera targeting, and scene view helpers.
-- `ui-panels.js`: stats and message overlay updates, settings modal (`openSettings`, `closeSettings`, `settingsOpen`), shared focus-restoration helpers (`focusGameSurface`, `runNativePrompt`), and native prompt helpers for shop pickup/exit settlement. Settings changes are read from/written to `game.settings` on close. Message list renders newest-first. Ally stats are included in the stats overlay.
-	Dungeon selection modal presentation (`openDungeonSelection`, `closeDungeonSelection`) also belongs here.
-- `ui-inventory.js`: inventory modal presentation (lists, prompts, hover details panel with unknown-item redaction, `runManagedInventoryPrompt`, `applyInventoryOutcome`, `buildInventoryDisplayEntries`, `runInventoryAction`) and delegation of gameplay mutations to `game-inventory-actions.js`.
+- `ui.js`: base UI shell and shared helpers for DOM lookup, render-context access, scene refresh, ally/inventory access, visibility predicates, and weather/condition formatting.
+- `ui-panels.js`: message log, stats overlay, settings modal, dungeon selection modal, prompt plumbing, and focus restoration.
+- `ui-inventory.js`: inventory modal presentation, hover details, action prompts, and delegation of mutations to `game/game-inventory-actions.js`.
+- `ui-pixi-overlay.js`: Pixi app orchestration and shared display-object pooling.
+- `ui-pixi-render-state.js`: per-frame render-state building and layer clearing.
+- `ui-pixi-layers.js`: terrain, items, depth, shadows, and shop/trap/hazard overlays.
+- `ui-pixi-actors.js`: actor sprites, labels, glows, and health bars.
+- `ui-pixi-effects.js`: transient effects and event banners.
+- `ui-pixi-sprites.js`: procedural sprite generation and caching.
 
 ## Editing Rules
 
-- Keep rendering decisions here; keep gameplay state mutation in `game/`, `entities/`, or `engine/`.
-- Inventory actions that mutate gameplay state (use/equip/unequip/drop) belong in `game-inventory-actions.js`; `ui-inventory.js` should only gather input and present results.
-- Route native `window.prompt`/`window.confirm` calls through `runNativePrompt` or `runManagedInventoryPrompt` so held-input reset and focus restoration stay consistent.
-- If a method only formats messages or DOM text, prefer `ui-panels.js`.
-- If a helper is scene-render-specific and shared across Pixi subsystems, prefer `ui-pixi-render-state.js`.
+- Reuse `ui.js` helpers such as `getUiElement()`, `renderCurrentGameState()`, `getPlayerAllies()`, and `getPlayerInventoryItems()` instead of repeating DOM or game-state plumbing.
+- Inventory actions that mutate gameplay belong in `game/game-inventory-actions.js`; `ui-inventory.js` should gather input and present the result.
+- Route prompt/focus behavior through `ui-panels.js` helpers so held-input reset and focus restoration stay consistent.
+- If a helper is scene-render specific and shared across Pixi passes, prefer `ui-pixi-render-state.js`.
+- If a method only formats display text or DOM state, prefer `ui-panels.js` or `ui.js`.
 
 ## Fast Orientation
 
 **For Pixi scene rendering issues:**
-- Start in `ui-pixi-overlay.js` render() method to understand the draw order.
-- For sprite appearance issues: check `ui-pixi-sprites.js` (getActorSpriteTexture, color mixing).
-- For shared per-frame state issues: check `ui-pixi-render-state.js` (buildRenderState, visibility helpers, layer clearing).
-- For layer/depth/terrain issues: check `ui-pixi-layers.js` (renderTerrain, renderDepth, renderItems).
-- For actor/health-bar/label issues: check `ui-pixi-actors.js` (renderActors, renderHealthBar, renderEnemyLabel).
-- For effect animation issues: check `ui-pixi-effects.js` (renderMeleeStrikeEffect, renderThrowTrailEffect, renderHitPulseEffect).
+- Start in `ui-pixi-overlay.js` to understand draw order and container ownership.
+- Check `ui-pixi-render-state.js` for camera/visibility state that is shared across passes.
+- Check `ui-pixi-layers.js`, `ui-pixi-actors.js`, and `ui-pixi-effects.js` for the actual drawing logic.
 
-**For canvas/visibility predicate issues (used everywhere):**
-- Check `ui.js` for shared helpers: isTileRevealed, isEnemyVisibleInFov, shouldUseFogForFloor, getVisibilityAlpha, etc.
+**For panel/prompt issues:**
+- Check `ui-panels.js`, especially settings, dungeon selection, prompt helpers, and `focusGameSurface()`.
 
-**For stats/message/settings/shop prompt issues:**
-- Check `ui-panels.js`, especially `focusGameSurface`, `runNativePrompt`, and the shop-settlement prompt helpers.
-
-**For shop tile appearance issues:**
-- Check `ui-pixi-layers.js`.
-
-**For inventory detail hover panel issues:**
-- Check `ui-inventory.js` (`runManagedInventoryPrompt`, `applyInventoryOutcome`, `buildInventoryDisplayEntries`, `runInventoryAction`) and `index.html` (`#inventory-item-details`, `#inventory-title`).
+**For inventory issues:**
+- Check `ui-inventory.js` together with `game/game-inventory-actions.js`.
+- Inventory detail hover UI uses `#inventory-item-details` and `#inventory-item-details-content` from `index.html`.
 
 ## Common Mistakes
 
 - Do not resolve combat, drops, or movement here.
-- Do not duplicate visibility logic across UI files if a shared helper already exists.
-- Keep presentation wording consistent with message helpers already used elsewhere.
+- Do not duplicate DOM lookups or scene refresh code when shared helpers already exist.
+- Keep presentation wording consistent with the existing message/prompt helpers.

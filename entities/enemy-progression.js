@@ -91,17 +91,12 @@ Object.assign(Enemy.prototype, {
             return false;
         }
 
-        const validSlots = Object.values(EQUIPMENT_SLOTS);
-        if (!validSlots.includes(item.type)) {
+        if (!isEquippableItemType(item.type)) {
             return false;
         }
 
         const currentItem = this.equipment.get(item.type);
-        const currentItemIsCursed = currentItem
-            ? (typeof currentItem.isCursed === 'function'
-                ? currentItem.isCursed()
-                : Boolean(currentItem.properties?.cursed))
-            : false;
+        const currentItemIsCursed = getItemCursedState(currentItem);
         if (currentItem && currentItemIsCursed) {
             return false;
         }
@@ -116,10 +111,7 @@ Object.assign(Enemy.prototype, {
             return true;
         }
 
-        const isCursed = typeof item.isCursed === 'function'
-            ? item.isCursed()
-            : Boolean(item.properties?.cursed);
-        if (isCursed) {
+        if (getItemCursedState(item)) {
             return false;
         }
 

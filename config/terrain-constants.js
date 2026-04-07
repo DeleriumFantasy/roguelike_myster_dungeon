@@ -1,6 +1,6 @@
 // Terrain sprites, autotiling, and shared visual constants
 
-const TERRAIN_SPRITES = Object.freeze({
+const TERRAIN_SPRITES = deepFreezeConfig({
     WALL_STONE_TOP_CORNER_LEFT: { x: 0, y: 0 },
     WALL_STONE_HORIZONTAL: { x: 1, y: 0 },
     WALL_STONE_TOP_CORNER_RIGHT: { x: 2, y: 0 },
@@ -23,15 +23,25 @@ const TERRAIN_SPRITES = Object.freeze({
     WATER_SHALLOW: { x: 5, y: 3 }
 });
 
+function getVisualConfigEntry(configMap, key, fallback = null) {
+    if (!configMap || typeof configMap !== 'object') {
+        return fallback;
+    }
+
+    return Object.prototype.hasOwnProperty.call(configMap, key)
+        ? configMap[key]
+        : fallback;
+}
+
 function pickTerrainSprite(spriteKey) {
-    const sprite = TERRAIN_SPRITES[spriteKey];
+    const sprite = getVisualConfigEntry(TERRAIN_SPRITES, spriteKey);
     if (!sprite) {
         throw new Error(`Unknown terrain sprite key: ${spriteKey}`);
     }
     return { x: sprite.x, y: sprite.y };
 }
 
-const TILE_VISUALS = {
+const TILE_VISUALS = deepFreezeConfig({
     [TILE_TYPES.FLOOR]: { color: '#333', sprite: pickTerrainSprite('FLOOR_STONE') },
     [TILE_TYPES.WALL]: { color: '#0e0e0e', sprite: pickTerrainSprite('WALL_STONE_HORIZONTAL') },
     [TILE_TYPES.PIT]: { color: '#8B4513', sprite: pickTerrainSprite('PIT_OPEN'), icon: 'pit', foregroundColor: '#000' },
@@ -57,7 +67,7 @@ const TILE_VISUALS = {
     [TILE_TYPES.SHOP]: { color: '#b91c1c', sprite: pickTerrainSprite('FLOOR_STONE'), foregroundColor: '#fecaca' }
 };
 
-const WALL_AUTOTILE_SPRITES = Object.freeze({
+const WALL_AUTOTILE_SPRITES = deepFreezeConfig({
     isolated: 'WALL_STONE_FRONT_END',
     end_top: 'WALL_STONE_FRONT_END',
     end_right: 'WALL_STONE_HORIZONTAL',
@@ -77,7 +87,7 @@ const WALL_AUTOTILE_SPRITES = Object.freeze({
     enclosed: 'WALL_STONE_OVERHEAD'
 });
 
-const WALL_BASE_AUTOTILE_RULES = Object.freeze([
+const WALL_BASE_AUTOTILE_RULES = deepFreezeConfig([
     { caseKey: 'enclosed', required: ['t', 'r', 'b', 'l', 'tl', 'tr', 'bl', 'br'] },
     { caseKey: 'cross', required: ['t', 'r', 'b', 'l'] },
     { caseKey: 'tee_left', required: ['t', 'r', 'b'], forbidden: ['l'] },
@@ -97,7 +107,7 @@ const WALL_BASE_AUTOTILE_RULES = Object.freeze([
     { caseKey: 'isolated', forbidden: ['t', 'r', 'b', 'l'] }
 ]);
 
-const WALL_BAND_OVERRIDE_RULES = Object.freeze([
+const WALL_BAND_OVERRIDE_RULES = deepFreezeConfig([
     {
         caseKey: 'corner_bottom_right',
         required: ['t', 'r', 'b', 'l', 'tr', 'bl', 'br'],
@@ -184,7 +194,7 @@ function getWallAutotileCase(world, x, y) {
 
 function getWallSpriteKeyAt(world, x, y) {
     const autotileCase = getWallAutotileCase(world, x, y);
-    return WALL_AUTOTILE_SPRITES[autotileCase] || 'WALL_STONE_HORIZONTAL';
+    return getVisualConfigEntry(WALL_AUTOTILE_SPRITES, autotileCase, 'WALL_STONE_HORIZONTAL');
 }
 
 const TERRAIN_SPRITESHEET_PATH = 'assets/terrain.png';
@@ -192,7 +202,7 @@ const TERRAIN_SPRITESHEET_VERSION = '4';
 const TERRAIN_SPRITESHEET_TILE_SIZE = 16;
 const TERRAIN_SPRITESHEET_TILE_HEIGHT = 16;
 
-const ENTITY_VISUALS = {
+const ENTITY_VISUALS = deepFreezeConfig({
     player: { color: '#66d9ff', miniMapInset: 0 },
     enemy: { color: '#ff6b6b', miniMapInset: 0 },
     ally: { color: '#7ee787', miniMapInset: 0 },
@@ -200,7 +210,7 @@ const ENTITY_VISUALS = {
     item: { color: '#ffdf6b', miniMapInset: 4, miniMapInsetMap: 2 }
 };
 
-const UI_VISUALS = {
+const UI_VISUALS = deepFreezeConfig({
     playerFacingArrow: '#111',
     playerHealthBarBackground: '#111',
     playerHealthBarBorder: '#000',
@@ -226,7 +236,7 @@ const UI_VISUALS = {
     hitPulseNeutral: '#ffffff'
 };
 
-const HEALTH_BAR_PALETTES = {
+const HEALTH_BAR_PALETTES = deepFreezeConfig({
     player: {
         background: UI_VISUALS.playerHealthBarBackground,
         border: UI_VISUALS.playerHealthBarBorder,
@@ -244,7 +254,7 @@ const HEALTH_BAR_PALETTES = {
 };
 
 function getTileVisual(tileType) {
-    return TILE_VISUALS[tileType] || TILE_VISUALS[TILE_TYPES.FLOOR];
+    return getVisualConfigEntry(TILE_VISUALS, tileType, TILE_VISUALS[TILE_TYPES.FLOOR]);
 }
 
 function getTileVisualAt(tileType, world = null, x = null, y = null) {
@@ -276,5 +286,5 @@ function getEntityVisual(entityKind, entity = null) {
         }
     }
 
-    return ENTITY_VISUALS[entityKind] || ENTITY_VISUALS.enemy;
+    return getVisualConfigEntry(ENTITY_VISUALS, entityKind, ENTITY_VISUALS.enemy);
 }

@@ -6,20 +6,28 @@ Object.assign(World.prototype, {
             ? this.getDungeonPathSeedOffset(this.selectedDungeonPathId)
             : 0;
         const rng = new SeededRNG(this.baseSeed + this.currentFloor + pathSeedOffset);
-        const layout = this.generateGridForArea(areaType, rng);
+        const runtimeRule = typeof getAreaRuntimeGenerationRule === 'function'
+            ? getAreaRuntimeGenerationRule(areaType)
+            : null;
+        const layout = this.generateGridForArea(areaType, rng, runtimeRule);
         const grid = layout.grid;
         const stairPositions = this.placeStairs(grid, rng, layout);
 
-        if (areaType === AREA_TYPES.CATACOMBS) {
-            this.decorateCatacombsHallways(grid, rng, layout, stairPositions);
+        const postLayoutDecorators = Array.isArray(runtimeRule?.postLayoutDecorators)
+            ? runtimeRule.postLayoutDecorators
+            : [];
+        for (const decoratorMethod of postLayoutDecorators) {
+            if (typeof this[decoratorMethod] === 'function') {
+                this[decoratorMethod](grid, rng, layout, stairPositions);
+            }
         }
 
         this.applyDungeonPathTileRestrictions(grid, areaType);
 
-        const hazards = areaType === AREA_TYPES.OVERWORLD
+        const hazards = runtimeRule?.skipHazards
             ? new Map()
             : this.generateHazardsForGrid(grid, rng, areaType, layout);
-        const traps = areaType === AREA_TYPES.OVERWORLD
+        const traps = runtimeRule?.skipTraps
             ? new Map()
             : this.generateTrapsForGrid(grid, rng, areaType, layout);
         const disposalTiles = this.collectTilesByType(grid, [TILE_TYPES.WATER, TILE_TYPES.LAVA]);
@@ -54,7 +62,7 @@ Object.assign(World.prototype, {
     },
 
     generateWeatherForFloor(rng, areaType = AREA_TYPES.DUNGEON) {
-        if (getRngRoll() > WEATHER_GENERATION_CHANCE) {
+        if (getRngRoll(rng) > WEATHER_GENERATION_CHANCE) {
             return WEATHER_TYPES.NONE;
         }
 
@@ -69,7 +77,7 @@ Object.assign(World.prototype, {
             totalWeight += weight;
         }
 
-        let roll = getRngRoll() * totalWeight;
+        let roll = getRngRoll(rng) * totalWeight;
         for (const [weather, weight] of validWeathers) {
             roll -= weight;
             if (roll <= 0) {
@@ -121,15 +129,22 @@ Object.assign(World.prototype, {
         return matches;
     },
 
-    generateGridForArea(areaType, rng) {
-        if (areaType === AREA_TYPES.OVERWORLD) {
-            return this.generateOverworldGrid();
+    generateGridForArea(areaType, rng, runtimeRule = null) {
+        const resolvedRuntimeRule = runtimeRule || (typeof getAreaRuntimeGenerationRule === 'function'
+            ? getAreaRuntimeGenerationRule(areaType)
+            : null);
+        const generatorMethod = typeof resolvedRuntimeRule?.generatorMethod === 'string'
+            ? resolvedRuntimeRule.generatorMethod
+            : '';
+
+        if (generatorMethod && typeof this[generatorMethod] === 'function') {
+            return this[generatorMethod](rng, areaType, resolvedRuntimeRule);
         }
 
-        if (areaType === AREA_TYPES.CATACOMBS) {
-            return this.generateCatacombsGrid(rng);
-        }
+        return this.generateRuleBasedAreaGrid(rng, areaType, resolvedRuntimeRule);
+    },
 
+    generateRuleBasedAreaGrid(rng, areaType) {
         const rule = getAreaGenerationRule(areaType);
         const grid = [];
         const premadeItemSpawns = [];
@@ -729,7 +744,10 @@ Object.assign(World.prototype, {
 
     getRoomGenFilter(areaType, layout) {
         const roomTileKeys = layout?.roomTileKeys;
-        const roomOnly = areaType === AREA_TYPES.CATACOMBS && roomTileKeys instanceof Set;
+        const runtimeRule = typeof getAreaRuntimeGenerationRule === 'function'
+            ? getAreaRuntimeGenerationRule(areaType)
+            : null;
+        const roomOnly = Boolean(runtimeRule?.roomOnlySpawns) && roomTileKeys instanceof Set;
         return { roomTileKeys, roomOnly };
     },
 
@@ -793,21 +811,17 @@ Object.assign(World.prototype, {
             return pathAreaType;
         }
 
-        const rules = getAreaSelectionRules();
-
-        if (dungeonFloorIndex % rules.floatingModulo === rules.floatingRemainder) {
-            return AREA_TYPES.FLOATING;
-        }
-        if (dungeonFloorIndex % rules.swampModulo === rules.swampRemainder) {
-            return AREA_TYPES.SWAMP;
-        }
-        if (dungeonFloorIndex % rules.dungeonModulo === rules.dungeonRemainder) {
-            return AREA_TYPES.DUNGEON;
-        }
-        return AREA_TYPES.CATACOMBS;
+        return typeof getFallbackAreaTypeForDungeonDepth === 'function'
+            ? getFallbackAreaTypeForDungeonDepth(dungeonFloorIndex)
+            : AREA_TYPES.CATACOMBS;
     },
 
     getGeneratorType(areaType) {
-        return `generator:${areaType}`;
+        const runtimeRule = typeof getAreaRuntimeGenerationRule === 'function'
+            ? getAreaRuntimeGenerationRule(areaType)
+            : null;
+        return typeof runtimeRule?.generatorType === 'string'
+            ? runtimeRule.generatorType
+            : `generator:${areaType}`;
     }
 });

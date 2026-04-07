@@ -49,46 +49,19 @@ Object.assign(Player.prototype, {
     },
 
     forEachEquippedItem(callback) {
-        for (const item of this.equipment.values()) {
-            callback(item);
-        }
+        forEachEquippedActorItem(this, callback);
     },
 
     someEquippedItem(predicate) {
-        for (const item of this.equipment.values()) {
-            if (predicate(item)) {
-                return true;
-            }
-        }
-
-        return false;
+        return actorSomeEquippedItem(this, predicate);
     },
 
     getEquipmentMultiplier(methodName, arg) {
-        let multiplier = 1;
-        this.forEachEquippedItem((item) => {
-            const multiplierMethod = item?.[methodName];
-            if (typeof multiplierMethod === 'function') {
-                multiplier *= multiplierMethod.call(item, arg);
-            }
-        });
-        return multiplier;
+        return getActorEquipmentMultiplier(this, methodName, arg);
     },
 
     getEquipmentNumericSum(methodName, arg) {
-        let total = 0;
-        this.forEachEquippedItem((item) => {
-            const valueMethod = item?.[methodName];
-            if (typeof valueMethod !== 'function') {
-                return;
-            }
-
-            const value = Number(valueMethod.call(item, arg) || 0);
-            if (Number.isFinite(value)) {
-                total += value;
-            }
-        });
-        return total;
+        return getActorEquipmentNumericSum(this, methodName, arg);
     },
 
     getExpGainMultiplier() {
@@ -139,15 +112,7 @@ Object.assign(Player.prototype, {
     },
 
     isItemCursed(item) {
-        if (!item) {
-            return false;
-        }
-
-        if (typeof item.isCursed === 'function') {
-            return item.isCursed();
-        }
-
-        return Boolean(item.properties?.cursed);
+        return getItemCursedState(item);
     },
 
     getIncomingDamageMultiplierAgainst(attacker) {

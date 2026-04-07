@@ -222,17 +222,12 @@ class Game {
 
     rebuildUndoRuntimeState() {
         const floorsToRepair = [];
+        const floorCollections = typeof this.getWorldFloorCollections === 'function'
+            ? this.getWorldFloorCollections()
+            : [];
 
-        if (Array.isArray(this.world?.floors)) {
-            floorsToRepair.push(...this.world.floors);
-        }
-
-        if (this.world?.pathFloors && typeof this.world.pathFloors === 'object') {
-            for (const floorList of Object.values(this.world.pathFloors)) {
-                if (Array.isArray(floorList)) {
-                    floorsToRepair.push(...floorList);
-                }
-            }
+        for (const floors of floorCollections) {
+            floorsToRepair.push(...floors);
         }
 
         for (const floor of floorsToRepair) {

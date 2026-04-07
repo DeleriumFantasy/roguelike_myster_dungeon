@@ -1,98 +1,20 @@
 // NPC conversation, shop, and banking helpers
 
-const QUESTGIVER_QUEST_POOLS = {
-    hunt: [
-        { targetTypeKey: 'slimeTier1', minFloor: 1, requiredCount: 4, rewardMoney: 40, rewardTier: 1 },
-        { targetTypeKey: 'beastTier1', minFloor: 1, requiredCount: 3, rewardMoney: 55, rewardTier: 1 },
-        { targetTypeKey: 'ghostTier1', minFloor: 1, requiredCount: 2, rewardMoney: 70, rewardTier: 2 },
-        { targetTypeKey: 'thiefTier1', minFloor: 1, requiredCount: 2, rewardMoney: 80, rewardTier: 2 },
-        { targetTypeKey: 'fuserTier1', minFloor: 2, requiredCount: 2, rewardMoney: 110, rewardTier: 2 },
-        { targetTypeKey: 'pariahTier1', minFloor: 2, requiredCount: 2, rewardMoney: 120, rewardTier: 2 }
-    ],
-    allyRetrieval: [
-        { targetTypeKey: 'slimeTier1', minAllyLevel: 2, rewardMoney: 65, rewardTier: 1 },
-        { targetTypeKey: 'beastTier1', minAllyLevel: 2, rewardMoney: 85, rewardTier: 1 },
-        { targetTypeKey: 'aquaticTier1', minAllyLevel: 3, rewardMoney: 95, rewardTier: 2 },
-        { targetTypeKey: 'floatingTier1', minAllyLevel: 3, rewardMoney: 105, rewardTier: 2 }
-    ],
-    escort: [
-        { minFloor: 1, targetAdvanceMin: 2, targetAdvanceMax: 3, rewardMoney: 90, rewardTier: 1 },
-        { minFloor: 3, targetAdvanceMin: 3, targetAdvanceMax: 4, rewardMoney: 135, rewardTier: 2 },
-        { minFloor: 6, targetAdvanceMin: 4, targetAdvanceMax: 5, rewardMoney: 200, rewardTier: 3 }
-    ],
-    saveLostExplorer: [
-        { minFloor: 1, targetAdvanceMin: 1, targetAdvanceMax: 2, rewardMoney: 110, rewardTier: 1 },
-        { minFloor: 3, targetAdvanceMin: 2, targetAdvanceMax: 3, rewardMoney: 160, rewardTier: 2 },
-        { minFloor: 6, targetAdvanceMin: 3, targetAdvanceMax: 4, rewardMoney: 230, rewardTier: 3 }
-    ],
-    retrieveItem: [
-        { minFloor: 1, targetAdvanceMin: 1, targetAdvanceMax: 2, rewardMoney: 85, rewardTier: 1 },
-        { minFloor: 3, targetAdvanceMin: 2, targetAdvanceMax: 3, rewardMoney: 130, rewardTier: 2 },
-        { minFloor: 6, targetAdvanceMin: 3, targetAdvanceMax: 4, rewardMoney: 190, rewardTier: 3 }
-    ],
-    materialDelivery: [
-        { minFloor: 1, targetAdvanceMin: 1, targetAdvanceMax: 2, materialCountMin: 3, materialCountMax: 4, rewardMoney: 115, rewardTier: 1 },
-        { minFloor: 3, targetAdvanceMin: 2, targetAdvanceMax: 3, materialCountMin: 3, materialCountMax: 5, rewardMoney: 170, rewardTier: 2 },
-        { minFloor: 6, targetAdvanceMin: 3, targetAdvanceMax: 4, materialCountMin: 4, materialCountMax: 5, rewardMoney: 240, rewardTier: 3 }
-    ]
-};
+const NPC_INTERACTION_HANDLER_BY_ROLE = Object.freeze({
+    merchant: 'interactWithMerchantNpc',
+    banker: 'interactWithBanker',
+    starving: 'interactWithStarvingNpc',
+    homebound: 'interactWithHomeboundNpc',
+    shaman: 'interactWithShamanNpc',
+    questgiver: 'interactWithQuestgiver',
+    handler: 'interactWithHandler'
+});
 
-const QUESTGIVER_RETRIEVE_ITEM_NAMES = ['Sealed relic', 'Surveyor\'s ledger', 'Crystal compass', 'Ancient field notes'];
-const QUESTGIVER_MATERIAL_NAMES = ['Reinforcement crate', 'Power conduit', 'Stone brace', 'Machined strut'];
-const QUESTGIVER_ENGINEER_NAMES = ['Engineer Hale', 'Engineer Mira', 'Engineer Varo', 'Engineer Seln'];
-const QUESTGIVER_ADVANCE_QUEST_CONFIGS = {
-    escort: {
-        poolKey: 'escort',
-        questType: 'escort-npc',
-        rewardFloorMultiplier: 10,
-        minimumAdvance: 0,
-        createExtraFields: (game) => ({
-            escortTypeKey: 'escortPassengerTier1',
-            escortName: game.getQuestgiverTargetName('escortPassengerTier1')
-        })
-    },
-    saveLostExplorer: {
-        poolKey: 'saveLostExplorer',
-        questType: 'save-lost-explorer',
-        rewardFloorMultiplier: 12,
-        minimumAdvance: 1
-    },
-    retrieveItem: {
-        poolKey: 'retrieveItem',
-        questType: 'retrieve-item',
-        rewardFloorMultiplier: 10,
-        minimumAdvance: 1,
-        createExtraFields: (_game, _entry, _targetFloor, questRng) => ({
-            itemName: pickRandom(QUESTGIVER_RETRIEVE_ITEM_NAMES, questRng, QUESTGIVER_RETRIEVE_ITEM_NAMES[0])
-        })
-    },
-    materialDelivery: {
-        poolKey: 'materialDelivery',
-        questType: 'material-delivery',
-        rewardFloorMultiplier: 12,
-        minimumAdvance: 1,
-        createExtraFields: (_game, entry, _targetFloor, questRng) => {
-            const materialCountMin = Math.max(3, Math.floor(Number(entry?.materialCountMin) || 3));
-            const materialCountMax = Math.max(materialCountMin, Math.floor(Number(entry?.materialCountMax) || materialCountMin));
-            const materialCount = getRngRandomInt(questRng, materialCountMin, materialCountMax);
-            return {
-                materialName: pickRandom(QUESTGIVER_MATERIAL_NAMES, questRng, QUESTGIVER_MATERIAL_NAMES[0]),
-                materialCount,
-                requiredCount: materialCount,
-                engineerName: pickRandom(QUESTGIVER_ENGINEER_NAMES, questRng, QUESTGIVER_ENGINEER_NAMES[0])
-            };
-        }
-    }
-};
-const QUESTGIVER_QUEST_BUILDER_METHODS = [
-    'buildQuestgiverHuntQuest',
-    'buildQuestgiverAllyRetrievalQuest',
-    'buildQuestgiverExploreQuest',
-    'buildQuestgiverEscortQuest',
-    'buildQuestgiverLostExplorerQuest',
-    'buildQuestgiverRetrieveItemQuest',
-    'buildQuestgiverMaterialDeliveryQuest'
-];
+const QUESTGIVER_EXTRA_FIELD_BUILDERS = Object.freeze({
+    escortPassenger: 'buildQuestgiverEscortExtraFields',
+    retrieveItemName: 'buildQuestgiverRetrieveItemExtraFields',
+    materialDelivery: 'buildQuestgiverMaterialDeliveryExtraFields'
+});
 
 Object.assign(Game.prototype, {
     ensureQuestgiverState() {
@@ -153,6 +75,54 @@ Object.assign(Game.prototype, {
         };
     },
 
+    pickQuestgiverNameFromPool(poolKey, rng, fallback = '') {
+        const entries = typeof getQuestgiverNamePoolEntries === 'function'
+            ? getQuestgiverNamePoolEntries(poolKey)
+            : [];
+        return pickRandom(entries, rng, entries[0] || fallback);
+    },
+
+    buildQuestgiverEscortExtraFields(config) {
+        const escortTypeKey = typeof config?.escortTypeKey === 'string'
+            ? config.escortTypeKey
+            : 'escortPassengerTier1';
+        return {
+            escortTypeKey,
+            escortName: this.getQuestgiverTargetName(escortTypeKey)
+        };
+    },
+
+    buildQuestgiverRetrieveItemExtraFields(config, _entry, _targetFloor, rng) {
+        return {
+            itemName: this.pickQuestgiverNameFromPool(config?.itemNamePoolKey, rng, 'Sealed relic')
+        };
+    },
+
+    buildQuestgiverMaterialDeliveryExtraFields(config, entry, _targetFloor, rng) {
+        const materialCountMin = Math.max(3, Math.floor(Number(entry?.materialCountMin) || 3));
+        const materialCountMax = Math.max(materialCountMin, Math.floor(Number(entry?.materialCountMax) || materialCountMin));
+        const materialCount = getRngRandomInt(rng, materialCountMin, materialCountMax);
+
+        return {
+            materialName: this.pickQuestgiverNameFromPool(config?.materialNamePoolKey, rng, 'Reinforcement crate'),
+            materialCount,
+            requiredCount: materialCount,
+            engineerName: this.pickQuestgiverNameFromPool(config?.engineerNamePoolKey, rng, 'Engineer Hale')
+        };
+    },
+
+    buildQuestgiverExtraFields(config, entry, targetFloor, rng) {
+        const builderKey = typeof config?.extraFieldBuilder === 'string'
+            ? config.extraFieldBuilder
+            : '';
+        const builderMethod = QUESTGIVER_EXTRA_FIELD_BUILDERS[builderKey];
+        if (!builderMethod || typeof this[builderMethod] !== 'function') {
+            return {};
+        }
+
+        return this[builderMethod](config, entry, targetFloor, rng) || {};
+    },
+
     updateQuestgiverQuestDisplay(quest) {
         if (!quest) {
             return 'No task available.';
@@ -164,7 +134,9 @@ Object.assign(Game.prototype, {
     },
 
     getQuestgiverEligibleEntries(poolKey, pathId = this.world?.getSelectedDungeonPathId?.()) {
-        const questPool = QUESTGIVER_QUEST_POOLS[poolKey] || [];
+        const questPool = typeof getQuestgiverQuestPool === 'function'
+            ? getQuestgiverQuestPool(poolKey)
+            : [];
         const progressFloor = this.getQuestgiverTargetProgressFloor(pathId);
 
         return questPool.filter((entry) => progressFloor >= Math.max(1, Number(entry.minFloor) || 1));
@@ -198,7 +170,9 @@ Object.assign(Game.prototype, {
     },
 
     buildQuestgiverAllyRetrievalQuest(rng) {
-        const eligibleEntries = QUESTGIVER_QUEST_POOLS.allyRetrieval || [];
+        const eligibleEntries = typeof getQuestgiverQuestPool === 'function'
+            ? getQuestgiverQuestPool('allyRetrieval')
+            : [];
         const chosenEntry = pickRandom(eligibleEntries, rng, eligibleEntries[0]);
         if (!chosenEntry) {
             return null;
@@ -231,7 +205,7 @@ Object.assign(Game.prototype, {
     },
 
     buildQuestgiverAdvanceFloorQuest(rng, poolKey, questType, options = {}) {
-        const { rewardFloorMultiplier = 0, minimumAdvance = 0, createExtraFields = null } = options;
+        const { rewardFloorMultiplier = 0, minimumAdvance = 0, config = null } = options;
         const targeting = this.getQuestgiverPathTargeting(rng);
         const eligibleEntries = this.getQuestgiverEligibleEntries(poolKey, targeting.targetPathId);
         const chosenEntry = pickRandom(eligibleEntries, rng, eligibleEntries[0]);
@@ -252,9 +226,7 @@ Object.assign(Game.prototype, {
             completed: false,
             rewardMoney: Math.max(0, Math.floor(Number(chosenEntry.rewardMoney) || 0)) + targetFloor * rewardFloorMultiplier,
             rewardTier: Math.max(1, Math.floor(Number(chosenEntry.rewardTier) || 1)),
-            ...(typeof createExtraFields === 'function'
-                ? (createExtraFields(chosenEntry, targetFloor, rng) || {})
-                : {})
+            ...this.buildQuestgiverExtraFields(config, chosenEntry, targetFloor, rng)
         };
     },
 
@@ -276,7 +248,9 @@ Object.assign(Game.prototype, {
     },
 
     buildConfiguredQuestgiverAdvanceQuest(configKey, rng) {
-        const config = QUESTGIVER_ADVANCE_QUEST_CONFIGS[configKey];
+        const config = typeof getQuestgiverAdvanceQuestConfig === 'function'
+            ? getQuestgiverAdvanceQuestConfig(configKey)
+            : null;
         if (!config) {
             return null;
         }
@@ -284,9 +258,7 @@ Object.assign(Game.prototype, {
         return this.buildQuestgiverAdvanceFloorQuest(rng, config.poolKey, config.questType, {
             rewardFloorMultiplier: config.rewardFloorMultiplier,
             minimumAdvance: config.minimumAdvance,
-            createExtraFields: typeof config.createExtraFields === 'function'
-                ? (entry, targetFloor, questRng) => config.createExtraFields(this, entry, targetFloor, questRng)
-                : null
+            config
         });
     },
 
@@ -311,8 +283,8 @@ Object.assign(Game.prototype, {
             return null;
         }
 
-        const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
-        return allies.find((ally) => ally?.isAlive?.() && ally.questEscortId === quest.id) || null;
+        return this.getPlayerAllies({ aliveOnly: true })
+            .find((ally) => ally.questEscortId === quest.id) || null;
     },
 
     removeEnemyFromAllFloors(enemy) {
@@ -320,33 +292,19 @@ Object.assign(Game.prototype, {
             return;
         }
 
-        const floorCollections = [];
-        if (Array.isArray(this.world.floors)) {
-            floorCollections.push(this.world.floors);
-        }
-
-        const pathFloorCollections = Object.values(this.world.pathFloors || {});
-        for (const floors of pathFloorCollections) {
-            if (Array.isArray(floors)) {
-                floorCollections.push(floors);
+        this.forEachWorldFloor((floor) => {
+            if (!Array.isArray(floor?.enemies)) {
+                return;
             }
-        }
 
-        for (const floors of floorCollections) {
-            for (const floor of floors) {
-                if (!Array.isArray(floor?.enemies)) {
-                    continue;
-                }
-
-                const index = floor.enemies.indexOf(enemy);
-                if (index < 0) {
-                    continue;
-                }
-
-                this.world.unindexEnemy?.(enemy, floor);
-                floor.enemies.splice(index, 1);
+            const index = floor.enemies.indexOf(enemy);
+            if (index < 0) {
+                return;
             }
-        }
+
+            this.world.unindexEnemy?.(enemy, floor);
+            floor.enemies.splice(index, 1);
+        });
     },
 
     clearQuestEventById(questId, eventType = '') {
@@ -355,37 +313,23 @@ Object.assign(Game.prototype, {
         }
 
         const normalizedQuestId = Math.floor(Number(questId));
-        const floorCollections = [];
-        if (Array.isArray(this.world.floors)) {
-            floorCollections.push(this.world.floors);
-        }
-
-        const pathFloorCollections = Object.values(this.world.pathFloors || {});
-        for (const floors of pathFloorCollections) {
-            if (Array.isArray(floors)) {
-                floorCollections.push(floors);
+        this.forEachWorldFloor((floor) => {
+            const activeEvent = floor?.meta?.activeEvent;
+            if (!activeEvent) {
+                return;
             }
-        }
 
-        for (const floors of floorCollections) {
-            for (const floor of floors) {
-                const activeEvent = floor?.meta?.activeEvent;
-                if (!activeEvent) {
-                    continue;
-                }
-
-                const activeQuestId = Math.floor(Number(activeEvent.questId));
-                if (activeQuestId !== normalizedQuestId) {
-                    continue;
-                }
-
-                if (eventType && activeEvent.type !== eventType) {
-                    continue;
-                }
-
-                floor.meta.activeEvent = null;
+            const activeQuestId = Math.floor(Number(activeEvent.questId));
+            if (activeQuestId !== normalizedQuestId) {
+                return;
             }
-        }
+
+            if (eventType && activeEvent.type !== eventType) {
+                return;
+            }
+
+            floor.meta.activeEvent = null;
+        });
     },
 
     removeQuestEscortAlly(quest, options = {}) {
@@ -483,7 +427,11 @@ Object.assign(Game.prototype, {
     },
 
     getQuestgiverQuestBuilders(rng = createMathRng()) {
-        return QUESTGIVER_QUEST_BUILDER_METHODS
+        const questBuilderMethods = typeof getQuestgiverQuestBuilderMethods === 'function'
+            ? getQuestgiverQuestBuilderMethods()
+            : [];
+
+        return questBuilderMethods
             .map((methodName) => this[methodName])
             .filter((buildQuest) => typeof buildQuest === 'function')
             .map((buildQuest) => () => buildQuest.call(this, rng));
@@ -602,9 +550,8 @@ Object.assign(Game.prototype, {
         }
 
         const minAllyLevel = Math.max(1, Math.floor(Number(quest.minAllyLevel) || 1));
-        const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
-        return allies.find((ally) => {
-            if (!ally?.isAlive?.() || ally.monsterType !== quest.targetTypeKey) {
+        return this.getPlayerAllies({ aliveOnly: true }).find((ally) => {
+            if (ally.monsterType !== quest.targetTypeKey) {
                 return false;
             }
 
@@ -618,15 +565,13 @@ Object.assign(Game.prototype, {
             return null;
         }
 
-        const inventory = Array.isArray(this.player?.getInventory?.())
-            ? this.player.getInventory()
-            : [];
-        return inventory.find((item) => {
+        const normalizedQuestId = Math.floor(Number(quest.id));
+        return this.getPlayerInventoryItems().find((item) => {
             const properties = item?.properties || {};
             return Boolean(
                 properties.questReturnOnly
                 && properties.questType === 'retrieve-item'
-                && Math.floor(Number(properties.questId)) === Math.floor(Number(quest.id))
+                && Math.floor(Number(properties.questId)) === normalizedQuestId
             );
         }) || null;
     },
@@ -636,15 +581,13 @@ Object.assign(Game.prototype, {
             return [];
         }
 
-        const inventory = Array.isArray(this.player?.getInventory?.())
-            ? this.player.getInventory()
-            : [];
-        return inventory.filter((item) => {
+        const normalizedQuestId = Math.floor(Number(quest.id));
+        return this.getPlayerInventoryItems().filter((item) => {
             const properties = item?.properties || {};
             return Boolean(
                 properties.questDeliveryOnly
                 && properties.questType === 'material-delivery'
-                && Math.floor(Number(properties.questId)) === Math.floor(Number(quest.id))
+                && Math.floor(Number(properties.questId)) === normalizedQuestId
             );
         });
     },
@@ -696,7 +639,7 @@ Object.assign(Game.prototype, {
         const requiredSlots = materials.length;
         const carriedCount = typeof this.player?.getInventoryItemCount === 'function'
             ? this.player.getInventoryItemCount()
-            : (Array.isArray(this.player?.getInventory?.()) ? this.player.getInventory().length : 0);
+            : this.getPlayerInventoryItems().length;
         const maxItems = typeof this.player?.getMaxInventoryItems === 'function'
             ? this.player.getMaxInventoryItems()
             : 20;
@@ -1174,7 +1117,7 @@ Object.assign(Game.prototype, {
     },
 
     openNpcInventoryItemPrompt(enemy, header, itemFilter = () => true, onSelect = null) {
-        const inventory = Array.isArray(this.player.getInventory()) ? this.player.getInventory() : [];
+        const inventory = this.getPlayerInventoryItems();
         const filteredItems = inventory.filter((item) => itemFilter(item));
         return this.openNpcListSelection(enemy, header, filteredItems, (item) => this.getNpcItemChoiceDisplay(item), onSelect, {
             cancelLabel: 'Cancel'
@@ -1231,9 +1174,9 @@ Object.assign(Game.prototype, {
     },
 
     handleAllyStall(enemy) {
-        const allies = Array.isArray(this.player.allies)
-            ? this.player.allies.filter((ally) => this.canStoreAllyWithHandler(ally))
-            : [];
+        const allies = this.getPlayerAllies({
+            filter: (ally) => this.canStoreAllyWithHandler(ally)
+        });
         if (allies.length === 0) {
             this.ui.addMessage(`${enemy.name}: You have no allies to stall.`);
             return;
@@ -1366,18 +1309,8 @@ Object.assign(Game.prototype, {
     },
 
     interactWithShamanNpc(enemy) {
-        const inventory = Array.isArray(this.player.getInventory()) ? this.player.getInventory() : [];
-        const cursedItems = inventory.filter((item) => {
-            if (!item) {
-                return false;
-            }
-
-            if (typeof item.isCursed === 'function') {
-                return item.isCursed();
-            }
-
-            return Boolean(item?.properties?.cursed);
-        });
+        const inventory = this.getPlayerInventoryItems();
+        const cursedItems = inventory.filter((item) => getItemCursedState(item));
 
         if (cursedItems.length === 0) {
             this.ui.addMessage(`${enemy.name}: Return when you carry a cursed item.`);
@@ -1465,16 +1398,14 @@ Object.assign(Game.prototype, {
             return () => this.interactWithMaterialEngineerNpc(enemy);
         }
 
-        const interactionMap = {
-            npcBankerTier1: () => this.interactWithBanker(enemy),
-            npcStarvingTier1: () => this.interactWithStarvingNpc(enemy),
-            npcHomeboundTier1: () => this.interactWithHomeboundNpc(enemy),
-            npcShamanTier1: () => this.interactWithShamanNpc(enemy),
-            npcQuestgiverTier1: () => this.interactWithQuestgiver(enemy),
-            npcHandlerTier1: () => this.interactWithHandler(enemy)
-        };
+        const npcRole = typeof enemy?.npcRole === 'string' && enemy.npcRole.length > 0
+            ? enemy.npcRole
+            : (ENEMY_TEMPLATES?.[enemy?.monsterType]?.npcRole || '');
+        const handlerName = NPC_INTERACTION_HANDLER_BY_ROLE[npcRole];
 
-        return interactionMap[enemy.monsterType] || null;
+        return typeof handlerName === 'string' && typeof this[handlerName] === 'function'
+            ? () => this[handlerName](enemy)
+            : null;
     },
 
     interactWithMerchantNpc(enemy) {
@@ -1837,7 +1768,7 @@ Object.assign(Game.prototype, {
             emptyMessage: 'You have no items to store.',
             promptHeader: 'Which item should I store?',
             onCancelMessage: 'Storage canceled.',
-            getEntries: () => this.player.getInventory(),
+            getEntries: () => this.getPlayerInventoryItems(),
             onSelection: (selectedItem) => {
                 this.player.removeItem(selectedItem);
                 this.player.bankItems.push(selectedItem);

@@ -2,6 +2,36 @@
 //
 // Keep gameplay mutation in game/ so ui/ can stay presentation-focused.
 
+const FLOOR_SCROLL_EFFECT_HANDLERS = Object.freeze({
+    'map-floor': (game, item) => {
+        game.fov?.showAll?.();
+        game.player.removeItem(item);
+        return { handled: true, consumed: true, effect: 'map-floor' };
+    },
+    'erase-traps': (game, item) => {
+        const removedCount = game.world?.removeAllTrapsOnCurrentFloor?.() || 0;
+        game.player.removeItem(item);
+        return { handled: true, consumed: true, effect: 'erase-traps', removedCount };
+    },
+    'warp-player': (game, item) => {
+        const destination = game.findWarpDestinationForPlayer();
+        if (!destination) {
+            return { handled: true, consumed: false, effect: 'warp-player' };
+        }
+
+        game.player.x = destination.x;
+        game.player.y = destination.y;
+        game.player.removeItem(item);
+        game.updateFOV?.();
+        return {
+            handled: true,
+            consumed: true,
+            effect: 'warp-player',
+            destination
+        };
+    }
+});
+
 Object.assign(Game.prototype, {
     tryAddItemToPlayerInventory(item, options = {}) {
         if (!item || !this.player || typeof this.player.addItem !== 'function') {
@@ -55,38 +85,10 @@ Object.assign(Game.prototype, {
 
     useFloorEffectScroll(item) {
         const scrollEffect = typeof item?.getScrollEffect === 'function' ? item.getScrollEffect() : '';
-
-        if (scrollEffect === 'map-floor') {
-            this.fov?.showAll?.();
-            this.player.removeItem(item);
-            return { handled: true, consumed: true, effect: 'map-floor' };
-        }
-
-        if (scrollEffect === 'erase-traps') {
-            const removedCount = this.world?.removeAllTrapsOnCurrentFloor?.() || 0;
-            this.player.removeItem(item);
-            return { handled: true, consumed: true, effect: 'erase-traps', removedCount };
-        }
-
-        if (scrollEffect === 'warp-player') {
-            const destination = this.findWarpDestinationForPlayer();
-            if (!destination) {
-                return { handled: true, consumed: false, effect: 'warp-player' };
-            }
-
-            this.player.x = destination.x;
-            this.player.y = destination.y;
-            this.player.removeItem(item);
-            this.updateFOV?.();
-            return {
-                handled: true,
-                consumed: true,
-                effect: 'warp-player',
-                destination
-            };
-        }
-
-        return { handled: false, consumed: false, effect: '' };
+        const handler = FLOOR_SCROLL_EFFECT_HANDLERS[scrollEffect];
+        return typeof handler === 'function'
+            ? handler(this, item)
+            : { handled: false, consumed: false, effect: '' };
     },
 
     buildPlayerInventoryTargets(predicate, options = {}) {
@@ -121,9 +123,7 @@ Object.assign(Game.prototype, {
         }
 
         if (includeInventory) {
-            const inventoryItems = typeof this.player.getInventory === 'function'
-                ? this.player.getInventory()
-                : [];
+            const inventoryItems = this.getPlayerInventoryItems();
 
             for (const inventoryItem of inventoryItems) {
                 if (!inventoryItem || excludedItems.has(inventoryItem) || !predicate(inventoryItem, { source: 'inventory' })) {

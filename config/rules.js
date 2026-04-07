@@ -1,7 +1,19 @@
 // Condition, hazard, and traversal rule helpers
 
+function getConditionRule(condition) {
+    return CONDITION_RULES[condition] || null;
+}
+
+function getHazardDefinition(hazardType) {
+    return HAZARD_DEFINITIONS[hazardType] || null;
+}
+
+function getTileEffectRule(tileType) {
+    return TILE_EFFECT_RULES[tileType] || null;
+}
+
 function getConditionDuration(condition, fallback = 1) {
-    const configuredDuration = CONDITION_RULES[condition]?.duration;
+    const configuredDuration = getConditionRule(condition)?.duration;
     if (configuredDuration === Infinity || Number.isFinite(configuredDuration)) {
         return configuredDuration;
     }
@@ -10,56 +22,56 @@ function getConditionDuration(condition, fallback = 1) {
 }
 
 function getConditionTickDamage(condition, fallback = 0) {
-    const tickDamage = CONDITION_RULES[condition]?.tickDamage;
+    const tickDamage = getConditionRule(condition)?.tickDamage;
     return Number.isFinite(tickDamage) ? tickDamage : fallback;
 }
 
 function getConditionTickHunger(condition, fallback = 0) {
-    const tickHunger = CONDITION_RULES[condition]?.tickHunger;
+    const tickHunger = getConditionRule(condition)?.tickHunger;
     return Number.isFinite(tickHunger) ? tickHunger : fallback;
 }
 
 function shouldRemoveConditionOnFloorChange(condition) {
-    return Boolean(CONDITION_RULES[condition]?.removeOnFloorChange);
+    return Boolean(getConditionRule(condition)?.removeOnFloorChange);
 }
 
 function shouldRemoveConditionOnAttacked(condition) {
-    return Boolean(CONDITION_RULES[condition]?.removeOnAttacked);
+    return Boolean(getConditionRule(condition)?.removeOnAttacked);
 }
 
 function conditionPreventsDamage(condition) {
-    return Boolean(CONDITION_RULES[condition]?.preventsDamage);
+    return Boolean(getConditionRule(condition)?.preventsDamage);
 }
 
 function conditionSurvivesFatalDamage(condition) {
-    return Boolean(CONDITION_RULES[condition]?.surviveFatalDamage);
+    return Boolean(getConditionRule(condition)?.surviveFatalDamage);
 }
 
 function getConditionDamageMultiplier(condition, fallback = 1) {
-    const multiplier = CONDITION_RULES[condition]?.damageMultiplier;
+    const multiplier = getConditionRule(condition)?.damageMultiplier;
     return Number.isFinite(multiplier) ? multiplier : fallback;
 }
 
 function conditionPreventsPassiveHungerLoss(condition) {
-    return Boolean(CONDITION_RULES[condition]?.preventsPassiveHungerLoss);
+    return Boolean(getConditionRule(condition)?.preventsPassiveHungerLoss);
 }
 
 function getTrapDefinition(trapType) {
-    const definition = HAZARD_DEFINITIONS[trapType] || null;
+    const definition = getHazardDefinition(trapType);
     return definition?.category === 'trap' ? definition : null;
 }
 
 function getTrapTypes() {
-    return Object.keys(HAZARD_DEFINITIONS).filter((hazardType) => HAZARD_DEFINITIONS[hazardType]?.category === 'trap');
+    return Object.keys(HAZARD_DEFINITIONS).filter((hazardType) => getHazardDefinition(hazardType)?.category === 'trap');
 }
 
 function getHazardEffectRule(hazardType) {
-    const definition = HAZARD_DEFINITIONS[hazardType] || null;
+    const definition = getHazardDefinition(hazardType);
     return definition?.category === 'effect' ? definition : null;
 }
 
 function getEnvironmentalDamageForTile(tileType, fallback = 0) {
-    const damage = TILE_EFFECT_RULES[tileType]?.damage;
+    const damage = getTileEffectRule(tileType)?.damage;
     return Number.isFinite(damage) ? damage : fallback;
 }
 
@@ -69,7 +81,7 @@ function getEnvironmentalDamageForHazard(hazardType, fallback = 0) {
 }
 
 function doesTileBurnItems(tileType) {
-    return Boolean(TILE_EFFECT_RULES[tileType]?.itemBurns);
+    return Boolean(getTileEffectRule(tileType)?.itemBurns);
 }
 
 function canEnemyTypeTraverseTile(tileType, enemyTypes = []) {
@@ -82,7 +94,7 @@ function canEnemyTypeTraverseTile(tileType, enemyTypes = []) {
 }
 
 function isEnemyTypeImmuneToTileEffect(tileType, enemyTypes = []) {
-    const immuneTypes = TILE_EFFECT_RULES[tileType]?.enemyImmuneTypes || [];
+    const immuneTypes = getTileEffectRule(tileType)?.enemyImmuneTypes || [];
     const traversalRequiredTypes = ENEMY_TILE_TRAVERSAL_RULES[tileType]?.requiredTypes || [];
     const combinedImmuneTypes = [...new Set([...immuneTypes, ...traversalRequiredTypes])];
     return combinedImmuneTypes.some((enemyType) => enemyTypes.includes(enemyType));

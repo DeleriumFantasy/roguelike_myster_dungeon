@@ -12,6 +12,18 @@ function fromGridKey(key) {
     return result;
 }
 
+function normalizeStringValue(value, fallback = '') {
+    return typeof value === 'string' ? value : fallback;
+}
+
+function normalizeInteger(value, fallback = 0, min = -Infinity, max = Infinity) {
+    const numericValue = Number(value);
+    const normalizedValue = Number.isFinite(numericValue)
+        ? Math.floor(numericValue)
+        : Math.floor(Number(fallback) || 0);
+    return clamp(normalizedValue, min, max);
+}
+
 function distance(x1, y1, x2, y2) {
     return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
 }
@@ -39,12 +51,23 @@ function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
 
+const CARDINAL_DIRECTIONS = Object.freeze([
+    { dx: -1, dy: 0 },
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: -1 },
+    { dx: 0, dy: 1 }
+]);
+
+function getCardinalNeighbors(x, y) {
+    return CARDINAL_DIRECTIONS.map((direction) => ({
+        x: x + direction.dx,
+        y: y + direction.dy
+    }));
+}
+
 function getNeighbors(x, y) {
     return [
-        { x: x - 1, y: y },
-        { x: x + 1, y: y },
-        { x: x, y: y - 1 },
-        { x: x, y: y + 1 },
+        ...getCardinalNeighbors(x, y),
         { x: x - 1, y: y - 1 },
         { x: x + 1, y: y - 1 },
         { x: x - 1, y: y + 1 },

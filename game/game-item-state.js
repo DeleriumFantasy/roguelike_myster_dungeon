@@ -14,6 +14,12 @@
 // 3. Throw result constructors and resolution flow
 // 4. Enemy defeat drop collection and pickup mutation helpers
 
+const THROW_EFFECT_HANDLERS = Object.freeze({
+    switch: { onEnemyHit: 'applySwitchThrowEffect' },
+    pushback: { onEnemyHit: 'applyPushbackThrowEffect' },
+    blink: { onFinalPlacement: 'applyBlinkThrowEffect' }
+});
+
 Object.assign(Game.prototype, {
     getNearbyDropPositions(x, y, maxRadius = 3) {
         const positions = [];
@@ -196,6 +202,45 @@ Object.assign(Game.prototype, {
             : '';
     },
 
+    applySwitchThrowEffect(enemy) {
+        return {
+            switchedPositions: this.swapPlayerWithEnemy(enemy),
+            pushedDistance: 0
+        };
+    },
+
+    applyPushbackThrowEffect(enemy, _item, _x, _y, dx = 0, dy = 0) {
+        return {
+            switchedPositions: false,
+            pushedDistance: this.tryPushEnemy(enemy, dx, dy, 2)
+        };
+    },
+
+    applyBlinkThrowEffect(_item, x, y) {
+        return {
+            type: 'blink',
+            x,
+            y,
+            playerTeleported: this.tryTeleportPlayerToPosition(x, y)
+        };
+    },
+
+    resolveThrowEffectOnEnemyHit(throwEffect, enemy, item, x, y, dx = 0, dy = 0) {
+        const effectConfig = THROW_EFFECT_HANDLERS[throwEffect];
+        const handler = effectConfig?.onEnemyHit && this[effectConfig.onEnemyHit];
+        return typeof handler === 'function'
+            ? (handler.call(this, enemy, item, x, y, dx, dy) || null)
+            : null;
+    },
+
+    resolveThrowEffectOnFinalPlacement(throwEffect, item, x, y) {
+        const effectConfig = THROW_EFFECT_HANDLERS[throwEffect];
+        const handler = effectConfig?.onFinalPlacement && this[effectConfig.onFinalPlacement];
+        return typeof handler === 'function'
+            ? (handler.call(this, item, x, y) || null)
+            : null;
+    },
+
     swapPlayerWithEnemy(enemy) {
         if (!enemy || !enemy.isAlive?.()) {
             return false;
@@ -275,12 +320,10 @@ Object.assign(Game.prototype, {
         let switchedPositions = false;
         let pushedDistance = 0;
 
-        if (!enemyDefeated && throwEffect === 'switch') {
-            switchedPositions = this.swapPlayerWithEnemy(enemy);
-        }
-
-        if (!enemyDefeated && throwEffect === 'pushback') {
-            pushedDistance = this.tryPushEnemy(enemy, dx, dy, 2);
+        if (!enemyDefeated && throwEffect) {
+            const effectResult = this.resolveThrowEffectOnEnemyHit(throwEffect, enemy, item, x, y, dx, dy);
+            switchedPositions = Boolean(effectResult?.switchedPositions);
+            pushedDistance = Math.max(0, Math.floor(Number(effectResult?.pushedDistance) || 0));
         }
 
         if (enemyDefeated) {
@@ -323,14 +366,12 @@ Object.assign(Game.prototype, {
             return this.createPotShatterResult(item, dropX, dropY, null);
         }
 
-        if (this.getThrowableEffect(item) === 'blink') {
-            const teleported = this.tryTeleportPlayerToPosition(dropX, dropY);
-            return {
-                type: 'blink',
-                x: dropX,
-                y: dropY,
-                playerTeleported: teleported
-            };
+        const throwEffect = this.getThrowableEffect(item);
+        const effectResult = throwEffect
+            ? this.resolveThrowEffectOnFinalPlacement(throwEffect, item, dropX, dropY)
+            : null;
+        if (effectResult?.type === 'blink') {
+            return effectResult;
         }
 
         const dropResult = this.world.addItem(dropX, dropY, item);

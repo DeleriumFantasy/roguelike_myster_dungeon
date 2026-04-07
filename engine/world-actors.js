@@ -1,6 +1,30 @@
 // World actor collections and occupancy helpers
 
 Object.assign(World.prototype, {
+    getEnemyCollection(floor = this.getCurrentFloor()) {
+        if (!floor) {
+            return [];
+        }
+
+        if (!Array.isArray(floor.enemies)) {
+            floor.enemies = [];
+        }
+
+        return floor.enemies;
+    },
+
+    getNpcCollection(floor = this.getCurrentFloor()) {
+        if (!floor) {
+            return [];
+        }
+
+        if (!Array.isArray(floor.npcs)) {
+            floor.npcs = [];
+        }
+
+        return floor.npcs;
+    },
+
     ensureEnemyOccupancyIndex(floor = this.getCurrentFloor()) {
         if (!(floor.enemyOccupancy instanceof Map)) {
             floor.enemyOccupancy = new Map();
@@ -44,7 +68,7 @@ Object.assign(World.prototype, {
         const occupancy = this.ensureEnemyOccupancyIndex(floor);
         occupancy.clear();
 
-        for (const enemy of floor.enemies) {
+        for (const enemy of this.getEnemyCollection(floor)) {
             if (!enemy?.isAlive?.()) {
                 continue;
             }
@@ -64,7 +88,7 @@ Object.assign(World.prototype, {
         }
 
         const floor = this.getCurrentFloor();
-        const isIndexedEnemy = floor.enemies.includes(enemy);
+        const isIndexedEnemy = this.getEnemyCollection(floor).includes(enemy);
         if (isIndexedEnemy) {
             this.unindexEnemy(enemy, floor);
         }
@@ -97,55 +121,56 @@ Object.assign(World.prototype, {
         if (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc()) {
             this.addNpc(enemy);
         } else {
-            this.getCurrentFloor().enemies.push(enemy);
+            this.getEnemyCollection().push(enemy);
             this.indexEnemy(enemy);
         }
     },
 
     removeEnemy(enemy) {
-        const index = this.getCurrentFloor().enemies.indexOf(enemy);
+        const enemies = this.getEnemyCollection();
+        const index = enemies.indexOf(enemy);
         if (index > -1) {
             this.unindexEnemy(enemy);
-            this.getCurrentFloor().enemies.splice(index, 1);
+            enemies.splice(index, 1);
         }
     },
 
     getEnemies() {
-        return this.getCurrentFloor().enemies;
+        return this.getEnemyCollection();
     },
 
     getHostileEnemies() {
-        const enemies = this.getCurrentFloor().enemies || [];
+        const enemies = this.getEnemyCollection();
         return enemies.filter((enemy) => enemy?.isAlive?.() && !enemy.isAlly);
     },
 
     getFriendlyActors() {
-        const enemies = this.getCurrentFloor().enemies || [];
-        const allies = enemies.filter((enemy) => enemy?.isAlive?.() && enemy.isAlly);
-        const npcs = (this.getCurrentFloor().npcs || []).filter((npc) => npc?.isAlive?.());
+        const allies = this.getEnemyCollection().filter((enemy) => enemy?.isAlive?.() && enemy.isAlly);
+        const npcs = this.getNpcCollection().filter((npc) => npc?.isAlive?.());
         return [...allies, ...npcs];
     },
 
     addNpc(npc) {
         if (npc) {
-            this.getCurrentFloor().npcs.push(npc);
+            this.getNpcCollection().push(npc);
         }
     },
 
     removeNpc(npc) {
-        const index = this.getCurrentFloor().npcs.indexOf(npc);
+        const npcs = this.getNpcCollection();
+        const index = npcs.indexOf(npc);
         if (index > -1) {
-            this.getCurrentFloor().npcs.splice(index, 1);
+            npcs.splice(index, 1);
         }
     },
 
     getNpcs() {
-        return this.getCurrentFloor().npcs;
+        return this.getNpcCollection();
     },
 
     getAllActors() {
         const floor = this.getCurrentFloor();
-        return [...(floor.enemies || []), ...(floor.npcs || [])];
+        return [...this.getEnemyCollection(floor), ...this.getNpcCollection(floor)];
     },
 
     getNpcAt(x, y) {
@@ -153,8 +178,7 @@ Object.assign(World.prototype, {
             return null;
         }
 
-        const npcs = this.getCurrentFloor().npcs || [];
-        for (const npc of npcs) {
+        for (const npc of this.getNpcCollection()) {
             if (npc?.x === x && npc?.y === y && npc?.isAlive?.()) {
                 return npc;
             }
@@ -176,7 +200,7 @@ Object.assign(World.prototype, {
 
     getEnemyAt(x, y, excludeEnemy = null) {
         const occupancy = this.ensureEnemyOccupancyIndex();
-        if (occupancy.size === 0 && this.getCurrentFloor().enemies.length > 0) {
+        if (occupancy.size === 0 && this.getEnemyCollection().length > 0) {
             this.rebuildEnemyOccupancyIndex();
         }
 

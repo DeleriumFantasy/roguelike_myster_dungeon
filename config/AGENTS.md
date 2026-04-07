@@ -2,39 +2,36 @@
 
 ## Purpose
 
-- `config/` defines shared constants and pure rule helpers used across the runtime.
-- These files should stay side-effect free. Prefer data tables and small pure functions over stateful logic.
+- `config/` holds shared constants, immutable tables, and pure lookup helpers used across the runtime.
+- Keep this folder side-effect free: prefer data tables plus small readers over stateful logic.
 
 ## File Roles
 
-- `constants.js`: core enums, status rules, tile rules, weather types, trap types, and shared constant tables. `CONDITIONS` includes `BLIND`, `CONFUSED`, and all other status effects. `TILE_TYPES` includes special terrain such as `SHOP`. `WEATHER_TYPES` defines `NONE` and `FOGGY`. `WEATHER_DEFINITIONS` specify FOV modifiers per weather type. `HAZARD_TYPES` includes condition traps and the special `TRAP_TRIP` that drops items.
-- `rules.js`: read-only helpers for interpreting condition, hazard, and traversal rule tables.
-- `terrain-constants.js`: tile visuals, autotiling helpers, terrain lookups, and static presentation for special tiles like the red shop floor.
-- `input-constants.js`: key bindings and input interpretation helpers.
-- `generation-constants.js`: area generation rules, premade terrain layouts, weather spawn weights per area type, dungeon path definitions, path unlock chains, world-event progression rules, and dungeon shop placement data.
-- `enemy-definitions.js`: enemy templates and spawn-related enemy metadata.
-- `combat-rules.js`: shared pure combat math and EXP progression helpers (no actor state mutation).
+- `constants.js`: core enums plus frozen rule tables. Use `deepFreezeConfig()` for long-lived config objects.
+- `rules.js`: read-only accessors such as `getConditionRule()`, `getHazardDefinition()`, and tile/traversal helpers.
+- `terrain-constants.js`: terrain visuals, autotiling tables, and `getVisualConfigEntry()` helpers.
+- `input-constants.js`: key bindings, inventory action maps, and `getInputBinding()`.
+- `generation-constants.js`: area generation rules, quest pools, floor-event tuning, dungeon path definitions, world-event progression, and config access helpers.
+- `enemy-definitions.js`: enemy family definitions, metadata, spawn/drop tuning, and template builders.
+- `combat-rules.js`: pure combat math, attack variance, and EXP progression readers.
 
 ## Editing Rules
 
-- Put reusable data and pure lookups here, not runtime state mutation.
-- Avoid importing game logic concepts into config helpers unless the helper is still purely interpretive.
-- If a function needs `this`, it probably does not belong in `config/`.
-- Keep naming table-driven. Prefer `get...Rule`, `get...Definition`, and `..._RULES` patterns.
+- Put reusable data and pure lookups here, not runtime mutation.
+- If a helper needs `this`, it probably belongs outside `config/`.
+- Prefer `get...Rule`, `get...Definition`, `get...Config`, and `..._RULES` naming.
+- When adding a new table, also add or reuse a small reader/helper instead of scattering direct property access in runtime files.
 
 ## Placement Hints
 
-- Add new enemy template data to `enemy-definitions.js` (including special NPC templates used by overworld and dungeon content policies).
-- Keep enemy baseline `spawnWeight` values in `enemy-definitions.js`; keep runtime family-balancing curves in `game/game-enemy-content.js`.
-- Add new rule-table readers to `rules.js`.
-- Add new static visual mappings to `terrain-constants.js`.
-- Put premade shop layouts and placement chances in `generation-constants.js`.
-- Put dungeon path area sequences, `startsUnlocked`, `unlocksOnComplete`, and world progression event requirements/messages in `generation-constants.js`.
-- Add new key binding interpretation to `input-constants.js`.
+- Add new enemy/NPC template metadata to `enemy-definitions.js`.
+- Keep quest pools, floor-event tuning, dungeon-path unlock chains, and area runtime generation rules in `generation-constants.js`.
+- Keep shared interpretation helpers centralized in `rules.js` or the owning config file.
+- Add new static key bindings to `input-constants.js`, not to input handling code directly.
 
 ## Common Mistakes
 
-- Do not move runtime behavior here just because it uses constants.
-- Do not hardcode dungeon path unlock chains or progression event requirements in runtime files when a config table in `generation-constants.js` can express them.
-- Do not create duplicate rule readers in runtime files when `rules.js` can expose them once.
-- Keep these files early-load safe because many later scripts assume their globals already exist.
+- Do not move behavior here just because it references constants.
+- Do not hardcode progression or event tuning in runtime files when a config table can express it.
+- Do not duplicate rule readers in `game/`, `engine/`, or `entities/`.
+- Keep these files early-load safe because many later scripts depend on their globals.

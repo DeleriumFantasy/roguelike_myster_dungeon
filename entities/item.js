@@ -287,8 +287,7 @@ class Item {
             return false;
         }
 
-        const equipmentTypes = [ITEM_TYPES.WEAPON, ITEM_TYPES.ARMOR, ITEM_TYPES.SHIELD, ITEM_TYPES.ACCESSORY];
-        return equipmentTypes.includes(item.type);
+        return isEquippableItemType(item.type);
     }
 
     canTargetItemForScroll(item) {
@@ -800,8 +799,7 @@ class Item {
     }
 
     equip(user) {
-        const equippableTypes = Object.values(EQUIPMENT_SLOTS);
-        if (!equippableTypes.includes(this.type)) {
+        if (!isEquippableItemType(this.type)) {
             return false;
         }
 

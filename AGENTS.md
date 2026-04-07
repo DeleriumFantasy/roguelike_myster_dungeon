@@ -2,140 +2,82 @@
 
 ## Architecture
 
-- This project is a plain browser JavaScript game loaded through global script tags in `index.html`.
-- It does not use ES modules, bundlers, or imports/exports.
-- Script load order is part of the architecture. A file can depend on globals defined by earlier scripts.
-- Most larger systems are split by extending prototypes with `Object.assign(Class.prototype, { ... })` in focused files.
+- This is a plain browser JavaScript game loaded by global script tags in `index.html`.
+- There are no modules, imports, or bundlers; load order is part of the runtime contract.
+- Most systems are split by responsibility with `Object.assign(Class.prototype, { ... })` extension files.
+- Content is increasingly config-driven: enemy metadata, quest pools, floor events, area generation rules, progression tables, and input bindings live in `config/` and are consumed by runtime helpers.
 
 ## Main Runtime Objects
 
-- `World`: floor state, actor occupancy (enemies and NPCs separated), tile state, traversal, and generation.
-- `Player`: base player state, then combat, inventory, and progression helpers in separate files.
-- `Enemy`: base enemy state, then item behavior, AI, progression, and combat helpers in separate files. Hostile enemies only (NPCs are a separate type).
-- `UI`: base UI object, then rendering, panels, and inventory helpers in separate files.
-- `Game`: bootstrap and turn flow, then content, combat, NPC, item, and turn-resolution helpers in separate files.
+- `World`: floor storage, actor occupancy, tile state, traversal, and generation.
+- `Player`: core state plus combat, inventory, and progression extensions.
+- `Enemy`: core identity/state plus AI, combat, progression, and item-behavior extensions.
+- `UI`: Pixi-only rendering, prompts/panels, inventory presentation, and shared DOM/render helpers.
+- `Game`: orchestration, turn flow, content population, NPC interactions, item resolution, and undo snapshots.
 
 ## Folder Map
 
 ### `config/`
-
-- Shared constants, rule helpers, enemy definitions, generation constants, and combat/input rules.
-- These files are loaded first and are expected to define globals used everywhere else.
+- Early-load constants, immutable config tables, and pure lookup helpers.
+- Holds enemy definitions, generation/event tuning, combat/input rules, and shared accessors such as `get...Rule()` and `getInputBinding()`.
 
 ### `engine/`
-
-- Generic engine helpers and the world runtime.
-- `world.js`: core `World` class shell and generic floor/tile helpers.
-- `world-actors.js`: enemy collection, occupancy helpers, and occupancy indexing.
-- `world-tile-state.js`: trap state, hazard state, item placement, and item spawn helpers.
-- `world-generation.js`: floor generation and area layout helpers.
+- Reusable runtime infrastructure plus `World` behavior.
+- Shared helpers include floor/grid access, actor collections, map/set tile-state access, path normalization, and traversal/generation plumbing.
 
 ### `entities/`
-
- // All canvas-specific helpers and fallback rendering have been removed. Only PixiJS is supported.
-- `player.js`: base player shell.
-- `combat-utils.js`: shared combat application helpers that mutate actor state (`applyDamageToActor`, `applyStandardAttackToTarget`).
-- `player-combat.js`: damage, attacks, conditions.
-- `player-inventory.js`: equipment, inventory, throwables, ally item handling, and carried-capacity helpers (the player's equipped gear counts toward the same configurable carry limit; default 30 via `maxInventoryItems`).
-- `player-progression.js`: level and EXP handling.
-- `enemy.js`: base enemy shell, core type helpers, and persistent enemy-side state flags.
-- `enemy-item-behaviors.js`: thief, vandal, fuser, and carried-item logic.
-- `enemy-ai.js`: perception, target choice, movement, turn AI, and passive escort behavior.
-- `enemy-progression.js`: ally progression and tier helpers.
-- `enemy-combat.js`: attacks, damage, line of sight.
-- `item.js`: base item shell.
-- `item-data.js`: item definitions, shop pricing metadata, shared item helpers, and helper factories for shop-capable/pot item definitions.
-- `item-factories.js`: item creation and transformation helpers, including world enchant/curse rolls.
+- Class shells and focused entity behavior splits.
+- `combat-utils.js` is the shared home for mutable combat/equipment helpers such as damage mitigation, equipped-item iteration, cursed checks, and equippable-type checks.
 
 ### `ui/`
-
-- Rendering and UI-specific logic only.
-- `ui.js`: base UI shell, shared DOM/canvas setup, shared scene/view helpers (camera bounds, visibility predicates, display name/item/trap helpers), camera targeting, and scene-mode switching.
-- `ui-pixi-overlay.js`: PixiJS orchestrator (~210 lines), manages Pixi app and layer hierarchy.
-- `ui-pixi-sprites.js`: Procedural actor sprite generation (~220 lines).
-- `ui-pixi-layers.js`: Terrain, items, shop markers, depth, shadows rendering (~220 lines).
-- `ui-pixi-actors.js`: Actor sprites with glows, health bars, labels (~130 lines).
-- `ui-pixi-effects.js`: Combat effects and event banners (~150 lines).
-- `ui-panels.js`: stats, message, settings, shop prompt helpers, and shared focus-restoration helpers for native prompts/modals.
-- `ui-inventory.js`: inventory modal helpers, including managed prompt/outcome helpers, inventory entry builders, and the live `Inventory [count/max]` title.
+- Presentation only; gameplay mutation should stay elsewhere.
+- Pixi is the only renderer. `ui.js` owns shared DOM lookup, render-context helpers, visibility/weather formatting, and scene refresh plumbing.
 
 ### `game/`
-
 - High-level orchestration built on `Game.prototype` extensions.
-- `game.js`: game bootstrap and main loop, including config-driven dungeon-path completion unlock flow and overworld progression announcements.
-- `game-input.js`: browser keyboard input, held-move orchestration, and centralized overlay close/focus restoration.
-- `game-turn-results.js`: shared structured turn-result factories.
-- `game-content.js`: setup and floor population flow, including floor event lifecycle and dungeon shop population.
-- `game-content-utils.js`: shared content-selection helpers such as weighted rolls.
-- `game-content-registry.js`: content-registry helpers for enemy templates and weighted item entry selection.
-- `game-enemy-content.js`: enemy spawn tables, family-balancing curves, enemy creation, promotion, and overworld NPC roster placement, including config-driven second-questgiver availability.
-- `game-inventory-actions.js`: inventory action resolution, including shared target builders, inventory-use subhelpers, pot storage messaging, inventory-cap handling, and shop sale staging when items are dropped on shop tiles.
-- `game-item-generation.js`: floor-banded item spawn counts, floor-scaled tier weighting, random item generation, starter loadout, premade item placement.
-- `game-item-state.js`: throw resolution, pickup/drop mutation, defeat drop state changes.
-- `game-item-interactions.js`: item-related announcements and coordination helpers.
-- `game-player-turns.js`: player turn resolution, shop pickup confirmation, and unpaid-item exit interception.
-- `game-enemy-turns.js`: enemy turn resolution, defeat handling, EXP.
-- `game-explore.js`: auto-explore tick loop, sticky target tracking, forced-detour breakout logic, no-progress watchdog, cheater mode, and descent logic wired to `game.settings`.
-- `game-combat-helpers.js`: shared combat helpers used across turn files.
-- `game-npc-interactions.js`: NPC interaction flow (merchant, banker, questgiver, handler, escort tasks, and shopkeeper buy/sell settlement).
+- Includes the undo system, config-driven content orchestration, shared access helpers (`getPlayerAllies()`, `getPlayerInventoryItems()`, `forEachWorldFloor()`), and turn-resolution flows.
 
 ## Load Order Rules
 
-- Keep `index.html` in sync whenever adding a new split file.
-- Base class files must load before their prototype extension files.
-- Shared helper files must load before any extension that calls them.
-- Current important order assumptions:
-  - `world.js` before `world-actors.js`, `world-tile-state.js`, `world-traversal.js`, and `world-generation.js`
+- Keep `index.html` in sync whenever adding or moving split files.
+- Base class files must load before their extension files.
+- Shared helpers must load before any file that calls them.
+- Current important assumptions:
+  - `world.js` before all `world-*` files
   - `item.js` before `item-data.js` and `item-factories.js`
   - `player.js` before player extension files
   - `enemy.js` before enemy extension files
-  - Pixi CDN, then `ui-pixi-overlay.js`, `ui-pixi-sprites.js`, `ui-pixi-render-state.js`, `ui-pixi-layers.js`, `ui-pixi-actors.js`, `ui-pixi-effects.js`, then `ui.js`
-  - `game-input.js` and `game-turn-results.js` after `game.js` and before turn-processing files
-  - `game-npc-interactions.js` after `game.js`/`game-turn-results.js` and before turn-processing files that call NPC helpers
-  - `game-content-utils.js` and `game-content-registry.js` before `game-enemy-content.js` and `game-item-generation.js`
-  - `game-item-state.js` before `game-item-interactions.js`
-  - `game-explore.js` loads last among `game/` files because it depends on all turn and world helpers
+  - Pixi CDN, then `ui-pixi-overlay.js`, `ui-pixi-sprites.js`, `ui-pixi-render-state.js`, `ui-pixi-layers.js`, `ui-pixi-actors.js`, `ui-pixi-effects.js`, then `ui.js`, `ui-panels.js`, and `ui-inventory.js`
+  - `game.js` before the rest of `game/`, with `game-explore.js` loading last
 
 ## Editing Rules
 
-- Prefer changing the focused extension file for a behavior instead of adding unrelated methods back into a base file.
-- If a helper is shared across enemy and item content, place it in `game-content-utils.js` instead of a domain-specific file.
-- If a helper represents shared content-registry lookup or content construction setup, place it in `game-content-registry.js`.
-- If code mutates world tile state, it probably belongs in `engine/world-tile-state.js`.
-- If code changes how actors move through the world, it probably belongs in `engine/world-traversal.js`.
-- If code changes indexed enemy occupancy or enemy movement bookkeeping, it probably belongs in `engine/world-actors.js`.
-- If code only announces UI messages and does not change state, keep it out of state files.
-- Avoid reintroducing wrapper methods that only forward to another helper unless they carry naming value used by multiple call sites.
+- Prefer changing the focused split file instead of growing base shells.
+- Put pure data/config in `config/`, not runtime mutation.
+- Put shared world-state helpers in `engine/`, not in unrelated `game/` files.
+- Put shared entity combat/equipment helpers in `entities/combat-utils.js`.
+- Put shared orchestration selection/access helpers in `game/game-content-utils.js`.
+- Put shared UI DOM/render helpers in `ui/ui.js`.
+- Keep UI messaging separate from gameplay mutation whenever possible.
 
 ## Practical Conventions
 
-- File header comments describe each file's intended responsibility. Keep them accurate when responsibilities change.
-- Preserve the global naming style used by the repo.
-- Keep refactors behavior-preserving unless a gameplay change is explicitly requested.
-- Validate after script-order or split changes because global-script dependency mistakes fail at runtime.
+- Preserve the global naming style already used by the repo.
+- Keep file header comments accurate when responsibilities change.
+- Prefer behavior-preserving refactors unless a gameplay change is explicitly requested.
+- Validate after structural or load-order changes because script dependency mistakes fail at runtime.
 
 ## Local Guides
 
-- Each major folder also has its own `AGENTS.md` with narrower placement rules and faster orientation.
-- After opening a file in `config/`, `engine/`, `entities/`, `game/`, or `ui/`, read that folder's local guide before making structural edits.
+- Each major folder has its own `AGENTS.md` with narrower placement rules.
+- Read the folder-specific guide before making structural edits in `config/`, `engine/`, `entities/`, `game/`, or `ui/`.
 
 ## Fast Orientation
 
-- Start at `index.html` to understand dependency order.
-- Read the base class file first, then its prototype extension files.
-- For item issues: check `game-item-generation.js`, `game-item-state.js`, `game-item-interactions.js`, then item entity files (`item.js` display naming and `item-factories.js` world roll behavior).
-- For enemy behavior issues: check `enemy-ai.js` (including A* pathfinding with hostile-tile cost routing), `enemy-item-behaviors.js`, `enemy-combat.js`, then `game-enemy-turns.js`.
-- For enemy pathfinding issues: check `entities/enemy-ai.js` `findPath`, `canTraverseTileForPathfinding`, and cost-based routing logic. Enemies prefer safe routes but route through hostile tiles (water/lava/spike) at cost 50 rather than getting stuck.
-- For map or rendering issues: check `ui/ui-pixi-overlay.js` (orchestrator) and subsystems (`ui-pixi-sprites.js` for actor appearance, `ui-pixi-render-state.js` for per-frame shared state, `ui-pixi-layers.js` for tile/item/depth, `ui-pixi-actors.js` for health bars and labels, `ui-pixi-effects.js` for combat animations), then `engine/fov.js` for visibility logic.
-- For NPC or quest issues: check `game-npc-interactions.js`, `game-enemy-content.js`, and `entities/enemy-ai.js` if escort or passive ally behavior is involved.
-- For dungeon shop issues: check `config/generation-constants.js` (shop premade shape/chance), `engine/world-generation.js` (placement), `game/game-content.js` (shopkeeper + stock spawn), `game/game-player-turns.js` (pickup and exit interception), `game/game-npc-interactions.js` (combined buy/sell settlement), `game/game-inventory-actions.js` (sale staging), `entities/item-data.js` (prices), and `ui/ui-panels.js` / `ui/ui-pixi-layers.js` (prompts and visuals).
-- For dungeon path progression or unlock issues: check `config/generation-constants.js` (`DUNGEON_PATH_DEFINITIONS`, `DUNGEON_WORLD_EVENT_RULES`), `engine/world.js` (`selectedDungeonPathId`, `unlockedDungeonPathIds`, `completedDungeonPathIds`), `engine/world-generation.js` (`selectAreaTypeForFloor()`), and `game/game.js` / `game/game-enemy-content.js`.
-- For auto-explore issues: check `game-explore.js` (tick loop, sticky targets, oscillation breakout, forced detours, no-progress watchdog, damage-tile avoidance, BLIND/CONFUSED random movement, descent setting), `game-input.js` (any keypress stops explore), and `game.js` (`game.settings.autoExploreDescendImmediately`).
-- For settings menu issues: check `ui/ui-panels.js` (`openSettings`, `closeSettings`, `settingsOpen`), `game-input.js` (Escape toggles settings), `index.html` (`#settings-modal`), and `game.js` (`this.settings` object).
-- For inventory UI issues: check `ui/ui-inventory.js` (unified equipped/backpack list, ally equipment entries, hover details panel, unknown-item redaction, `runManagedInventoryPrompt`, `applyInventoryOutcome`, `buildInventoryDisplayEntries`), `ui/ui-panels.js` (`focusGameSurface`, `runNativePrompt`), `entities/player-inventory.js` (carried-count/capacity helpers), and `index.html` (`#inventory-item-details`, `#inventory-title`).
-- For stair/item ordering issues: check `game/game-player-turns.js` and `entities/player.js` (deferred hazard/stair trigger so pickup happens first).
-- For floor spawning issues: check `game-content.js`, `game-enemy-content.js` (including `ENEMY_FAMILY_SPAWN_BALANCING`, zero-weight filtering, and NPC placement/filtering), `game-item-generation.js` (count bands and tier weighting), and `engine/world-generation.js`.
-- For trap issues: check `engine/world-tile-state.js` (trap state and reveal), `config/constants.js` (trap definitions), and `game/game.js` (`applyPlayerTrapAtCurrentPosition()` and `dropPlayerItems()` for trip traps).
-- For weather issues: check `config/constants.js` (weather types and definitions), `config/generation-constants.js` (spawn weights), `engine/world-generation.js` (weather generation), and `game/game.js` (`getFovRangeForFloor()` for fog effects).
-- For dungeon path return portal issues: check `engine/world-traversal.js` (max-depth stairs spawn player at center of overworld).
-- For ally defeat/stalling issues: check `game/game-enemy-turns.js` (`stallAllyWithHandler()`, `getHandlerNpc()`), `game/game-npc-interactions.js` (handler ally retrieval with health restoration).
+- Start at `index.html` to confirm load order.
+- For config/editability work: read `config/generation-constants.js`, `config/enemy-definitions.js`, and the helper readers in `config/rules.js`.
+- For world/runtime bugs: check `engine/world.js`, `engine/world-actors.js`, `engine/world-tile-state.js`, `engine/world-traversal.js`, and `engine/world-generation.js`.
+- For entity behavior: check `entities/player-combat.js`, `entities/player-inventory.js`, `entities/enemy-ai.js`, `entities/enemy-combat.js`, and `entities/combat-utils.js`.
+- For NPC/quest/shop flow: check `game/game-npc-interactions.js`, `game/game-content.js`, `game/game-enemy-content.js`, and `game/game-inventory-actions.js`.
+- For undo/input/turn flow: check `game/game.js`, `game/game-input.js`, `game/game-player-turns.js`, and `game/game-enemy-turns.js`.
+- For UI/rendering: check `ui/ui.js`, `ui/ui-panels.js`, `ui/ui-inventory.js`, and the `ui-pixi-*` files.

@@ -3,51 +3,55 @@
 ## Purpose
 
 - `entities/` contains the class shells plus focused prototype extensions for player, enemy, and item behavior.
-- Runtime behavior is intentionally split by responsibility rather than kept in monolithic class files.
-- `combat-utils.js` provides shared mutable combat application helpers (`applyDamageToActor`, `applyStandardAttackToTarget`) used by player/enemy combat extensions.
+- Keep behavior split by responsibility instead of growing monolithic class files.
+- `combat-utils.js` is the shared home for mutable combat/equipment helpers used by both player and enemy code.
+
+## Shared Helpers
+
+- `combat-utils.js` now centralizes helpers such as:
+  - `applyDamageToActor()` / `applyStandardAttackToTarget()`
+  - `getActorConditionKeys()` / `getMitigatedDamageAmount()`
+  - equipped-item iteration and aggregation helpers
+  - `getItemCursedState()` and `isEquippableItemType()`
+- Reuse these instead of duplicating cursed/equipment or damage-mitigation logic in individual entity files.
 
 ## Player Split
 
-- `player.js`: base player shell and core movement/environment state. Supports deferred hazard application on move (`applyHazards: false`) for turn-order-sensitive flows.
-- `player-combat.js`: attacks, damage, statuses, and combat-side helpers.
-- `player-inventory.js`: equipment, inventory, throwable handling, carried-capacity helpers (`getTotalCarriedItemCount`, `hasInventorySpaceFor`), and ally equipment helpers (including equipping onto allies and returning replaced ally gear to player inventory).
-- `player-progression.js`: EXP, leveling, and progression helpers.
+- `player.js`: base player shell and core movement/environment state.
+- `player-combat.js`: attacks, damage, condition handling, and equipment combat bonuses.
+- `player-inventory.js`: equipment, inventory mutation, throwable stacking, ally equipment, and carry-capacity helpers (`maxInventoryItems` defaults to 30).
+- `player-progression.js`: EXP and leveling.
 
 ## Enemy Split
 
-- `enemy.js`: base enemy shell, core identity/type helpers, and per-enemy state used by AI, quest systems, and special NPC flags such as the shopkeeper state.
-- `enemy-item-behaviors.js`: carried items, thief/vandal/fuser logic, item-side enemy behavior.
-- `enemy-ai.js`: perception, targeting, movement (including A* pathfinding with cost-based routing around hostile tiles), turn decisions, passive escort behavior, lethal tile avoidance (`isLethalEnvironmentalPosition`, `tryMoveOffLethalTile`), NPC occupancy blocking, and neutral shopkeeper confinement to `SHOP` tiles until provoked. Enemy AI reads tile/hazard damage profiles from `world.getEnvironmentalDamageProfile(...)`.
-- `enemy-progression.js`: ally progression and tier helpers.
-- `enemy-combat.js`: attacks, damage, status application, and line-of-sight combat helpers.
- Defeated allies are stalled with handler and restored to full health on retrieval.
+- `enemy.js`: base identity/state, including metadata such as `templateId`, `familyId`, `tier`, `npcRole`, `spawnContexts`, and `persistentNpc`.
+- `enemy-item-behaviors.js`: thief/vandal/fuser carried-item logic.
+- `enemy-ai.js`: perception, target choice, pathfinding, lethal-tile avoidance, and passive escort behavior.
+- `enemy-progression.js`: ally leveling and equipment mutation for allies.
+- `enemy-combat.js`: attacks, damage, status application, and line-of-sight helpers.
 
 ## Item Split
 
-- `item.js`: base item shell.
-- `item-data.js`: item definitions, item metadata helpers, shared item logic, helper factories for shop-capable items/pots, and per-item shop pricing helpers (`baseShopPrice`, `baseSellPrice`).
-- `item-factories.js`: item creation and transformation helpers, including world enchant/curse roll behavior.
+- `item.js`: base item shell and shared item behavior.
+- `item-data.js`: item definitions, stable item metadata, shop pricing helpers, and pot/shop helper factories.
+- `item-factories.js`: item creation, transformations, and world enchant/curse rolls.
 
 ## Editing Rules
 
 - Keep entity state initialization in the base shell file.
-- Move behavior to the focused extension file instead of growing the shell again.
-- If a helper is specific to one enemy archetype's item behavior, prefer `enemy-item-behaviors.js` over `enemy-ai.js`.
-- If logic is about choosing actions, it belongs in `enemy-ai.js`; if it is about resolving hits or damage, it belongs in `enemy-combat.js`.
-- If logic is about inventory/equipment mutation or carried-item capacity, it belongs in `player-inventory.js`.
-- If a behavior depends on move ordering vs hazards/stairs, place move-order orchestration in `game/game-player-turns.js` and keep raw move/hazard hooks in `player.js`.
-- Passive quest escort movement and flee logic belongs in `enemy-ai.js`; escort state flags belong in `enemy.js`.
-- Pathfinding and movement cost logic belongs in `enemy-ai.js`; world-level movement validation belongs in `engine/world-actors.js`.
+- Move behavior to the focused extension file instead of re-growing the shell.
+- If logic is about choosing actions, it belongs in `enemy-ai.js`; if it resolves hits/damage, it belongs in `enemy-combat.js`.
+- If logic is about inventory/equipment mutation or stack handling, it belongs in `player-inventory.js`.
+- If a helper is shared across player/enemy equipment or combat, put it in `combat-utils.js`.
+- Keep movement-order orchestration in `game/game-player-turns.js`; keep raw movement/hazard hooks in `player.js`.
 
 ## Pathfinding Notes
 
-- `findPath` uses A* with edge costs: cost 1 for safe tiles, cost 50 for hostile tiles (water/lava/spike).
-- Enemies strongly prefer dry routes but can cross hostile terrain as a last resort to avoid getting stuck.
-- `canTraverseTileForPathfinding` allows walls/pits as hard blocks; water/lava/spike tiles as passable paths.
-- `canCrossHostileTileForPath` is a permissive check used to validate executing A* path steps onto hostile tiles.
+- `findPath` uses A* with edge costs: cost `1` for safe tiles and cost `50` for hostile tiles.
+- Enemies prefer safe routes but can still route through water/lava/spike tiles as a fallback to avoid getting stuck.
 
 ## Item Notes
 
-- `item.js` display names summarize enchantments by count (`[N enchantments]`) instead of listing every enchantment name.
-- Base buy/sell values for dungeon shops live in `item-data.js` on the item definitions instead of a separate pricing table; prefer shared helpers like `createShopItemDefinition`, `createPotDefinition`, and `DEFAULT_SHOP_PRICE_BY_CATEGORY` when extending this area.
-- World spawn enchant rolls are handled in `item-factories.js` with three independent 5% checks (stacking by successes, slot-limited).
+- `item.js` display names summarize enchantments by count (`[N enchantments]`).
+- Shop pricing metadata lives on the item definitions in `item-data.js`.
+- World enchant rolls are handled in `item-factories.js` with stacked 5% checks, limited by available slots.

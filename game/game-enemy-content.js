@@ -10,36 +10,23 @@
 // in enemy-ai.js and game-enemy-turns.js. Shared weighted content helpers belong in
 // game-content-utils.js.
 
-const ENEMY_FAMILY_SPAWN_BALANCING = {
-    floorRange: {
-        min: 1,
-        max: 99
-    },
-    groups: {
-        core: {
-            families: ['slime', 'beast', 'aquatic', 'floating'],
-            startFloor: 1,
-            startBudget: 3.2,
-            endBudget: 1
-        },
-        mid: {
-            families: ['ghost', 'crafter', 'thief'],
-            startFloor: 20,
-            startBudget: 0.12,
-            endBudget: 1
-        },
-        late: {
-            families: ['vandal', 'fuser', 'pariah'],
-            startFloor: 45,
-            startBudget: 0.05,
-            endBudget: 1
-        }
-    }
-};
-
 Object.assign(Game.prototype, {
+    getEnemyTemplateMetadata(enemyTypeKey) {
+        const normalizedTypeKey = typeof enemyTypeKey === 'string' ? enemyTypeKey : '';
+        return normalizedTypeKey && ENEMY_TEMPLATES[normalizedTypeKey]
+            ? ENEMY_TEMPLATES[normalizedTypeKey]
+            : null;
+    },
+
     getPersistentOverworldNpcTypeKeys() {
-        return ['npcBankerTier1', 'npcQuestgiverTier1', 'npcHandlerTier1'];
+        return Object.values(ENEMY_TEMPLATES)
+            .filter((template) => Array.isArray(template?.spawnContexts)
+                && template.spawnContexts.includes('overworld')
+                && Boolean(template.persistentNpc))
+            .map((template) => template.templateId || template.key || template.monsterType)
+            .filter((templateId, index, allTemplateIds) => typeof templateId === 'string'
+                && templateId.length > 0
+                && allTemplateIds.indexOf(templateId) === index);
     },
 
     shouldUnlockSecondQuestgiver() {
@@ -77,23 +64,27 @@ Object.assign(Game.prototype, {
     },
 
     isBankerTypeKey(enemyTypeKey) {
-        return enemyTypeKey === 'npcBankerTier1';
+        return this.getEnemyTemplateMetadata(enemyTypeKey)?.npcRole === 'banker';
     },
 
     isOverworldNpcTypeKey(enemyTypeKey) {
-        return enemyTypeKey === 'npcBankerTier1'
-            || enemyTypeKey === 'npcQuestgiverTier1'
-            || enemyTypeKey === 'npcHandlerTier1';
+        const template = this.getEnemyTemplateMetadata(enemyTypeKey);
+        return Array.isArray(template?.spawnContexts)
+            && template.spawnContexts.includes('overworld');
     },
 
     isDungeonNpcTypeKey(enemyTypeKey) {
-        return enemyTypeKey === 'npcTier1'
-            || enemyTypeKey === 'npcStarvingTier1'
-            || enemyTypeKey === 'npcHomeboundTier1'
-            || enemyTypeKey === 'npcShamanTier1';
+        const template = this.getEnemyTemplateMetadata(enemyTypeKey);
+        return Array.isArray(template?.spawnContexts)
+            && template.spawnContexts.includes('dungeon');
     },
 
     getEnemyFamilyFromTypeKey(enemyTypeKey) {
+        const familyId = this.getEnemyTemplateMetadata(enemyTypeKey)?.familyId;
+        if (typeof familyId === 'string' && familyId.length > 0) {
+            return familyId;
+        }
+
         const match = String(enemyTypeKey || '').match(/^([a-zA-Z]+)Tier\d+$/);
         return match ? match[1] : String(enemyTypeKey || '');
     },
@@ -258,13 +249,15 @@ Object.assign(Game.prototype, {
     },
 
     getEnemySpawnCountForFloor(floorIndex) {
-        return clamp(4 + Math.floor(floorIndex / 2), 4, 12);
+        return typeof getEnemySpawnCountForDepth === 'function'
+            ? getEnemySpawnCountForDepth(floorIndex)
+            : clamp(4 + Math.floor(floorIndex / 2), 4, 12);
     },
 
     getDungeonNpcSpawnChanceForFloor(floorIndex) {
-        const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
-        const progress = (displayFloor - 1) / 98;
-        return 0.15 + (0.05 - 0.15) * progress;
+        return typeof getDungeonNpcSpawnChanceForFloorIndex === 'function'
+            ? getDungeonNpcSpawnChanceForFloorIndex(floorIndex)
+            : 0.15;
     },
 
     shouldSpawnDungeonNpcForFloor(floorIndex, rng) {
@@ -375,38 +368,39 @@ Object.assign(Game.prototype, {
     },
 
     getSlimeTinctureHeldDropChance(monsterType) {
-        const match = String(monsterType || '').match(/slimeTier(\d+)/i);
-        const tier = match ? Number(match[1]) : 1;
-
-        switch (tier) {
-            case 1:
-                return 100;
-            case 2:
-                return 50;
-            case 3:
-                return 25;
-            case 4:
-                return 10;
-            default:
-                return 0;
+        const template = this.getEnemyTemplateMetadata(monsterType);
+        if (template?.familyId !== 'slime') {
+            return 0;
         }
+
+        const tier = Number.isFinite(Number(template?.tier))
+            ? Math.max(1, Math.floor(Number(template.tier)))
+            : 1;
+
+        return typeof getSlimeTinctureDropDenominatorForTier === 'function'
+            ? getSlimeTinctureDropDenominatorForTier(tier)
+            : 0;
     },
 
     getNextEnemyTierTypeKey(monsterType) {
-        const typeKey = String(monsterType || '');
-        const tierMatch = typeKey.match(/^(.*Tier)(\d+)$/i);
-        if (!tierMatch) {
+        const template = this.getEnemyTemplateMetadata(monsterType);
+        if (!template) {
             return null;
         }
 
-        const baseKey = tierMatch[1];
-        const currentTier = Number(tierMatch[2]);
-        if (!Number.isFinite(currentTier) || currentTier < 1) {
+        const currentTier = Number.isFinite(Number(template.tier))
+            ? Math.max(1, Math.floor(Number(template.tier)))
+            : null;
+        const familyId = typeof template.familyId === 'string' ? template.familyId : '';
+        if (!Number.isFinite(currentTier) || !familyId) {
             return null;
         }
 
-        const nextTierKey = `${baseKey}${currentTier + 1}`;
-        return ENEMY_TEMPLATES[nextTierKey] ? nextTierKey : null;
+        const nextTemplate = Object.values(ENEMY_TEMPLATES).find((candidate) => (
+            candidate?.familyId === familyId
+            && Number(candidate?.tier) === currentTier + 1
+        ));
+        return typeof nextTemplate?.templateId === 'string' ? nextTemplate.templateId : null;
     },
 
     tryPromoteEnemyAfterKill(enemy) {
@@ -424,6 +418,12 @@ Object.assign(Game.prototype, {
 
         enemy.name = promotedEnemy.name;
         enemy.monsterType = promotedEnemy.monsterType;
+        enemy.templateId = promotedEnemy.templateId;
+        enemy.familyId = promotedEnemy.familyId;
+        enemy.tier = promotedEnemy.tier;
+        enemy.npcRole = promotedEnemy.npcRole;
+        enemy.spawnContexts = Array.isArray(promotedEnemy.spawnContexts) ? [...promotedEnemy.spawnContexts] : [];
+        enemy.persistentNpc = Boolean(promotedEnemy.persistentNpc);
         enemy.creatureTypes = [...promotedEnemy.creatureTypes];
         if (!enemy.isAlly) {
             enemy.aiType = promotedEnemy.aiType;

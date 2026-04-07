@@ -22,42 +22,35 @@ Object.assign(Enemy.prototype, {
         this.health = Math.min(this.maxHealth, this.health + value);
     },
 
+    forEachEquippedItem(callback) {
+        forEachEquippedActorItem(this, callback);
+    },
+
+    getEquipmentMultiplier(methodName, arg) {
+        return getActorEquipmentMultiplier(this, methodName, arg);
+    },
+
+    getEquipmentNumericSum(methodName, arg) {
+        return getActorEquipmentNumericSum(this, methodName, arg);
+    },
+
+    getEquipmentPropertyTotal(propertyKey) {
+        return getActorEquipmentPropertyTotal(this, propertyKey);
+    },
+
     getEffectiveArmor() {
-        let armor = this.armor;
-        for (const item of this.equipment.values()) {
-            armor += item.properties?.armor || 0;
-            if (typeof item.getEnchantmentArmorBonus === 'function') {
-                armor += item.getEnchantmentArmorBonus();
-            }
-        }
-        return armor;
+        return this.armor
+            + this.getEquipmentPropertyTotal('armor')
+            + this.getEquipmentNumericSum('getEnchantmentArmorBonus');
     },
 
     getIncomingDamageMultiplierAgainst(attacker) {
-        let multiplier = 1;
-        for (const item of this.equipment.values()) {
-            if (typeof item.getIncomingDamageMultiplierFrom === 'function') {
-                multiplier *= item.getIncomingDamageMultiplierFrom(attacker);
-            }
-        }
-
+        const multiplier = this.getEquipmentMultiplier('getIncomingDamageMultiplierFrom', attacker);
         return Math.max(0.1, multiplier);
     },
 
     getCounterReflectRatio() {
-        let total = 0;
-        for (const item of this.equipment.values()) {
-            if (typeof item?.getCounterReflectRatio !== 'function') {
-                continue;
-            }
-
-            const value = Number(item.getCounterReflectRatio() || 0);
-            if (Number.isFinite(value) && value > 0) {
-                total += value;
-            }
-        }
-
-        return Math.max(0, total);
+        return Math.max(0, this.getEquipmentNumericSum('getCounterReflectRatio'));
     },
 
     addCondition(condition, duration = getConditionDuration(condition, 1)) {
@@ -85,15 +78,9 @@ Object.assign(Enemy.prototype, {
     },
 
     getAttackPower() {
-        let basePower = this.power;
-        for (const item of this.equipment.values()) {
-            if (item.properties?.power) {
-                basePower += item.properties.power;
-            }
-            if (typeof item.getEnchantmentPowerBonus === 'function') {
-                basePower += item.getEnchantmentPowerBonus();
-            }
-        }
+        let basePower = this.power
+            + this.getEquipmentPropertyTotal('power')
+            + this.getEquipmentNumericSum('getEnchantmentPowerBonus');
 
         let damageMultiplier = 1;
         for (const condition of this.conditions.keys()) {

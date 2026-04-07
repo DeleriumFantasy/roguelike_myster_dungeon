@@ -80,7 +80,8 @@ Object.assign(World.prototype, {
             return false;
         }
 
-        const safePos = findNearestSafeTile(player.x, player.y, this.getCurrentFloor().grid, this.currentFloor);
+        const currentGrid = this.getFloorGrid();
+        const safePos = findNearestSafeTile(player.x, player.y, currentGrid, this.currentFloor);
         player.x = safePos.x;
         player.y = safePos.y;
 
@@ -88,7 +89,8 @@ Object.assign(World.prototype, {
             const pitX = player.x;
             const pitY = player.y;
             this.ascendFloor();
-            const safePrevFloor = findNearestSafeTile(pitX, pitY, this.getCurrentFloor().grid, this.currentFloor);
+            const previousGrid = this.getFloorGrid();
+            const safePrevFloor = findNearestSafeTile(pitX, pitY, previousGrid, this.currentFloor);
             player.x = safePrevFloor.x;
             player.y = safePrevFloor.y;
         }
@@ -120,7 +122,7 @@ Object.assign(World.prototype, {
     },
 
     movePlayerAcrossWater(player) {
-        const grid = this.getCurrentFloor().grid;
+        const grid = this.getFloorGrid();
         const waterBody = this.getConnectedWaterRegion(player.x, player.y, grid);
         if (waterBody.length === 0) {
             return false;
@@ -232,31 +234,23 @@ Object.assign(World.prototype, {
         const queue = [{ x: startX, y: startY }];
         const visited = new Set([toGridKey(startX, startY)]);
         const region = [];
-        const cardinalDirs = [
-            { dx: 1, dy: 0 },
-            { dx: -1, dy: 0 },
-            { dx: 0, dy: 1 },
-            { dx: 0, dy: -1 }
-        ];
 
         while (queue.length > 0) {
             const current = queue.shift();
             region.push(current);
 
-            for (const dir of cardinalDirs) {
-                const nx = current.x + dir.dx;
-                const ny = current.y + dir.dy;
-                if (!this.isWithinBounds(nx, ny) || grid[ny][nx] !== TILE_TYPES.WATER) {
+            for (const neighbor of getCardinalNeighbors(current.x, current.y)) {
+                if (!this.isWithinBounds(neighbor.x, neighbor.y) || grid[neighbor.y][neighbor.x] !== TILE_TYPES.WATER) {
                     continue;
                 }
 
-                const key = toGridKey(nx, ny);
+                const key = toGridKey(neighbor.x, neighbor.y);
                 if (visited.has(key)) {
                     continue;
                 }
 
                 visited.add(key);
-                queue.push({ x: nx, y: ny });
+                queue.push({ x: neighbor.x, y: neighbor.y });
             }
         }
 
@@ -391,8 +385,7 @@ Object.assign(World.prototype, {
     },
 
     findNearestOpenTileExcluding(originX, originY, excludeX, excludeY) {
-        const floor = this.getCurrentFloor();
-        const grid = floor.grid;
+        const grid = this.getFloorGrid();
         const candidates = [];
 
         for (let y = 0; y < GRID_SIZE; y++) {
