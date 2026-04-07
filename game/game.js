@@ -1,7 +1,5 @@
 // Game bootstrap and high-level turn loop
 
-const ENEMY_TEMPLATES = buildEnemyTemplates();
-
 class Game {
     constructor() {
         this.seed = this.generateNewSeed();

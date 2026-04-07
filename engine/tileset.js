@@ -2,9 +2,23 @@
 
 class Tileset {
     constructor() {
-        this.sourceTileWidth = TERRAIN_SPRITESHEET_TILE_SIZE;
-        this.sourceTileHeight = TERRAIN_SPRITESHEET_TILE_HEIGHT;
+        const spriteSheetConfig = this.getSpriteSheetConfig();
+        this.sourceTileWidth = spriteSheetConfig.tileWidth;
+        this.sourceTileHeight = spriteSheetConfig.tileHeight;
         this.spriteSheet = null;
+    }
+
+    getSpriteSheetConfig() {
+        return {
+            path: typeof TERRAIN_SPRITESHEET_PATH === 'string' ? TERRAIN_SPRITESHEET_PATH : 'assets/terrain.png',
+            version: typeof TERRAIN_SPRITESHEET_VERSION === 'string' ? TERRAIN_SPRITESHEET_VERSION : '1',
+            tileWidth: typeof TERRAIN_SPRITESHEET_TILE_SIZE === 'number' && Number.isFinite(TERRAIN_SPRITESHEET_TILE_SIZE)
+                ? TERRAIN_SPRITESHEET_TILE_SIZE
+                : 16,
+            tileHeight: typeof TERRAIN_SPRITESHEET_TILE_HEIGHT === 'number' && Number.isFinite(TERRAIN_SPRITESHEET_TILE_HEIGHT)
+                ? TERRAIN_SPRITESHEET_TILE_HEIGHT
+                : 16
+        };
     }
 
     isReady() {
@@ -13,13 +27,14 @@ class Tileset {
 
     tryLoadExternalSpriteSheet(onLoad = null) {
         const image = new Image();
-        const versionedPath = `${TERRAIN_SPRITESHEET_PATH}?v=${encodeURIComponent(TERRAIN_SPRITESHEET_VERSION)}`;
+        const spriteSheetConfig = this.getSpriteSheetConfig();
+        const versionedPath = `${spriteSheetConfig.path}?v=${encodeURIComponent(spriteSheetConfig.version)}`;
         image.onload = () => {
             this.spriteSheet = image;
             if (onLoad) onLoad();
         };
         image.onerror = () => {
-            throw new Error(`Failed to load terrain spritesheet at ${TERRAIN_SPRITESHEET_PATH}.`);
+            throw new Error(`Failed to load terrain spritesheet at ${spriteSheetConfig.path}.`);
         };
         image.src = versionedPath;
     }

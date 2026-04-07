@@ -13,7 +13,7 @@ const ENEMY_AI_ACTION_METHODS = deepFreezeConfig({
     [AI_TYPES.GUARD]: 'performGuardAction',
     [AI_TYPES.BERSERK]: 'performBerserkAction',
     [AI_TYPES.WANDER]: 'performWanderAction'
-};
+});
 
 const ENEMY_FAMILY_SPAWN_BALANCING = deepFreezeConfig({
     floorRange: {
@@ -40,7 +40,7 @@ const ENEMY_FAMILY_SPAWN_BALANCING = deepFreezeConfig({
             endBudget: 1
         }
     }
-};
+});
 
 const ENEMY_CONTENT_SPAWN_RULES = Object.freeze({
     enemyCount: {
@@ -251,3 +251,5 @@ function buildEnemyTemplates() {
     }
     return deepFreezeConfig(templates);
 }
+
+const ENEMY_TEMPLATES = buildEnemyTemplates();

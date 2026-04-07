@@ -19,7 +19,7 @@ const INPUT_ACTION_BINDINGS = deepFreezeConfig({
     p: 'toggle-stats',
     u: 'undo-last-turn',
     x: 'toggle-auto-explore'
-};
+});
 
 const INVENTORY_ACTIONS_BY_TYPE = deepFreezeConfig({
     [ITEM_TYPES.THROWABLE]: ['throw', 'drop'],

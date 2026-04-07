@@ -65,7 +65,7 @@ const TILE_VISUALS = deepFreezeConfig({
     [TILE_TYPES.STAIRS_UP]: { color: '#0ff', sprite: pickTerrainSprite('STAIRS_UP_STONE'), glyph: '>', foregroundColor: '#fff' },
     [TILE_TYPES.LAVA]: { color: '#d9480f', sprite: pickTerrainSprite('LAVA_ACTIVE'), icon: 'lava', foregroundColor: '#ffb347' },
     [TILE_TYPES.SHOP]: { color: '#b91c1c', sprite: pickTerrainSprite('FLOOR_STONE'), foregroundColor: '#fecaca' }
-};
+});
 
 const WALL_AUTOTILE_SPRITES = deepFreezeConfig({
     isolated: 'WALL_STONE_FRONT_END',
@@ -208,7 +208,7 @@ const ENTITY_VISUALS = deepFreezeConfig({
     ally: { color: '#7ee787', miniMapInset: 0 },
     npc: { color: '#f6c177', miniMapInset: 0 },
     item: { color: '#ffdf6b', miniMapInset: 4, miniMapInsetMap: 2 }
-};
+});
 
 const UI_VISUALS = deepFreezeConfig({
     playerFacingArrow: '#111',
@@ -234,7 +234,7 @@ const UI_VISUALS = deepFreezeConfig({
     hitPulsePlayer: '#f43f5e',
     hitPulseEnemy: '#22d3ee',
     hitPulseNeutral: '#ffffff'
-};
+});
 
 const HEALTH_BAR_PALETTES = deepFreezeConfig({
     player: {
@@ -251,7 +251,7 @@ const HEALTH_BAR_PALETTES = deepFreezeConfig({
         mid: UI_VISUALS.enemyHealthBarMid,
         low: UI_VISUALS.enemyHealthBarLow
     }
-};
+});
 
 function getTileVisual(tileType) {
     return getVisualConfigEntry(TILE_VISUALS, tileType, TILE_VISUALS[TILE_TYPES.FLOOR]);
