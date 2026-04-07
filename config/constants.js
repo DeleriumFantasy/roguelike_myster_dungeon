@@ -162,7 +162,8 @@ const CONDITION_RULES = deepFreezeConfig({
     },
     [CONDITIONS.HUNGRY]: {
         duration: 5,
-        tickHunger: -5
+        tickHunger: -5,
+        damageMultiplier: 0.5
     }
 });
 
@@ -311,7 +312,7 @@ const AREA_TYPES = deepFreezeConfig({
 
 // Throw-taming and generation tuning
 const THROW_FOOD_TAMING_RULES = deepFreezeConfig({
-    baseChance: 0.06,
+    baseChance: 0.1,
     thresholdBaseline: 3,
     thresholdPenaltyPerPoint: 0.08,
     lowHpBonusScale: 0.65,

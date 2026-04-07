@@ -29,6 +29,7 @@ Object.assign(Game.prototype, {
         if ((result.healing || 0) > 0) {
             this.ui.addMessage(`${result.enemy.name} recovers ${result.healing} health from the throw.`);
         }
+        this.announceInflictedConditions(result.enemy.name, Array.isArray(result?.inflictedConditions) ? result.inflictedConditions : []);
         if (result.tameSucceeded) {
             this.ui.addMessage(`${result.enemy.name} has been tamed and is now your ally.`);
         } else if (result.tameAttempted) {

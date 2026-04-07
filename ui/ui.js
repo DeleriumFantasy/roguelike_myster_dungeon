@@ -194,7 +194,7 @@ class UI {
 
     getCameraTarget(player) {
         this.currentCameraTarget = player ? { x: player.x, y: player.y } : null;
-        return player;
+        return this.currentCameraTarget;
     }
 
     getActiveEventBannerData(world) {
@@ -344,48 +344,63 @@ class UI {
         };
     }
 
-    updateCamera(player) {
-        const cameraTarget = this.getCameraTarget(player);
-        if (this.pixiOverlay && this.pixiOverlay.app && this.pixiOverlay.app.renderer) {
-            const renderer = this.pixiOverlay.app.renderer;
-            const width = renderer.width;
-            const height = renderer.height;
-
-            if (this.mapOpen) {
-                this.mapTileSize = Math.max(1, Math.floor(Math.min(width / GRID_SIZE, height / GRID_SIZE)));
-                this.topDownOffsetX = Math.floor((width - this.mapTileSize * GRID_SIZE) / 2);
-                this.topDownOffsetY = Math.floor((height - this.mapTileSize * GRID_SIZE) / 2);
-                this.cameraBounds = {
-                    minX: 0,
-                    maxX: GRID_SIZE - 1,
-                    minY: 0,
-                    maxY: GRID_SIZE - 1
-                };
-                return;
-            }
-
-            this.mapTileSize = Math.floor(height / 15);
-            const visibleTiles = this.getVisibleTileCounts();
-            const perspective = this.getPerspectiveMetrics(this.mapTileSize);
-            const projectedHeight = this.mapTileSize + Math.max(0, visibleTiles.y - 1) * perspective.rowStep + perspective.wallLift;
-            this.topDownOffsetX = Math.floor((width - this.mapTileSize * visibleTiles.x) / 2);
-            this.topDownOffsetY = Math.floor((height - projectedHeight) / 2);
-        } else {
-            this.mapTileSize = this.mapOpen ? Math.max(1, Math.floor(120 / GRID_SIZE)) : 8;
-            this.topDownOffsetX = 0;
-            this.topDownOffsetY = 0;
+    getSceneViewportSize() {
+        if (this.pixiOverlay && typeof this.pixiOverlay.getRenderViewportSize === 'function') {
+            const viewport = this.pixiOverlay.getRenderViewportSize();
+            return {
+                width: Math.max(1, Math.floor(Number(viewport?.width) || 1)),
+                height: Math.max(1, Math.floor(Number(viewport?.height) || 1))
+            };
         }
-        this.cameraBounds = this.getCameraBounds(cameraTarget.x, cameraTarget.y);
+
+        return {
+            width: Math.max(1, Math.floor(Number(this.game?.canvas?.width) || window.innerWidth || 1)),
+            height: Math.max(1, Math.floor(Number(this.game?.canvas?.height) || window.innerHeight || 1))
+        };
     }
 
-    getCameraBounds(centerX, centerY) {
-        const visibleTileCounts = this.getVisibleTileCounts();
-        const visibleTilesX = visibleTileCounts.x;
-        const visibleTilesY = visibleTileCounts.y;
+    updateCamera(player) {
+        const cameraTarget = this.getCameraTarget(player);
+        if (!cameraTarget || !Number.isFinite(cameraTarget.x) || !Number.isFinite(cameraTarget.y)) {
+            return;
+        }
+
+        const { width, height } = this.getSceneViewportSize();
+
+        if (this.mapOpen) {
+            this.mapTileSize = Math.max(1, Math.floor(Math.min(width / GRID_SIZE, height / GRID_SIZE)));
+            this.topDownOffsetX = Math.max(0, Math.floor((width - this.mapTileSize * GRID_SIZE) / 2));
+            this.topDownOffsetY = Math.max(0, Math.floor((height - this.mapTileSize * GRID_SIZE) / 2));
+            this.cameraBounds = {
+                minX: 0,
+                maxX: GRID_SIZE - 1,
+                minY: 0,
+                maxY: GRID_SIZE - 1
+            };
+            return;
+        }
+
+        const baseVisibleTilesY = 15;
+        const heightDivisor = this.isAngledTopDownEnabled()
+            ? baseVisibleTilesY + this.perspectiveWallLiftRatio
+            : baseVisibleTilesY;
+
+        this.mapTileSize = Math.max(1, Math.floor(height / heightDivisor));
+        const visibleTiles = this.getVisibleTileCounts(width, height);
+        const perspective = this.getPerspectiveMetrics(this.mapTileSize);
+        const projectedHeight = this.mapTileSize + Math.max(0, visibleTiles.y - 1) * perspective.rowStep + perspective.wallLift;
+        this.topDownOffsetX = Math.max(0, Math.floor((width - this.mapTileSize * visibleTiles.x) / 2));
+        this.topDownOffsetY = Math.max(0, Math.floor((height - projectedHeight) / 2));
+        this.cameraBounds = this.getCameraBounds(cameraTarget.x, cameraTarget.y, visibleTiles);
+    }
+
+    getCameraBounds(centerX, centerY, visibleTileCounts = this.getVisibleTileCounts()) {
+        const visibleTilesX = Math.max(1, Math.min(GRID_SIZE, Math.floor(Number(visibleTileCounts?.x) || 1)));
+        const visibleTilesY = Math.max(1, Math.min(GRID_SIZE, Math.floor(Number(visibleTileCounts?.y) || 1)));
 
         // Center camera on player
-        let minX = Math.round(centerX - visibleTilesX / 2);
-        let minY = Math.round(centerY - visibleTilesY / 2);
+        let minX = Math.floor(centerX - (visibleTilesX - 1) / 2);
+        let minY = Math.floor(centerY - (visibleTilesY - 1) / 2);
         let maxX = minX + visibleTilesX - 1;
         let maxY = minY + visibleTilesY - 1;
 
@@ -452,25 +467,22 @@ class UI {
         return this.mapTileSize;
     }
 
-    getVisibleTileCounts() {
+    getVisibleTileCounts(viewportWidth = null, viewportHeight = null) {
         if (this.mapOpen) {
             return { x: GRID_SIZE, y: GRID_SIZE };
         }
 
-        // Always show 15 vertical tiles, and as many horizontal as fit the aspect ratio
-        if (this.pixiOverlay && this.pixiOverlay.app && this.pixiOverlay.app.renderer) {
-            const renderer = this.pixiOverlay.app.renderer;
-            const height = renderer.height;
-            const width = renderer.width;
-            const visibleTilesY = 15;
-            const visibleTilesX = Math.round(visibleTilesY * width / height);
-            return {
-                x: visibleTilesX,
-                y: visibleTilesY
-            };
-        }
-        // Fallback
-        return { x: 15, y: 15 };
+        const viewport = Number.isFinite(viewportWidth) && Number.isFinite(viewportHeight)
+            ? { width: viewportWidth, height: viewportHeight }
+            : this.getSceneViewportSize();
+        const visibleTilesY = 15;
+        const tileSize = Math.max(1, Math.floor(Number(this.mapTileSize) || 1));
+        const visibleTilesX = Math.max(1, Math.min(GRID_SIZE, Math.floor(viewport.width / tileSize)));
+
+        return {
+            x: visibleTilesX,
+            y: Math.max(1, Math.min(GRID_SIZE, visibleTilesY))
+        };
     }
 
     render(world, player, fov) {

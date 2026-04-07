@@ -12,16 +12,17 @@ Object.assign(Game.prototype, {
         const scalingRules = typeof getEnemyScalingRules === 'function'
             ? getEnemyScalingRules()
             : {};
-        const healthPerDepth = Math.max(0, Math.floor(Number(scalingRules?.healthPerDepth) || 3));
-        const powerPerDepthInterval = Math.max(1, Math.floor(Number(scalingRules?.powerPerDepthInterval) || 2));
-        const armorPerDepthInterval = Math.max(1, Math.floor(Number(scalingRules?.armorPerDepthInterval) || 4));
-        const expPerDepth = Math.max(0, Math.floor(Number(scalingRules?.expPerDepth) || 2));
+        const scalingEnabled = scalingRules?.enabled !== false;
+        const healthPerDepth = Math.max(0, Math.floor(Number(scalingRules?.healthPerDepth) || 0));
+        const powerPerDepthInterval = Math.max(1, Math.floor(Number(scalingRules?.powerPerDepthInterval) || 1));
+        const armorPerDepthInterval = Math.max(1, Math.floor(Number(scalingRules?.armorPerDepthInterval) || 1));
+        const expPerDepth = Math.max(0, Math.floor(Number(scalingRules?.expPerDepth) || 0));
 
         return {
-            health: template.health + depth * healthPerDepth,
-            power: template.power + Math.floor(depth / powerPerDepthInterval),
-            armor: template.armor + Math.floor(depth / armorPerDepthInterval),
-            exp: template.exp + depth * expPerDepth,
+            health: scalingEnabled ? template.health + depth * healthPerDepth : template.health,
+            power: scalingEnabled ? template.power + Math.floor(depth / powerPerDepthInterval) : template.power,
+            armor: scalingEnabled ? template.armor + Math.floor(depth / armorPerDepthInterval) : template.armor,
+            exp: scalingEnabled ? template.exp + depth * expPerDepth : template.exp,
             fovRange: template.fovRange,
             tameThreshold: template.tameThreshold,
             monsterType: enemyTypeKey,

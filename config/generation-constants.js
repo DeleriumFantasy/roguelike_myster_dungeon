@@ -237,10 +237,11 @@ const QUESTGIVER_QUEST_BUILDER_METHODS = Object.freeze([
 ]);
 
 const ENEMY_SCALING_RULES = Object.freeze({
-    healthPerDepth: 3,
-    powerPerDepthInterval: 2,
-    armorPerDepthInterval: 4,
-    expPerDepth: 2
+    enabled: false,
+    healthPerDepth: 0,
+    powerPerDepthInterval: 0,
+    armorPerDepthInterval: 0,
+    expPerDepth: 0
 });
 
 const ITEM_SPAWN_IMPROVEMENT_RULES = Object.freeze({

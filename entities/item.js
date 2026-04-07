@@ -772,12 +772,13 @@ class Item {
 
     throw(user, target) {
         if (!target) {
-            return { damage: 0, healing: 0 };
+            return { damage: 0, healing: 0, inflictedConditions: [] };
         }
 
         const damage = Math.max(0, Number(this.properties.power || 0) + Number(this.properties.armor || 0));
         const healing = Math.max(0, Number(this.properties.health || 0) + Number(this.properties.hunger || 0));
         const { condition, duration } = resolveConditionDuration(this.properties);
+        const inflictedConditions = [];
         let actualDamage = damage;
 
         if (damage > 0 && typeof target.takeDamage === 'function') {
@@ -791,11 +792,14 @@ class Item {
             target.heal(healing);
         }
 
-        if (condition && typeof target.addCondition === 'function') {
-            target.addCondition(condition, duration);
+        if (condition && typeof target.addCondition === 'function' && target.isAlive?.() !== false) {
+            const applied = target.addCondition(condition, duration);
+            if (applied !== false) {
+                inflictedConditions.push(condition);
+            }
         }
 
-        return { damage: actualDamage || 0, healing };
+        return { damage: actualDamage || 0, healing, inflictedConditions };
     }
 
     equip(user) {

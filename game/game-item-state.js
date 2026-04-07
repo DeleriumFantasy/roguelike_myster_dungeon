@@ -336,6 +336,9 @@ Object.assign(Game.prototype, {
             enemyDefeated,
             damage: throwImpact.damage || 0,
             healing: throwImpact.healing || 0,
+            inflictedConditions: Array.isArray(throwImpact?.inflictedConditions)
+                ? throwImpact.inflictedConditions
+                : [],
             tameAttempted: tameRoll.attempted,
             tameChance: tameRoll.chance,
             tameSucceeded: tameRoll.succeeded,

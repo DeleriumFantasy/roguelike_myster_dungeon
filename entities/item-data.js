@@ -460,16 +460,16 @@ const TIERED_ITEM_DEFINITIONS = {
         4: createShopItemDefinition('Money', ITEM_TYPES.MONEY, 'Unknown currency', 1, 1, { valueMin: 200, valueMax: 300 })
     },
     healing: {
-        1: { name: 'Old bandage', type: ITEM_TYPES.CONSUMABLE, properties: { health: 5, baseShopPrice: 12, baseSellPrice: 6, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        2: { name: 'Diluted potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 10, baseShopPrice: 24, baseSellPrice: 12, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        3: { name: 'Healing potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 20, baseShopPrice: 50, baseSellPrice: 25, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        4: { name: 'Greater healing potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 50, baseShopPrice: 120, baseSellPrice: 60, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+        1: { name: 'Old bandage', type: ITEM_TYPES.CONSUMABLE, properties: { health: 10, baseShopPrice: 12, baseSellPrice: 6, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        2: { name: 'Diluted potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 20, baseShopPrice: 24, baseSellPrice: 12, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        3: { name: 'Healing potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 40, baseShopPrice: 50, baseSellPrice: 25, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        4: { name: 'Greater healing potion', type: ITEM_TYPES.CONSUMABLE, properties: { health: 80, baseShopPrice: 120, baseSellPrice: 60, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
     },
     food: {
-        1: { name: 'Bitter seeds', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 5, baseShopPrice: 6, baseSellPrice: 3, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        2: { name: 'Apple', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 10, baseShopPrice: 12, baseSellPrice: 6, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        3: { name: 'Bread', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 20, baseShopPrice: 24, baseSellPrice: 12, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
-        4: { name: 'Stew', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 50, baseShopPrice: 60, baseSellPrice: 30, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
+        1: { name: 'Bitter seeds', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 25, baseShopPrice: 6, baseSellPrice: 3, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        2: { name: 'Apple', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 50, baseShopPrice: 12, baseSellPrice: 6, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        3: { name: 'Bread', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 100, baseShopPrice: 24, baseSellPrice: 12, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } },
+        4: { name: 'Stew', type: ITEM_TYPES.CONSUMABLE, properties: { hunger: 200, baseShopPrice: 60, baseSellPrice: 30, hiddenName: hiddenConsumable, burnable: true, requiresIdentification: false } }
     },
     throwable: {
         1: { name: 'Pebble', type: ITEM_TYPES.THROWABLE, properties: { power: 5, baseShopPrice: 8, baseSellPrice: 4, hiddenName: hiddenThrowable, burnable: true, requiresIdentification: false } },

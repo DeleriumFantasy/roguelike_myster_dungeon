@@ -1260,6 +1260,11 @@ Object.assign(Game.prototype, {
     },
 
     interactWithStarvingNpc(enemy) {
+        if (enemy?.shopSoldOut) {
+            this.ui.addMessage(`${enemy.name}: Thank you again for the food, but I do not need anything else.`);
+            return;
+        }
+
         this.openNpcInventoryItemPrompt(
             enemy,
             'I am starving. Please offer one food item.',
@@ -1290,6 +1295,11 @@ Object.assign(Game.prototype, {
     },
 
     interactWithHomeboundNpc(enemy) {
+        if (enemy?.shopSoldOut) {
+            this.ui.addMessage(`${enemy.name}: I already carried one parcel home for you.`);
+            return;
+        }
+
         this.openNpcInventoryItemPrompt(
             enemy,
             'I can send one item safely to your bank.',
@@ -1309,6 +1319,11 @@ Object.assign(Game.prototype, {
     },
 
     interactWithShamanNpc(enemy) {
+        if (enemy?.shopSoldOut) {
+            this.ui.addMessage(`${enemy.name}: I have already offered my blessing.`);
+            return;
+        }
+
         const inventory = this.getPlayerInventoryItems();
         const cursedItems = inventory.filter((item) => getItemCursedState(item));
 
