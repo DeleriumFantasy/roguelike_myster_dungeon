@@ -4,35 +4,80 @@
 // caches them by role and size, and provides color mixing utilities for sprite rendering.
 
 Object.assign(PixiSceneOverlay.prototype, {
-    getTextureForRect(rect) {
-        if (!this.baseTexture || !rect) {
+    getTextureForRect(rect, spriteSheetKey = 'terrain') {
+        if (!rect) {
             return null;
         }
 
-        const key = `${rect.x}:${rect.y}:${rect.width}:${rect.height}`;
+        const sourceKey = typeof spriteSheetKey === 'string' && spriteSheetKey.length > 0
+            ? spriteSheetKey
+            : 'terrain';
+        const baseTextures = this.baseTextures instanceof Map ? this.baseTextures : null;
+        const baseTexture = sourceKey === 'terrain'
+            ? this.baseTexture
+            : (baseTextures ? baseTextures.get(sourceKey) : null);
+        if (!baseTexture) {
+            return null;
+        }
+
+        const key = `${sourceKey}:${rect.x}:${rect.y}:${rect.width}:${rect.height}`;
         if (this.textureCache.has(key)) {
             return this.textureCache.get(key);
         }
 
-        const texture = new PIXI.Texture(this.baseTexture, new PIXI.Rectangle(rect.x, rect.y, rect.width, rect.height));
-        this.textureCache.set(key, texture);
-        return texture;
+        try {
+            const texture = new PIXI.Texture(baseTexture, new PIXI.Rectangle(rect.x, rect.y, rect.width, rect.height));
+            this.textureCache.set(key, texture);
+            return texture;
+        } catch (_error) {
+            return null;
+        }
     },
 
     syncBaseTexture(ui) {
-        const spriteSheet = ui?.tileset?.spriteSheet;
-        if (!spriteSheet) {
+        if (!(this.baseTextures instanceof Map)) {
+            this.baseTextures = new Map();
+        }
+        if (!(this.boundSpriteSheets instanceof Map)) {
+            this.boundSpriteSheets = new Map();
+        }
+
+        const spriteSheetEntries = ui?.tileset?.getLoadedSpriteSheetEntries?.() || [];
+        if (spriteSheetEntries.length === 0) {
             return false;
         }
 
-        if (this.boundSpriteSheet === spriteSheet && this.baseTexture) {
-            return true;
+        let didChange = false;
+        for (const [key, spriteSheet] of spriteSheetEntries) {
+            if (!spriteSheet) {
+                continue;
+            }
+
+            if (this.boundSpriteSheets.get(key) === spriteSheet && this.baseTextures.has(key)) {
+                continue;
+            }
+
+            this.boundSpriteSheets.set(key, spriteSheet);
+            const baseTexture = PIXI.BaseTexture.from(spriteSheet);
+            if (PIXI.SCALE_MODES && typeof PIXI.SCALE_MODES.NEAREST !== 'undefined') {
+                baseTexture.scaleMode = PIXI.SCALE_MODES.NEAREST;
+            }
+            if (PIXI.WRAP_MODES && typeof PIXI.WRAP_MODES.CLAMP !== 'undefined') {
+                baseTexture.wrapMode = PIXI.WRAP_MODES.CLAMP;
+            }
+            if (PIXI.MIPMAP_MODES && typeof PIXI.MIPMAP_MODES.OFF !== 'undefined') {
+                baseTexture.mipmap = PIXI.MIPMAP_MODES.OFF;
+            }
+            this.baseTextures.set(key, baseTexture);
+            didChange = true;
         }
 
-        this.boundSpriteSheet = spriteSheet;
-        this.baseTexture = PIXI.BaseTexture.from(spriteSheet);
-        this.textureCache.clear();
-        return true;
+        if (didChange) {
+            this.textureCache.clear();
+        }
+
+        this.baseTexture = this.baseTextures.get('terrain') || null;
+        return Boolean(this.baseTexture);
     },
 
     getActorSpriteTexture(actor, isPlayer, tileSize) {

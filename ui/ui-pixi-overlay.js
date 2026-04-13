@@ -13,12 +13,10 @@ class PixiSceneOverlay {
         this.worldLayer = null;
         this.terrainLayer = null;
         this.itemLayer = null;
-        this.depthLayer = null;
         this.shadowLayer = null;
         this.actorSpriteLayer = null;
         this.actorLayer = null;
         this.actorLabelLayer = null;
-        this.overdrawLayer = null;
         this.gradingLayer = null;
         this.lightingLayer = null;
         this.atmosphereLayer = null;
@@ -28,7 +26,6 @@ class PixiSceneOverlay {
         this.minimapBackdrop = null;
         this.minimapGraphics = null;
         this.baseTexture = null;
-        this.boundSpriteSheet = null;
         this.textureCache = new Map();
         this.actorTextureCache = new Map();
         this.textStyleCache = new Map();
@@ -55,10 +52,12 @@ class PixiSceneOverlay {
             height: window.innerHeight,
             backgroundAlpha: 1, // Opaque for debug
             backgroundColor: 0x222244, // Visible color for debug
-            antialias: true,
+            antialias: false,
             autoDensity: true,
             resolution
         });
+
+        this.app.renderer.roundPixels = true;
 
         // Make sure the canvas and host always fill the viewport
         this.app.view.style.position = 'fixed';
@@ -67,15 +66,6 @@ class PixiSceneOverlay {
         this.app.view.style.width = '100vw';
         this.app.view.style.height = '100vh';
         this.app.view.style.zIndex = '2';
-
-        if (this.hostElement) {
-            this.hostElement.style.position = 'fixed';
-            this.hostElement.style.top = '0';
-            this.hostElement.style.left = '0';
-            this.hostElement.style.width = '100vw';
-            this.hostElement.style.height = '100vh';
-            this.hostElement.style.zIndex = '2';
-        }
 
         this.app.view.setAttribute('aria-hidden', 'true');
         this.app.view.style.pointerEvents = 'none';
@@ -109,12 +99,10 @@ class PixiSceneOverlay {
         this.worldLayer = new PIXI.Container();
         this.terrainLayer = new PIXI.Container();
         this.itemLayer = new PIXI.Container();
-        this.depthLayer = new PIXI.Graphics();
         this.shadowLayer = new PIXI.Graphics();
         this.actorSpriteLayer = new PIXI.Container();
         this.actorLayer = new PIXI.Graphics();
         this.actorLabelLayer = new PIXI.Container();
-        this.overdrawLayer = new PIXI.Container();
         this.gradingLayer = new PIXI.Graphics();
         this.lightingLayer = new PIXI.Graphics();
         this.atmosphereLayer = new PIXI.Graphics();
@@ -126,12 +114,10 @@ class PixiSceneOverlay {
 
         this.worldLayer.addChild(this.terrainLayer);
         this.worldLayer.addChild(this.itemLayer);
-        this.worldLayer.addChild(this.depthLayer);
         this.worldLayer.addChild(this.shadowLayer);
         this.worldLayer.addChild(this.actorSpriteLayer);
         this.worldLayer.addChild(this.actorLayer);
         this.worldLayer.addChild(this.actorLabelLayer);
-        this.worldLayer.addChild(this.overdrawLayer);
         this.worldLayer.addChild(this.effectLayer);
         this.scene.addChild(this.worldLayer);
         this.scene.addChild(this.gradingLayer);
@@ -268,7 +254,7 @@ class PixiSceneOverlay {
 
     render(ui, world, player, fov) {
         // ...existing code...
-        if (!this.enabled || !this.app || !ui || !world || !player || !fov || !ui.shouldRenderSceneWithPixi()) {
+        if (!this.enabled || !this.app || !ui || !world || !player || !fov) {
             return;
         }
 
@@ -280,7 +266,6 @@ class PixiSceneOverlay {
         const renderState = this.buildRenderState(ui, world, player, fov);
         this.renderTerrain(renderState);
         this.renderItems(renderState);
-        this.renderDepth(renderState);
         this.renderActorShadows(renderState);
         this.renderActors(renderState);
         this.renderTransientEffects(renderState);

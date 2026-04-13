@@ -31,7 +31,6 @@ Object.assign(PixiSceneOverlay.prototype, {
             now,
             currentFloor,
             tileSize,
-            projection: ui.getPerspectiveMetrics(tileSize),
             shouldUseFog,
             shouldHideUnseenTiles,
             playerBlind: ui.isActorBlind(player),
@@ -81,11 +80,9 @@ Object.assign(PixiSceneOverlay.prototype, {
         this.clearDisplayContainer(this.terrainLayer);
         this.clearDisplayContainer(this.itemLayer);
         this.clearDisplayContainer(this.actorSpriteLayer);
-        this.depthLayer.clear();
         this.shadowLayer.clear();
         this.actorLayer.clear();
         this.clearDisplayContainer(this.actorLabelLayer);
-        this.clearDisplayContainer(this.overdrawLayer);
         this.gradingLayer.clear();
         this.lightingLayer.clear();
         this.atmosphereLayer.clear();

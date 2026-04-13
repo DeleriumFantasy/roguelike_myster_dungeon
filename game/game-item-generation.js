@@ -257,6 +257,31 @@ Object.assign(Game.prototype, {
             }
         }
 
+        const hasWallBreakingWeapon = Boolean(
+            Array.from(this.player?.equipment?.values?.() || []).some((item) => item?.properties?.breaksWalls)
+            || (this.player?.inventory || []).some((item) => item?.properties?.breaksWalls)
+        );
+        if (!hasWallBreakingWeapon && typeof this.player?.addItem === 'function') {
+            const pickaxe = createItemFromDefinition({
+                name: 'Pickaxe',
+                type: ITEM_TYPES.WEAPON,
+                properties: {
+                    power: 1,
+                    slots: 0,
+                    breaksWalls: true,
+                    spawnImprovementMin: 5,
+                    spawnImprovementMax: 10,
+                    baseShopPrice: 170,
+                    baseSellPrice: 85,
+                    hiddenName: hiddenSword,
+                    burnable: false
+                }
+            });
+            if (pickaxe) {
+                this.player.addItem(pickaxe);
+            }
+        }
+
         return equippedCount;
     }
 });

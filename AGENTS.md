@@ -19,7 +19,7 @@
 
 ### `config/`
 - Early-load constants, immutable config tables, and pure lookup helpers.
-- Holds enemy definitions, generation/event tuning, combat/input rules, and shared accessors such as `get...Rule()` and `getInputBinding()`.
+- Holds enemy definitions, generation/event tuning, combat/input rules, terrain family registries, and shared accessors such as `get...Rule()` and `getInputBinding()`.
 
 ### `engine/`
 - Reusable runtime infrastructure plus `World` behavior.
@@ -59,6 +59,7 @@
 - Put shared orchestration selection/access helpers in `game/game-content-utils.js`.
 - Put shared UI DOM/render helpers in `ui/ui.js`.
 - Keep UI messaging separate from gameplay mutation whenever possible.
+- Treat terrain sheet families as config data first: add new wall/ground sheet families, variant-count tables, and ordering rules in `config/terrain-constants.js` instead of hardcoding cases in rendering code.
 
 ## Practical Conventions
 
@@ -75,9 +76,9 @@
 ## Fast Orientation
 
 - Start at `index.html` to confirm load order.
-- For config/editability work: read `config/generation-constants.js`, `config/enemy-definitions.js`, and the helper readers in `config/rules.js`.
+- For config/editability work: read `config/generation-constants.js`, `config/enemy-definitions.js`, `config/terrain-constants.js`, and the helper readers in `config/rules.js`.
 - For world/runtime bugs: check `engine/world.js`, `engine/world-actors.js`, `engine/world-tile-state.js`, `engine/world-traversal.js`, and `engine/world-generation.js`.
 - For entity behavior: check `entities/player-combat.js`, `entities/player-inventory.js`, `entities/enemy-ai.js`, `entities/enemy-combat.js`, and `entities/combat-utils.js`.
 - For NPC/quest/shop flow: check `game/game-npc-interactions.js`, `game/game-content.js`, `game/game-enemy-content.js`, and `game/game-inventory-actions.js`.
 - For undo/input/turn flow: check `game/game.js`, `game/game-input.js`, `game/game-player-turns.js`, and `game/game-enemy-turns.js`.
-- For UI/rendering: check `ui/ui.js`, `ui/ui-panels.js`, `ui/ui-inventory.js`, and the `ui-pixi-*` files.
+- For UI/rendering: check `ui/ui.js`, `ui/ui-panels.js`, `ui/ui-inventory.js`, `config/terrain-constants.js`, and the `ui-pixi-*` files.

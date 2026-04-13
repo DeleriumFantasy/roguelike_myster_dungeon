@@ -617,6 +617,14 @@ Object.assign(World.prototype, {
                 return;
             }
 
+            if (typeof replacementTile === 'string' && Object.values(HAZARD_TYPES).includes(replacementTile)) {
+                grid[y][x] = TILE_TYPES.FLOOR;
+                if (typeof this.setHazard === 'function') {
+                    this.setHazard(x, y, replacementTile);
+                }
+                return;
+            }
+
             grid[y][x] = replacementTile;
         });
 

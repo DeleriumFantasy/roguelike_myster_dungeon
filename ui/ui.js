@@ -86,9 +86,6 @@ class UI {
         this.dungeonSelectionOpen = false;
         this.gamePromptOpen = false;
         this.activeGamePromptConfig = null;
-        this.angledTopDown = true;
-        this.perspectiveRowStepRatio = 1;
-        this.perspectiveWallLiftRatio = 0.18;
         this.currentCameraTarget = null;
         this.mapTileSize = 8; // Will be dynamically set in updateCamera
         this.cameraBounds = {
@@ -103,11 +100,6 @@ class UI {
         this.pendingAnimationFrame = null;
         this.pixiOverlay = new PixiSceneOverlay(this.pixiOverlayHost);
         this.applyOverlayVisibility();
-    }
-
-    // Pixi is now always required for rendering.
-    shouldRenderSceneWithPixi() {
-        return true;
     }
 
     getUiElement(id) {
@@ -315,20 +307,6 @@ class UI {
         return fromGridKey(key);
     }
 
-    isAngledTopDownEnabled() {
-        return Boolean(this.angledTopDown && !this.mapOpen);
-    }
-
-    getPerspectiveMetrics(tileSize = this.getTileSize()) {
-        const baseSize = Math.max(1, Math.floor(Number(tileSize) || 1));
-        return {
-            rowStep: baseSize,
-            wallLift: this.isAngledTopDownEnabled()
-                ? Math.max(0, Math.round(baseSize * this.perspectiveWallLiftRatio))
-                : 0
-        };
-    }
-
     getVisibilityAlpha(isVisible) {
         return isVisible ? COLORS.VISIBLE : COLORS.EXPLORED;
     }
@@ -381,14 +359,9 @@ class UI {
         }
 
         const baseVisibleTilesY = 15;
-        const heightDivisor = this.isAngledTopDownEnabled()
-            ? baseVisibleTilesY + this.perspectiveWallLiftRatio
-            : baseVisibleTilesY;
-
-        this.mapTileSize = Math.max(1, Math.floor(height / heightDivisor));
+        this.mapTileSize = Math.max(1, Math.floor(height / baseVisibleTilesY));
         const visibleTiles = this.getVisibleTileCounts(width, height);
-        const perspective = this.getPerspectiveMetrics(this.mapTileSize);
-        const projectedHeight = this.mapTileSize + Math.max(0, visibleTiles.y - 1) * perspective.rowStep + perspective.wallLift;
+        const projectedHeight = this.mapTileSize * visibleTiles.y;
         this.topDownOffsetX = Math.max(0, Math.floor((width - this.mapTileSize * visibleTiles.x) / 2));
         this.topDownOffsetY = Math.max(0, Math.floor((height - projectedHeight) / 2));
         this.cameraBounds = this.getCameraBounds(cameraTarget.x, cameraTarget.y, visibleTiles);
@@ -437,10 +410,9 @@ class UI {
 
     worldToTopDownScreen(worldX, worldY) {
         const tileSize = this.getTileSize();
-        const perspective = this.getPerspectiveMetrics(tileSize);
         return {
             x: this.topDownOffsetX + (worldX - this.cameraBounds.minX) * tileSize,
-            y: this.topDownOffsetY + (worldY - this.cameraBounds.minY) * perspective.rowStep
+            y: this.topDownOffsetY + (worldY - this.cameraBounds.minY) * tileSize
         };
     }
 

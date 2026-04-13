@@ -12,6 +12,44 @@ Object.assign(Player.prototype, {
         return Array.isArray(this.inventory) ? this.inventory : [];
     },
 
+    identifyAllItems() {
+        const identifyItem = (item) => {
+            if (!item || typeof item.identify !== 'function') {
+                return;
+            }
+
+            item.identify();
+
+            const storedItems = typeof item.getStoredItems === 'function'
+                ? item.getStoredItems()
+                : Array.isArray(item.properties?.storedItems)
+                    ? item.properties.storedItems
+                    : [];
+
+            if (Array.isArray(storedItems)) {
+                for (const storedItem of storedItems) {
+                    identifyItem(storedItem);
+                }
+            }
+        };
+
+        for (const item of this.getBackpackItems()) {
+            identifyItem(item);
+        }
+
+        if (this.equipment instanceof Map) {
+            for (const item of this.equipment.values()) {
+                identifyItem(item);
+            }
+        }
+
+        if (Array.isArray(this.bankItems)) {
+            for (const item of this.bankItems) {
+                identifyItem(item);
+            }
+        }
+    },
+
     getBackpackItemCount() {
         return this.getBackpackItems().length;
     },

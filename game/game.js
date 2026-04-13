@@ -629,6 +629,10 @@ class Game {
             this.player.heal(this.player.maxHealth);
             this.player.restoreHunger(this.player.maxHunger);
             this.player.hungerLossDisabled = true;
+            if (typeof this.player.identifyAllItems === 'function') {
+                this.player.identifyAllItems();
+                this.ui.addMessage('All of your items have been identified.');
+            }
             this.ui.addMessage('You return to the overworld, restored to full health and hunger.');
         } else if (this.isOverworldFloor(previousFloor)) {
             this.ui.addMessage(`You enter the dungeon on floor ${this.getDisplayFloorLabel(this.world.currentFloor)}.`);

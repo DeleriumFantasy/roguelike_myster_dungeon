@@ -382,6 +382,7 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
     }
 
     if (hazardTransition?.returnedToOverworldFromPathEnd) {
+        this.handleFloorChange(floorBeforeMove);
         this.handleCompletedDungeonPath?.(hazardTransition.completedPathId);
         return this.createPlayerMoveResult({
             consumed: true,
@@ -736,6 +737,7 @@ Game.prototype.processPlayerBerserkTurn = function() {
             });
         }
         if (hazardTransition?.returnedToOverworldFromPathEnd) {
+            this.handleFloorChange(floorBeforeMove);
             this.handleCompletedDungeonPath?.(hazardTransition.completedPathId);
             return this.createPlayerTurnResult({
                 consumed: true,

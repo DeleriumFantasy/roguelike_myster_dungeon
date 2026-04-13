@@ -250,7 +250,7 @@ Object.assign(UI.prototype, {
     },
 
     openInventory(player) {
-        this.haltPlayerMovementForPopup?.();
+        this.haltPlayerMovementForPopup();
         this.game.inventoryOpen = true;
         this.updateInventoryTitle(player);
         const list = this.inventoryModal.querySelector('#inventory-list');
@@ -359,7 +359,7 @@ Object.assign(UI.prototype, {
         this.game.inventoryOpen = false;
         this.hideInventoryItemDetails();
         this.inventoryModal.style.display = 'none';
-        this.focusGameSurface?.();
+        this.focusGameSurface();
     },
 
     handleEquippedItemClick(slot, item) {
@@ -385,7 +385,7 @@ Object.assign(UI.prototype, {
             return;
         }
 
-        this.openChoicePrompt?.(titleText, messageText, normalizedChoices, onSelect, {
+        this.openChoicePrompt(titleText, messageText, normalizedChoices, onSelect, {
             onCancel: typeof options.onCancel === 'function'
                 ? options.onCancel
                 : (() => {
