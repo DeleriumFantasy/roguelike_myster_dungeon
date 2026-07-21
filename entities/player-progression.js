@@ -6,9 +6,10 @@ Object.assign(Player.prototype, {
     },
 
     applyLevelUpRewards() {
-        this.maxHealth += 5;
+        const cfg = window.PLAYER_BALANCE_CONFIG?.levelUp || {};
+        this.maxHealth += cfg.health ?? 5;
         this.health = this.maxHealth;
-        this.power += 1;
+        this.power += cfg.power ?? 1;
     },
 
     levelUpOnce() {

@@ -11,7 +11,7 @@ Object.assign(PixiSceneOverlay.prototype, {
 
         const sourceKey = typeof spriteSheetKey === 'string' && spriteSheetKey.length > 0
             ? spriteSheetKey
-            : 'terrain';
+            : spriteSheetKey;
         const baseTextures = this.baseTextures instanceof Map ? this.baseTextures : null;
         const baseTexture = sourceKey === 'terrain'
             ? this.baseTexture
@@ -42,7 +42,7 @@ Object.assign(PixiSceneOverlay.prototype, {
             this.boundSpriteSheets = new Map();
         }
 
-        const spriteSheetEntries = ui?.tileset?.getLoadedSpriteSheetEntries?.() || [];
+        const spriteSheetEntries = ui.tileset.getLoadedSpriteSheetEntries();
         if (spriteSheetEntries.length === 0) {
             return false;
         }
@@ -76,29 +76,94 @@ Object.assign(PixiSceneOverlay.prototype, {
             this.textureCache.clear();
         }
 
-        this.baseTexture = this.baseTextures.get('terrain') || null;
+        this.baseTexture = this.baseTextures.get('terrain');
         return Boolean(this.baseTexture);
     },
 
-    getActorSpriteTexture(actor, isPlayer, tileSize) {
-        if (!this.app?.renderer) {
+    getPlayerSpriteSheetTexture(actor, animationFrame = null) {
+        if (!(this.baseTextures instanceof Map) || !this.baseTextures.has('player')) {
             return null;
+        }
+
+        const baseTexture = this.baseTextures.get('player');
+        if (!baseTexture || !Number.isFinite(baseTexture.width) || !Number.isFinite(baseTexture.height)) {
+            return null;
+        }
+
+        const columns = Math.max(1, Math.floor(PLAYER_SPRITESHEET_COLUMNS));
+        const rows = Math.max(1, Math.floor(PLAYER_SPRITESHEET_ROWS));
+
+        const frameWidth = baseTexture.width / columns;
+        const frameHeight = baseTexture.height / rows;
+        if (!Number.isFinite(frameWidth) || !Number.isFinite(frameHeight) || frameWidth <= 0 || frameHeight <= 0) {
+            return null;
+        }
+
+        const columnIndex = (animationFrame !== null && Number.isFinite(animationFrame))
+            ? Math.max(0, Math.min(columns - 1, Math.floor(animationFrame)))
+            : 0;
+        const rowIndex = this.getPlayerSpriteSheetRowIndex(actor);
+        const rect = {
+            x: frameWidth * columnIndex,
+            y: frameHeight * rowIndex,
+            width: frameWidth,
+            height: frameHeight
+        };
+
+        return this.getTextureForRect(rect, 'player');
+    },
+
+    getPlayerSpriteSheetRowIndex(actor) {
+        const facing = getActorFacing(actor);
+        const normalized = normalizeDirection(facing.dx, facing.dy);
+
+        if (normalized.dx === 0 && normalized.dy === 1) {
+            return 0;
+        }
+        if (normalized.dx === 1 && normalized.dy === 1) {
+            return 1;
+        }
+        if (normalized.dx === 1 && normalized.dy === 0) {
+            return 2;
+        }
+        if (normalized.dx === 1 && normalized.dy === -1) {
+            return 3;
+        }
+        if (normalized.dx === 0 && normalized.dy === -1) {
+            return 4;
+        }
+        if (normalized.dx === -1 && normalized.dy === -1) {
+            return 5;
+        }
+        if (normalized.dx === -1 && normalized.dy === 0) {
+            return 6;
+        }
+        if (normalized.dx === -1 && normalized.dy === 1) {
+            return 7;
+        }
+
+        return 0;
+    },
+
+    getActorSpriteTexture(actor, isPlayer, tileSize, animationTime = 0, animationFrame = null) {
+        if (isPlayer) {
+            const playerSheetTexture = this.getPlayerSpriteSheetTexture(actor, animationFrame);
+            if (playerSheetTexture) {
+                return playerSheetTexture;
+            }
         }
 
         const role = isPlayer
             ? 'player'
-            : (actor?.isAlly ? 'ally' : (isNeutralNpcActor(actor) ? 'npc' : 'enemy'));
+            : (actor.isAlly ? 'ally' : (isNeutralNpcActor(actor) ? 'npc' : 'enemy'));
         const quantizedSize = Math.max(8, Math.round(tileSize));
         const visual = getEntityVisual(role, actor);
-        const key = `${role}:${quantizedSize}:${visual?.color || 'default'}`;
+        const key = `${role}:${quantizedSize}:${visual.color}`;
         if (this.actorTextureCache.has(key)) {
             return this.actorTextureCache.get(key);
         }
 
-        const defaultBaseColor = role === 'player'
-            ? 0x66d9ff
-            : (role === 'ally' ? 0x7ee787 : (role === 'npc' ? 0xf6c177 : 0xff6b6b));
-        const baseColor = this.toPixiColor(visual?.color, defaultBaseColor);
+        const baseColor = this.toPixiColor(visual.color);
         const palette = this.getActorSpritePalette(role, baseColor);
         const graphic = new PIXI.Graphics();
 
@@ -115,7 +180,7 @@ Object.assign(PixiSceneOverlay.prototype, {
         }
 
         const texture = this.app.renderer.generateTexture(graphic, {
-            resolution: window.devicePixelRatio || 1,
+            resolution: window.devicePixelRatio,
             region: new PIXI.Rectangle(0, 0, quantizedSize, quantizedSize)
         });
         graphic.destroy(true);
@@ -314,20 +379,24 @@ Object.assign(PixiSceneOverlay.prototype, {
         graphic.endFill();
     },
 
-    toPixiColor(colorValue, fallback = 0xffffff) {
+    toPixiColor(colorValue) {
         if (typeof colorValue !== 'string' || colorValue.length === 0) {
-            return fallback;
+            return 0;
         }
 
-        if (window.PIXI?.utils?.string2hex) {
-            return PIXI.utils.string2hex(colorValue);
+        if (typeof PIXI.utils.string2hex === 'function') {
+            try {
+                return PIXI.utils.string2hex(colorValue);
+            } catch (error) {
+                return 0;
+            }
         }
 
-        return fallback;
+        return 0;
     },
 
     mixPixiColor(sourceColor, targetColor, amount = 0.5) {
-        const mixAmount = clamp(Number(amount) || 0, 0, 1);
+        const mixAmount = clamp(Number(amount), 0, 1);
         const sourceRed = (sourceColor >> 16) & 0xff;
         const sourceGreen = (sourceColor >> 8) & 0xff;
         const sourceBlue = sourceColor & 0xff;
@@ -341,18 +410,18 @@ Object.assign(PixiSceneOverlay.prototype, {
         return (red << 16) + (green << 8) + blue;
     },
 
-    parseCssColor(colorValue, fallbackColor = 0xffffff) {
+    parseCssColor(colorValue) {
         if (typeof colorValue !== 'string') {
-            return { color: fallbackColor, alpha: 1 };
+            return { color: 0, alpha: 1 };
         }
 
         const rgbaMatch = colorValue.match(/rgba?\(([^)]+)\)/i);
         if (rgbaMatch) {
             const parts = rgbaMatch[1].split(',').map((part) => Number(part.trim()));
-            const red = clamp(Math.floor(parts[0] || 0), 0, 255);
-            const green = clamp(Math.floor(parts[1] || 0), 0, 255);
-            const blue = clamp(Math.floor(parts[2] || 0), 0, 255);
-            const alpha = parts.length > 3 ? clamp(Number(parts[3]) || 0, 0, 1) : 1;
+            const red = clamp(Math.floor(parts[0]), 0, 255);
+            const green = clamp(Math.floor(parts[1]), 0, 255);
+            const blue = clamp(Math.floor(parts[2]), 0, 255);
+            const alpha = parts.length > 3 ? clamp(Number(parts[3]), 0, 1) : 1;
             return {
                 color: (red << 16) + (green << 8) + blue,
                 alpha
@@ -360,7 +429,7 @@ Object.assign(PixiSceneOverlay.prototype, {
         }
 
         return {
-            color: this.toPixiColor(colorValue, fallbackColor),
+            color: this.toPixiColor(colorValue),
             alpha: 1
         };
     }

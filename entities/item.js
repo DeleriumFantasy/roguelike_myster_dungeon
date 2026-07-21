@@ -1,6 +1,10 @@
-// Item system base class
+
+// =============================
+// Item System Base Class
+// =============================
 
 class Item {
+    // --- Constructor ---
     constructor(name, type, properties = {}) {
         this.name = name;
         this.type = type;
@@ -8,22 +12,46 @@ class Item {
         this.knowledgeState = this.requiresIdentification() ? ITEM_KNOWLEDGE.UNKNOWN : ITEM_KNOWLEDGE.IDENTIFIED;
     }
 
+    // --- Core Use Logic ---
     use(user, target) {
+        // Staff: do not reveal on use, lose charge, trigger effect
+        if (this.type === ITEM_TYPES.STAFF) {
+            if (!this.properties.charges || this.properties.charges <= 0) {
+                return { consumed: false, reason: 'no-charges' };
+            }
+            this.properties.charges -= 1;
+            let effect = this.properties.staffEffect;
+            let result = { consumed: true, effect, charges: this.properties.charges };
+            // Do not identify on use
+            if (effect === 'blink') {
+                if (typeof user?.blink === 'function') {
+                    user.blink();
+                }
+            } else if (effect === 'switch') {
+                if (target && typeof user?.switchWith === 'function') {
+                    user.switchWith(target);
+                }
+            }
+            return result;
+        }
+        // Consumable: use and identify
         if (this.type === ITEM_TYPES.CONSUMABLE) {
             const consumeResult = this.consume(user, target);
             this.identify();
             return consumeResult;
         }
-
+        // Other: just identify
         this.identify();
         return { consumed: false, reason: 'not-consumable' };
     }
 
+
+    // --- Identification Logic ---
     requiresIdentification() {
         if (typeof this.properties.requiresIdentification === 'boolean') {
             return this.properties.requiresIdentification;
         }
-
+        // Default unidentified types
         const unidentifiedByDefault = [
             ITEM_TYPES.CONSUMABLE,
             ITEM_TYPES.THROWABLE,
@@ -43,29 +71,40 @@ class Item {
         return this.knowledgeState === ITEM_KNOWLEDGE.IDENTIFIED;
     }
 
+
+    // --- Display Name Logic ---
     getDisplayName() {
+        // Staff: show hidden name, and if used, show -1
+        if (this.type === ITEM_TYPES.STAFF && !this.isIdentified()) {
+            let base = this.properties.hiddenName || 'Unknown staff';
+            if (typeof this.properties.maxCharges === 'number' && typeof this.properties.charges === 'number' && this.properties.charges < this.properties.maxCharges) {
+                base += ' -1';
+            }
+            return base;
+        }
+        // Identified: show improvements, enchantments, pot space
         if (this.isIdentified()) {
             const improvementSuffix = this.getImprovementSuffix();
-
             if (this.type === ITEM_TYPES.POT) {
                 const remainingSpace = this.getRemainingPotSpace();
                 const capacity = this.getPotCapacity();
                 const storedSuffix = ` [space ${remainingSpace}/${capacity}]`;
                 return `${this.name}${storedSuffix}${improvementSuffix}`;
             }
-
             const enchantmentNames = this.getVisibleEnchantmentNames();
             if (enchantmentNames.length === 0) {
                 return `${this.name}${improvementSuffix}`;
             }
-
             const enchantmentCount = enchantmentNames.length;
             const enchantmentLabel = enchantmentCount === 1 ? 'enchantment' : 'enchantments';
             return `${this.name} [${enchantmentCount} ${enchantmentLabel}]${improvementSuffix}`;
         }
+        // Unidentified: show hidden name
         return this.properties.hiddenName || `unknown ${this.type}`;
     }
 
+
+    // --- Improvement Logic ---
     getImprovementLevel() {
         const level = Number(this.properties?.improvementLevel || 0);
         return Number.isFinite(level) && level > 0 ? Math.floor(level) : 0;
@@ -76,6 +115,8 @@ class Item {
         return level > 0 ? ` +${level}` : '';
     }
 
+
+    // --- Pot Logic ---
     isPotItem() {
         return this.type === ITEM_TYPES.POT;
     }
@@ -101,8 +142,15 @@ class Item {
             return 0;
         }
 
+        const potType = this.getPotType();
         const explicitUsed = Number(this.properties?.usedPotSpace);
         const storedCount = this.getStoredItemCount();
+
+        // Non-banking pots physically store items, so used space should match item count.
+        if (potType !== 'banking') {
+            return storedCount;
+        }
+
         if (Number.isFinite(explicitUsed) && explicitUsed >= 0) {
             return Math.max(storedCount, Math.floor(explicitUsed));
         }
@@ -189,6 +237,8 @@ class Item {
         return storedItems;
     }
 
+
+    // --- Enchantment Logic ---
     hasEnchantment(enchantmentId) {
         return this.getEnchantments().includes(enchantmentId);
     }
@@ -770,43 +820,59 @@ class Item {
         return { consumed: true };
     }
 
+
+    // --- Throw Logic ---
     throw(user, target) {
+        // Staff: breaks and triggers effect
+        if (this.type === ITEM_TYPES.STAFF) {
+            let effect = this.properties.staffEffect;
+            let result = { consumed: true, effect, broke: true };
+            if (effect === 'blink') {
+                if (typeof user?.blink === 'function') {
+                    user.blink();
+                }
+            } else if (effect === 'switch') {
+                if (target && typeof user?.switchWith === 'function') {
+                    user.switchWith(target);
+                }
+            }
+            // Remove all charges to indicate broken
+            this.properties.charges = 0;
+            return result;
+        }
+        // Default throw: damage, healing, conditions
         if (!target) {
             return { damage: 0, healing: 0, inflictedConditions: [] };
         }
-
         const damage = Math.max(0, Number(this.properties.power || 0) + Number(this.properties.armor || 0));
         const healing = Math.max(0, Number(this.properties.health || 0) + Number(this.properties.hunger || 0));
         const { condition, duration } = resolveConditionDuration(this.properties);
         const inflictedConditions = [];
         let actualDamage = damage;
-
         if (damage > 0 && typeof target.takeDamage === 'function') {
             actualDamage = target.takeDamage(damage) || 0;
             if (actualDamage > 0 && typeof target.onAttacked === 'function') {
                 target.onAttacked();
             }
         }
-
         if (healing > 0 && typeof target.heal === 'function') {
             target.heal(healing);
         }
-
         if (condition && typeof target.addCondition === 'function' && target.isAlive?.() !== false) {
             const applied = target.addCondition(condition, duration);
             if (applied !== false) {
                 inflictedConditions.push(condition);
             }
         }
-
         return { damage: actualDamage || 0, healing, inflictedConditions };
     }
 
+
+    // --- Equipment Logic ---
     equip(user) {
         if (!isEquippableItemType(this.type)) {
             return false;
         }
-
         const equipped = user.equipItem(this);
         if (equipped) {
             this.identify();

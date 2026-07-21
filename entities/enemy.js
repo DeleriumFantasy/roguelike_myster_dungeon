@@ -2,6 +2,7 @@
 
 class Enemy {
     constructor(x, y, name, aiType, stats = {}) {
+        const cfg = window.ENEMY_BALANCE_CONFIG || {};
         this.x = x;
         this.y = y;
         this.name = name;
@@ -17,11 +18,13 @@ class Enemy {
         this.creatureTypes = this.normalizeCreatureTypes(stats.creatureTypes);
         this.aiType = aiType;
         this.baseAiType = aiType || AI_TYPES.WANDER;
-        this.maxHealth = stats.health || 20;
+        // Use config for base stats if available, fallback to stats or defaults
+        const typeKey = this.monsterType;
+        this.maxHealth = (cfg.baseHealth && cfg.baseHealth[typeKey]) || stats.health || 20;
         this.health = this.maxHealth;
-        this.power = stats.power || 5;
+        this.power = (cfg.basePower && cfg.basePower[typeKey]) || stats.power || 5;
         this.armor = stats.armor || 0;
-        this.exp = stats.exp || 0;
+        this.exp = (cfg.expPerEnemy && cfg.expPerEnemy[typeKey]) || stats.exp || 0;
         this.allyExp = Math.max(0, Math.floor(Number(stats.allyExp) || 0));
         this.allyLevel = Math.max(1, Math.floor(Number(stats.allyLevel) || 1));
         this.allyExpToNextLevel = this.getAllyExpToNextLevel();

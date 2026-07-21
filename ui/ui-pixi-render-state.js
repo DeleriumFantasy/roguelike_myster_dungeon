@@ -9,16 +9,16 @@ Object.assign(PixiSceneOverlay.prototype, {
         let width = window.innerWidth;
         let height = window.innerHeight;
 
-        if (this.hostElement?.parentElement) {
-            width = this.hostElement.parentElement.offsetWidth || width;
-            height = this.hostElement.parentElement.offsetHeight || height;
+        if (this.hostElement.parentElement) {
+            width = this.hostElement.parentElement.offsetWidth;
+            height = this.hostElement.parentElement.offsetHeight;
         }
 
         return { width, height };
     },
 
     buildRenderState(ui, world, player, fov, now = performance.now()) {
-        const currentFloor = world.getCurrentFloor?.() || null;
+        const currentFloor = world.getCurrentFloor();
         const tileSize = ui.getTileSize();
         const shouldUseFog = ui.shouldUseFogForFloor(world);
         const shouldHideUnseenTiles = ui.shouldHideUnseenTilesForFloor(world.currentFloor);
@@ -34,7 +34,7 @@ Object.assign(PixiSceneOverlay.prototype, {
             shouldUseFog,
             shouldHideUnseenTiles,
             playerBlind: ui.isActorBlind(player),
-            cameraBounds: { ...ui.cameraBounds },
+            cameraBounds: ui.cameraBounds,
             visibleActors: this.getVisibleActors(ui, world, player, fov)
         };
     },
@@ -45,7 +45,7 @@ Object.assign(PixiSceneOverlay.prototype, {
         }
 
         const visibleActors = [player];
-        for (const actor of world.getAllActors?.() || world.getEnemies?.() || []) {
+        for (const actor of world.getAllActors()) {
             if (!actor || actor === player || !ui.isEnemyVisibleInFov(actor, fov)) {
                 continue;
             }

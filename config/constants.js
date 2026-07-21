@@ -264,7 +264,8 @@ const ITEM_TYPES = deepFreezeConfig({
     ACCESSORY: 'accessory',
     CONSUMABLE: 'consumable',
     THROWABLE: 'throwable',
-    POT: 'pot'
+    POT: 'pot',
+    STAFF: 'staff'
 });
 
 // Item visuals and knowledge states
@@ -276,15 +277,12 @@ const ITEM_TYPE_COLORS = deepFreezeConfig({
     [ITEM_TYPES.WEAPON]: '#ff001e',
     [ITEM_TYPES.ARMOR]: '#02d625',
     [ITEM_TYPES.SHIELD]: '#e100ff',
-    [ITEM_TYPES.ACCESSORY]: '#ff7b00'
+    [ITEM_TYPES.ACCESSORY]: '#ff7b00',
+    [ITEM_TYPES.STAFF]: '#b6e0ff'
 });
 
-function getItemTypeColor(itemType, fallback = '#000000') {
-    if (!itemType) {
-        return fallback;
-    }
-
-    return ITEM_TYPE_COLORS[itemType] || fallback;
+function getItemTypeColor(itemType) {
+    return ITEM_TYPE_COLORS[itemType];
 }
 
 const ITEM_KNOWLEDGE = deepFreezeConfig({
@@ -351,7 +349,6 @@ const PLAYER_LEVEL_TOTAL_EXP = deepFreezeConfig({
 
 // Grid, camera, and shared colors
 const GRID_SIZE = 50;
-const TILE_SIZE = 16;
 const CAMERA_VISIBLE_TILE_ROWS = 20;
 const FOV_RANGE = 10;
 

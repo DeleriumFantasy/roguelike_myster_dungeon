@@ -22,6 +22,14 @@ class Game {
         };
         this.maxUndoStates = 5;
         this.undoHistory = [];
+        this.perfDebug = {
+            enabled: Boolean(window?.__GAME_PERF_DEBUG === true),
+            reportIntervalMs: 5000,
+            lastReportAt: 0,
+            turnSamples: 0,
+            turnTotalMs: 0,
+            enemyPhaseMs: 0
+        };
         this.inputController = new GameInputController(this);
 
         this.inputController.attach();
@@ -39,7 +47,6 @@ class Game {
 
         this.canvas.width = nextWidth;
         this.canvas.height = nextHeight;
-        this.ui?.handleCanvasResize?.();
     }
 
     getAvailableUndoCount() {
@@ -198,8 +205,8 @@ class Game {
             player: this.player,
             persistentOverworldNpcs: this.persistentOverworldNpcs,
             settings: this.settings,
-            lastFailedMove: this.lastFailedMove,
-            uiMessages: this.ui?.messages || []
+                lastFailedMove: this.lastFailedMove,
+                uiMessages: this.ui.messages || []
         });
     }
 
@@ -220,9 +227,7 @@ class Game {
 
     rebuildUndoRuntimeState() {
         const floorsToRepair = [];
-        const floorCollections = typeof this.getWorldFloorCollections === 'function'
-            ? this.getWorldFloorCollections()
-            : [];
+        const floorCollections = this.getWorldFloorCollections();
 
         for (const floors of floorCollections) {
             floorsToRepair.push(...floors);
@@ -282,7 +287,7 @@ class Game {
             return false;
         }
 
-        this.stopAutoExplore?.();
+        this.stopAutoExplore();
         this.inputController?.reset?.();
 
         this.rehydrateUndoValue(snapshot);
@@ -302,44 +307,43 @@ class Game {
         this.fovCache = null;
 
         if (this.ui) {
-            this.ui.closeInventory?.();
+                this.ui.closeInventory();
             this.ui.activeVisualEffects = [];
             this.ui.messages = Array.isArray(snapshot.uiMessages) ? [...snapshot.uiMessages] : [];
         }
 
         this.rebuildUndoRuntimeState();
         this.updateFOV();
-        this.ui?.render?.(this.world, this.player, this.fov);
+            this.ui.render(this.world, this.player, this.fov);
         return true;
     }
 
     undoLastTurn() {
         if (!Array.isArray(this.undoHistory) || this.undoHistory.length === 0) {
-            this.ui?.addMessage?.('No undo is available.');
-            this.ui?.render?.(this.world, this.player, this.fov);
+                this.ui.addMessage('No undo is available.');
+                this.ui.render(this.world, this.player, this.fov);
             return false;
         }
 
         const snapshot = this.undoHistory.pop();
         if (!this.restoreUndoSnapshot(snapshot)) {
-            this.ui?.addMessage?.('Undo failed.');
-            this.ui?.render?.(this.world, this.player, this.fov);
+                this.ui.addMessage('Undo failed.');
+                this.ui.render(this.world, this.player, this.fov);
             return false;
         }
 
-        this.ui?.addMessage?.(`Undid the last action. ${this.getAvailableUndoCount()}/${this.maxUndoStates} stored states remain.`);
-        this.ui?.render?.(this.world, this.player, this.fov);
+            this.ui.addMessage(`Undid the last action. ${this.getAvailableUndoCount()}/${this.maxUndoStates} stored states remain.`);
+            this.ui.render(this.world, this.player, this.fov);
         return true;
     }
 
-    lookTowards(dx, dy) {
-        if (typeof this.player.setFacingDirection === 'function') {
-            this.player.setFacingDirection(dx, dy);
-        } else {
-            this.player.facing = { dx, dy };
-        }
+    lookTowards(dx, dy, options = {}) {
+        const { render = true } = options;
+        this.player.setFacingDirection(dx, dy);
 
-        this.ui.render(this.world, this.player, this.fov);
+        if (render) {
+            this.ui.render(this.world, this.player, this.fov);
+        }
     }
 
     handleFacingAttackInput() {
@@ -358,6 +362,18 @@ class Game {
 
     isNeutralNpcEnemy(enemy) {
         return isNeutralNpcActor(enemy);
+    }
+
+    getNpcRole(actor) {
+        if (!actor) {
+            return '';
+        }
+
+        if (typeof actor.npcRole === 'string' && actor.npcRole.length > 0) {
+            return actor.npcRole;
+        }
+
+        return ENEMY_TEMPLATES?.[actor.monsterType]?.npcRole || '';
     }
 
     applySettingsChanges(changes = {}) {
@@ -400,11 +416,11 @@ class Game {
 
         const hadSecondQuestgiver = Array.isArray(this.persistentOverworldNpcs)
             && this.persistentOverworldNpcs.some((npc) => npc?.isSecondQuestgiver);
-        const secondQuestgiver = this.ensureSecondQuestgiverAvailability?.();
+        const secondQuestgiver = this.ensureSecondQuestgiverAvailability();
         if (secondQuestgiver && !hadSecondQuestgiver) {
             if (this.isOverworldFloor(this.world.currentFloor)) {
-                const spawnRng = this.getFloorContentRng?.(this.world.currentFloor + 424242) || createMathRng();
-                const spawn = this.world.findRandomOpenTile(spawnRng, this.player, 200, secondQuestgiver);
+                const spawnRng = this.getFloorContentRng(this.world.currentFloor + 424242);
+                const spawn = this.world.findRandomOpenActorTile(spawnRng, this.player, 200, secondQuestgiver);
                 if (spawn) {
                     this.assignActorPosition(secondQuestgiver, spawn);
                     this.addEnemyIfMissing(secondQuestgiver);
@@ -420,7 +436,7 @@ class Game {
     }
 
     openDungeonSelectionFromOverworldStairs() {
-        if (this.ui?.dungeonSelectionOpen) {
+        if (this.ui.dungeonSelectionOpen) {
             return;
         }
 
@@ -451,7 +467,7 @@ class Game {
         if (!item) return;
 
         if (item?.properties?.throwBlocked) {
-            this.ui?.addMessage?.(
+                this.ui.addMessage(
                 typeof item?.properties?.throwBlockMessage === 'string'
                     ? item.properties.throwBlockMessage
                     : `${getItemLabel(item)} is too heavy to throw.`
@@ -470,7 +486,7 @@ class Game {
     }
 
     handleMoveInput(dx, dy) {
-        this.lookTowards(dx, dy);
+        this.lookTowards(dx, dy, { render: false });
 
         const moveInput = { type: 'move', dx, dy };
         if (this.shouldDropRepeatedFailedMove(moveInput)) {
@@ -503,10 +519,42 @@ class Game {
         this.lastFailedMove = null;
     }
 
+    recordTurnPerfSample(totalMs, enemyPhaseMs) {
+        if (!this.perfDebug?.enabled) {
+            return;
+        }
+
+        this.perfDebug.turnSamples += 1;
+        this.perfDebug.turnTotalMs += Math.max(0, Number(totalMs) || 0);
+        this.perfDebug.enemyPhaseMs += Math.max(0, Number(enemyPhaseMs) || 0);
+
+        const now = performance.now();
+        const lastReportAt = Number(this.perfDebug.lastReportAt || 0);
+        const reportIntervalMs = Math.max(1000, Number(this.perfDebug.reportIntervalMs) || 5000);
+        if (now - lastReportAt < reportIntervalMs || this.perfDebug.turnSamples <= 0) {
+            return;
+        }
+
+        const sampleCount = this.perfDebug.turnSamples;
+        const averageTurn = this.perfDebug.turnTotalMs / sampleCount;
+        const averageEnemy = this.perfDebug.enemyPhaseMs / sampleCount;
+        console.info(
+            `[perf][turn] samples=${sampleCount} avgTurn=${averageTurn.toFixed(2)}ms avgEnemyPhase=${averageEnemy.toFixed(2)}ms`
+        );
+
+        this.perfDebug.lastReportAt = now;
+        this.perfDebug.turnSamples = 0;
+        this.perfDebug.turnTotalMs = 0;
+        this.perfDebug.enemyPhaseMs = 0;
+    }
+
     performTurn(input) {
         if (this.isGameOver) {
             return;
         }
+
+        const turnStart = performance.now();
+        let enemyPhaseMs = 0;
 
         this.player.hungerLossDisabled = this.isOverworldFloor(this.world.currentFloor);
 
@@ -524,6 +572,7 @@ class Game {
 
         const playerTurnResult = this.processPlayerTurn(input);
         if (!playerTurnResult?.consumed) {
+            this.ui.render(this.world, this.player, this.fov);
             return;
         }
 
@@ -538,7 +587,7 @@ class Game {
         this.player.applyPerTurnRegen({
             disableHungerEffects: this.isOverworldFloor(this.world.currentFloor)
         });
-        this.advanceActiveFloorEventTurn?.();
+        this.advanceActiveFloorEventTurn();
 
         this.handleFloorChange(startFloor);
         if (playerTurnResult.applyEnvironmentAfterAction) {
@@ -551,7 +600,9 @@ class Game {
         }
 
         if (!playerTurnResult.skipEnemyPhase) {
+            const enemyPhaseStart = performance.now();
             this.processEnemyTurns();
+            enemyPhaseMs = performance.now() - enemyPhaseStart;
         }
 
         this.worldAdvance();
@@ -562,6 +613,8 @@ class Game {
         if (!this.player.isAlive()) {
             this.finishGameOverState();
         }
+
+        this.recordTurnPerfSample(performance.now() - turnStart, enemyPhaseMs);
     }
 
     finishGameOverState() {
@@ -598,6 +651,19 @@ class Game {
         this.player.updateStats();
     }
 
+    grantStartingBread() {
+        if (typeof createTieredItem !== 'function' || typeof this.player?.addItem !== 'function') {
+            return false;
+        }
+
+        const bread = createTieredItem('food', 3);
+        if (!bread) {
+            return false;
+        }
+
+        return this.player.addItem(bread);
+    }
+
     resetRunAfterDeath() {
         this.isGameOver = false;
         this.inventoryOpen = false;
@@ -606,11 +672,12 @@ class Game {
         this.fovCache = null;
 
         this.resetPlayerForNewRunPreservingBank();
+        this.grantStartingBread();
         this.seed = this.generateNewSeed();
         this.world = new World(this.seed);
         this.spawnPlayerOnFloor();
         this.populateCurrentFloorIfNeeded();
-        this.clearNearbyHostileEnemiesFromPlayerSpawn?.();
+        this.clearNearbyHostileEnemiesFromPlayerSpawn();
         this.updateFOV();
         this.ui.render(this.world, this.player, this.fov);
         this.ui.addMessage('A new run begins. Banked storage and overworld NPC state were preserved. Press U or Ctrl+Z to undo if needed.');
@@ -621,18 +688,17 @@ class Game {
             return;
         }
 
-        this.trackQuestProgressForFloorVisit?.(this.world.currentFloor);
+        this.trackQuestProgressForFloorVisit(this.world.currentFloor);
         this.populateCurrentFloorIfNeeded();
+        this.recordCurrentPlayerWalkedTile?.();
         this.spawnAlliesOnCurrentFloor();
-        this.clearNearbyHostileEnemiesFromPlayerSpawn?.();
+        this.clearNearbyHostileEnemiesFromPlayerSpawn();
         if (this.isOverworldFloor(this.world.currentFloor)) {
             this.player.heal(this.player.maxHealth);
             this.player.restoreHunger(this.player.maxHunger);
             this.player.hungerLossDisabled = true;
-            if (typeof this.player.identifyAllItems === 'function') {
-                this.player.identifyAllItems();
-                this.ui.addMessage('All of your items have been identified.');
-            }
+            this.player.identifyAllItems();
+            this.ui.addMessage('All of your items have been identified.');
             this.ui.addMessage('You return to the overworld, restored to full health and hunger.');
         } else if (this.isOverworldFloor(previousFloor)) {
             this.ui.addMessage(`You enter the dungeon on floor ${this.getDisplayFloorLabel(this.world.currentFloor)}.`);
@@ -724,17 +790,20 @@ class Game {
             return;
         }
 
-        if (typeof this.world.getTrap !== 'function') {
-            return;
-        }
-
         const trapType = this.world.getTrap(x, y);
         if (!trapType) {
             return;
         }
 
-        if (typeof this.world.revealTrap === 'function') {
-            this.world.revealTrap(x, y);
+        this.world.revealTrap(x, y);
+        const failureChance = Number(this.world.getCurrentFloor()?.meta?.trapFailureChance || 0);
+        if (failureChance > 0 && getRngRoll() < failureChance) {
+            const trapDefinition = getTrapDefinition(trapType);
+            const failureMessage = trapDefinition?.failMessage || 'A hidden trap is revealed but does not trigger.';
+            if (failureMessage) {
+                this.ui.addMessage(failureMessage);
+            }
+            return;
         }
 
         const trapDefinition = getTrapDefinition(trapType);
@@ -743,7 +812,7 @@ class Game {
         }
 
         if (trapType === HAZARD_TYPES.TRAP_TRIP) {
-            const itemsDropped = this.dropPlayerItems();
+            this.dropPlayerItems();
             if (trapDefinition.message) {
                 this.ui.addMessage(trapDefinition.message);
             }

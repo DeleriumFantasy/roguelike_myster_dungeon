@@ -65,7 +65,7 @@ const ENEMY_CONTENT_SPAWN_RULES = Object.freeze({
 
 const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
     slime: {
-        defaults: { types: [ENEMY_TYPES.SLIME], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 9 },
+        defaults: { types: [ENEMY_TYPES.SLIME], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 9, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'slimeTier1', displayName: 'Green slime', health: 8, power: 3, armor: 4, exp: 2, tameThreshold: 3, spawnWeight: 12, minFloor: 0 },
             2: { key: 'slimeTier2', displayName: 'Blue slime', health: 11, power: 5, armor: 8, exp: 5, tameThreshold: 4, spawnWeight: 10, minFloor: 1 },
@@ -74,7 +74,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     ghost: {
-        defaults: { types: [ENEMY_TYPES.GHOST, ENEMY_TYPES.FLOATING], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.AMBUSH, fovRange: 11 },
+        defaults: { types: [ENEMY_TYPES.GHOST, ENEMY_TYPES.FLOATING], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.AMBUSH, fovRange: 11, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'ghostTier1', displayName: 'Wisp', health: 23, power: 16, armor: 10, exp: 25, tameThreshold: 3, spawnWeight: 8, minFloor: 1 },
             2: { key: 'ghostTier2', displayName: 'Shadow', health: 60, power: 35, armor: 22, exp: 250, tameThreshold: 4, spawnWeight: 6, minFloor: 3 },
@@ -83,7 +83,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     beast: {
-        defaults: { types: [ENEMY_TYPES.BEAST], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 10 },
+        defaults: { types: [ENEMY_TYPES.BEAST], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 10, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'beastTier1', displayName: 'Hyena', health: 15, power: 9, armor: 4, exp: 12, tameThreshold: 3, spawnWeight: 12, minFloor: 1 },
             2: { key: 'beastTier2', displayName: 'Wolf', health: 45, power: 23, armor: 10, exp: 27, tameThreshold: 4, spawnWeight: 8, minFloor: 3 },
@@ -92,7 +92,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     aquatic: {
-        defaults: { types: [ENEMY_TYPES.AQUATIC], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 10 },
+        defaults: { types: [ENEMY_TYPES.AQUATIC], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 10, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'aquaticTier1', displayName: 'Large frog', health: 16, power: 8, armor: 3, exp: 14, tameThreshold: 3, spawnWeight: 10, minFloor: 1 },
             2: { key: 'aquaticTier2', displayName: 'Snake', health: 40, power: 20, armor: 9, exp: 70, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
@@ -101,7 +101,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     floating: {
-        defaults: { types: [ENEMY_TYPES.FLOATING], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 11 },
+        defaults: { types: [ENEMY_TYPES.FLOATING], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 11, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'floatingTier1', displayName: 'Raven', health: 12, power: 9, armor: 2, exp: 16, tameThreshold: 3, spawnWeight: 9, minFloor: 1 },
             2: { key: 'floatingTier2', displayName: 'Hawk', health: 34, power: 22, armor: 8, exp: 78, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
@@ -110,7 +110,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     vandal: {
-        defaults: { types: [ENEMY_TYPES.VANDAL], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.CHASE, fovRange: 10 },
+        defaults: { types: [ENEMY_TYPES.VANDAL], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.CHASE, fovRange: 10, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'vandalTier1', displayName: 'Mischief maker', health: 18, power: 10, armor: 5, exp: 18, tameThreshold: 3, spawnWeight: 10, minFloor: 1 },
             2: { key: 'vandalTier2', displayName: 'Ruffian', health: 48, power: 24, armor: 12, exp: 95, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
@@ -119,7 +119,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     thief: {
-        defaults: { types: [ENEMY_TYPES.THIEF], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.CHASE, fovRange: 12 },
+        defaults: { types: [ENEMY_TYPES.THIEF], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.CHASE, fovRange: 12, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'thiefTier1', displayName: 'Pickpocket', health: 12, power: 9, armor: 3, exp: 15, tameThreshold: 3, spawnWeight: 9, minFloor: 1 },
             2: { key: 'thiefTier2', displayName: 'Snatcher', health: 35, power: 21, armor: 9, exp: 80, tameThreshold: 4, spawnWeight: 7, minFloor: 3 },
@@ -128,7 +128,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     fuser: {
-        defaults: { types: [ENEMY_TYPES.FUSER], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 11 },
+        defaults: { types: [ENEMY_TYPES.FUSER], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.WANDER, fovRange: 11, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'fuserTier1', displayName: 'Pixy', health: 17, power: 10, armor: 4, exp: 20, tameThreshold: 3, spawnWeight: 8, minFloor: 2 },
             2: { key: 'fuserTier2', displayName: 'Boggart', health: 45, power: 25, armor: 11, exp: 105, tameThreshold: 4, spawnWeight: 6, minFloor: 4 },
@@ -137,7 +137,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     pariah: {
-        defaults: { types: [ENEMY_TYPES.PARIAH], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.AMBUSH, fovRange: 11 },
+        defaults: { types: [ENEMY_TYPES.PARIAH], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.AMBUSH, fovRange: 11, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'pariahTier1', displayName: 'Leper', health: 14, power: 11, armor: 3, exp: 22, tameThreshold: 3, spawnWeight: 8, minFloor: 2 },
             2: { key: 'pariahTier2', displayName: 'Reject', health: 42, power: 27, armor: 9, exp: 115, tameThreshold: 4, spawnWeight: 6, minFloor: 4 },
@@ -146,7 +146,7 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
         }
     },
     crafter: {
-        defaults: { types: [ENEMY_TYPES.CRAFTER], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.GUARD, fovRange: 10 },
+        defaults: { types: [ENEMY_TYPES.CRAFTER], speed: ENEMY_SPEEDS.NORMAL, aiType: AI_TYPES.GUARD, fovRange: 10, spawnContexts: ['dungeon'] },
         tiers: {
             1: { key: 'crafterTier1', displayName: 'Snarer', health: 20, power: 8, armor: 6, exp: 25, tameThreshold: 3, spawnWeight: 8, minFloor: 2 },
             2: { key: 'crafterTier2', displayName: 'Trapper', health: 55, power: 22, armor: 16, exp: 130, tameThreshold: 4, spawnWeight: 6, minFloor: 4 },
@@ -175,77 +175,51 @@ const ENEMY_FAMILY_DEFINITIONS = deepFreezeConfig({
 });
 
 function getEnemySpeedMultiplier(speed) {
-    return ENEMY_SPEED_MULTIPLIERS[speed] ?? ENEMY_SPEED_MULTIPLIERS[ENEMY_SPEEDS.NORMAL];
+    return ENEMY_SPEED_MULTIPLIERS[speed];
 }
 
 function getEnemyAiActionHandlerName(aiType) {
-    return ENEMY_AI_ACTION_METHODS[aiType] || ENEMY_AI_ACTION_METHODS[AI_TYPES.WANDER];
+    return ENEMY_AI_ACTION_METHODS[aiType];
 }
 
 function getEnemyContentSpawnRules() {
     return ENEMY_CONTENT_SPAWN_RULES;
 }
 
-function getEnemySpawnCountForDepth(floorIndex) {
-    const rules = getEnemyContentSpawnRules()?.enemyCount || {};
-    const base = Math.max(0, Math.floor(Number(rules.base) || 4));
-    const perFloorDivisor = Math.max(1, Math.floor(Number(rules.perFloorDivisor) || 2));
-    const minCount = Math.max(0, Math.floor(Number(rules.min) || base));
-    const maxCount = Math.max(minCount, Math.floor(Number(rules.max) || minCount));
-    const normalizedFloor = Math.max(0, Math.floor(Number(floorIndex) || 0));
-    return Math.max(minCount, Math.min(maxCount, base + Math.floor(normalizedFloor / perFloorDivisor)));
-}
-
-function getDungeonNpcSpawnChanceForFloorIndex(floorIndex) {
-    const rules = getEnemyContentSpawnRules()?.dungeonNpcChance || {};
-    const displayFloor = Math.max(1, Math.min(99, Math.floor(Number(floorIndex) || 0) + 1));
-    const startDisplayFloor = Math.max(1, Math.floor(Number(rules.startDisplayFloor) || 1));
-    const endDisplayFloor = Math.max(startDisplayFloor, Math.floor(Number(rules.endDisplayFloor) || startDisplayFloor));
-    const startChance = Math.min(1, Math.max(0, Number(rules.startChance) || 0.15));
-    const endChance = Math.min(1, Math.max(0, Number(rules.endChance) || 0.05));
-    const progress = endDisplayFloor === startDisplayFloor
-        ? 0
-        : (displayFloor - startDisplayFloor) / (endDisplayFloor - startDisplayFloor);
-    return startChance + (endChance - startChance) * Math.min(1, Math.max(0, progress));
-}
-
 function getSlimeTinctureDropDenominatorForTier(tier) {
-    const rules = getEnemyContentSpawnRules()?.slimeTinctureDropDenominatorsByTier || {};
-    const normalizedTier = Math.max(1, Math.floor(Number(tier) || 1));
+    const rules = getEnemyContentSpawnRules().slimeTinctureDropDenominatorsByTier;
+    const normalizedTier = Math.max(1, Math.floor(Number(tier)));
     const denominator = Number(rules[normalizedTier]);
-    return Number.isFinite(denominator) ? Math.max(0, Math.floor(denominator)) : 0;
+    return Math.max(0, Math.floor(denominator));
 }
 
 function normalizeEnemySpawnContexts(spawnContexts) {
-    if (!Array.isArray(spawnContexts)) {
-        return [];
-    }
-
     return [...new Set(spawnContexts.filter((context) => typeof context === 'string' && context.length > 0))];
 }
 
 function buildEnemyTemplateDefinition(familyId, family, tierKey, tierDefinition) {
-    const normalizedTier = Number.isFinite(Number(tierKey))
-        ? Math.max(1, Math.floor(Number(tierKey)))
-        : 1;
+    const normalizedTier = Math.max(1, Math.floor(Number(tierKey)));
+    const mergedDefinition = {
+        ...family.defaults,
+        ...tierDefinition
+    };
 
     return {
-        ...family.defaults,
-        ...tierDefinition,
+        ...mergedDefinition,
         templateId: tierDefinition.key,
         familyId,
         tier: normalizedTier,
-        npcRole: typeof tierDefinition.npcRole === 'string' ? tierDefinition.npcRole : '',
-        spawnContexts: normalizeEnemySpawnContexts(tierDefinition.spawnContexts || family.defaults.spawnContexts),
+        npcRole: String(mergedDefinition.npcRole),
+        spawnContexts: normalizeEnemySpawnContexts(mergedDefinition.spawnContexts),
         persistentNpc: Boolean(tierDefinition.persistentNpc),
-        types: tierDefinition.types || family.defaults.types || []
+        types: mergedDefinition.types
     };
 }
 
 function buildEnemyTemplates() {
     const templates = {};
     for (const [familyId, family] of Object.entries(ENEMY_FAMILY_DEFINITIONS)) {
-        for (const [tierKey, tierDefinition] of Object.entries(family.tiers || {})) {
+        for (const [tierKey, tierDefinition] of Object.entries(family.tiers)) {
             templates[tierDefinition.key] = buildEnemyTemplateDefinition(familyId, family, tierKey, tierDefinition);
         }
     }

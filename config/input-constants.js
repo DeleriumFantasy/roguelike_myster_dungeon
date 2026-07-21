@@ -15,30 +15,25 @@ const INPUT_ACTION_BINDINGS = deepFreezeConfig({
     b: 'grant-debug-loadout',
     i: 'open-inventory',
     n: 'toggle-messages',
-    m: 'toggle-map',
     p: 'toggle-stats',
     u: 'undo-last-turn',
     x: 'toggle-auto-explore'
 });
 
 const INVENTORY_ACTIONS_BY_TYPE = deepFreezeConfig({
+    [ITEM_TYPES.MONEY]: ['drop'],
+    [ITEM_TYPES.CONSUMABLE]: ['use', 'throw', 'drop'],
     [ITEM_TYPES.THROWABLE]: ['throw', 'drop'],
     [ITEM_TYPES.POT]: ['use', 'throw', 'drop'],
     [ITEM_TYPES.WEAPON]: ['equip', 'throw', 'drop'],
     [ITEM_TYPES.ARMOR]: ['equip', 'throw', 'drop'],
     [ITEM_TYPES.SHIELD]: ['equip', 'throw', 'drop'],
     [ITEM_TYPES.ACCESSORY]: ['equip', 'throw', 'drop'],
-    default: ['use', 'throw', 'drop']
+    [ITEM_TYPES.STAFF]: ['use', 'throw', 'drop']
 });
 
-function getInputBinding(bindings, key, fallback = null) {
-    if (!bindings || typeof bindings !== 'object') {
-        return fallback;
-    }
-
-    return Object.prototype.hasOwnProperty.call(bindings, key)
-        ? bindings[key]
-        : fallback;
+function getInputBinding(bindings, key) {
+    return bindings[key];
 }
 
 function normalizeMoveInputKey(key, lowerKey = String(key).toLowerCase()) {
@@ -53,14 +48,13 @@ function normalizeMoveInputKey(key, lowerKey = String(key).toLowerCase()) {
 
 function getDirectionForInputKey(key, lowerKey = String(key).toLowerCase()) {
     const normalizedKey = normalizeMoveInputKey(key, lowerKey);
-    return normalizedKey ? getInputBinding(INPUT_DIRECTION_BINDINGS, normalizedKey, null) : null;
+    return normalizedKey ? getInputBinding(INPUT_DIRECTION_BINDINGS, normalizedKey) : null;
 }
 
 function getInputActionForKey(lowerKey) {
-    return getInputBinding(INPUT_ACTION_BINDINGS, lowerKey, null);
+    return getInputBinding(INPUT_ACTION_BINDINGS, lowerKey);
 }
 
 function getInventoryActionsForItemType(itemType) {
-    const actions = getInputBinding(INVENTORY_ACTIONS_BY_TYPE, itemType, INVENTORY_ACTIONS_BY_TYPE.default);
-    return Array.isArray(actions) ? [...actions] : [...INVENTORY_ACTIONS_BY_TYPE.default];
+    return [...getInputBinding(INVENTORY_ACTIONS_BY_TYPE, itemType)];
 }

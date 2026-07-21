@@ -19,30 +19,35 @@ Object.assign(Game.prototype, {
     },
 
     announceThrowHitResult(itemLabel, result) {
+        if (!result?.enemy?.name) {
+            this.ui.addMessage(`${itemLabel} shatters on impact.`);
+            return;
+        }
+
         this.ui.addMessage(`${itemLabel} hits ${result.enemy.name}.`);
         if (Number.isFinite(result?.x) && Number.isFinite(result?.y)) {
             this.ui.playHitPulseEffect?.(result.x, result.y, { targetSide: 'enemy' });
         }
-        if ((result.damage || 0) > 0) {
+        if ((result?.damage || 0) > 0) {
             this.ui.addMessage(`${result.enemy.name} takes ${result.damage} throw damage.`);
         }
-        if ((result.healing || 0) > 0) {
+        if ((result?.healing || 0) > 0) {
             this.ui.addMessage(`${result.enemy.name} recovers ${result.healing} health from the throw.`);
         }
         this.announceInflictedConditions(result.enemy.name, Array.isArray(result?.inflictedConditions) ? result.inflictedConditions : []);
-        if (result.tameSucceeded) {
+        if (result?.tameSucceeded) {
             this.ui.addMessage(`${result.enemy.name} has been tamed and is now your ally.`);
-        } else if (result.tameAttempted) {
+        } else if (result?.tameAttempted) {
             this.ui.addMessage(`${result.enemy.name} resists the taming attempt.`);
         }
-        if (result.switchedPositions) {
+        if (result?.switchedPositions) {
             this.ui.addMessage(`You switch places with ${result.enemy.name}.`);
         }
-        if ((result.pushedDistance || 0) > 0) {
+        if ((result?.pushedDistance || 0) > 0) {
             this.ui.addMessage(`${result.enemy.name} is pushed back ${result.pushedDistance} tile(s).`);
         }
         this.ui.addMessage(`${itemLabel} shatters on impact.`);
-        if (result.enemyDefeated) {
+        if (result?.enemyDefeated) {
             this.ui.addMessage(`${result.enemy.name} is defeated.`);
         }
     },
@@ -101,13 +106,13 @@ Object.assign(Game.prototype, {
         for (const drop of drops || []) {
             const dropName = typeof getItemName === 'function'
                 ? getItemName(drop)
-                : getItemLabel(drop.item, 'item');
+                : getItemLabel(drop.item);
             this.announceDropOutcome(drop, dropName, options);
         }
     },
 
-    announceSimpleDropList(drops, fallbackLabel = 'item') {
-        this.announceDropList(drops, (drop) => getItemLabel(drop.item, fallbackLabel));
+    announceSimpleDropList(drops) {
+        this.announceDropList(drops, (drop) => getItemLabel(drop.item));
     },
 
     announceActorItemDisposition(actorName, action, itemLabel, drop, options = {}) {
@@ -119,7 +124,7 @@ Object.assign(Game.prototype, {
     },
 
     announceActorDropList(actorName, action, drops, options = {}) {
-        this.announceDropList(drops, (drop) => getItemLabel(drop.item, 'item'), {
+        this.announceDropList(drops, (drop) => getItemLabel(drop.item), {
             actorName,
             action,
             ...options

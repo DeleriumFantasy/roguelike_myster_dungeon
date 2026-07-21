@@ -162,8 +162,8 @@ Object.assign(Player.prototype, {
         const minValue = Number(item?.properties?.valueMin);
         const maxValue = Number(item?.properties?.valueMax);
         if (Number.isFinite(minValue) || Number.isFinite(maxValue)) {
-            const fallbackValue = Number.isFinite(maxValue) ? maxValue : minValue;
-            return Math.max(1, Math.floor(fallbackValue));
+                const selectedValue = Number.isFinite(maxValue) ? maxValue : minValue;
+                return Math.max(1, Math.floor(selectedValue));
         }
 
         return 1;

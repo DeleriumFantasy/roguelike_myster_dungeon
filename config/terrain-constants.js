@@ -23,14 +23,8 @@ const TERRAIN_SPRITES = deepFreezeConfig({
     WATER_SHALLOW: { x: 5, y: 3 }
 });
 
-function getVisualConfigEntry(configMap, key, fallback = null) {
-    if (!configMap || typeof configMap !== 'object') {
-        return fallback;
-    }
-
-    return Object.prototype.hasOwnProperty.call(configMap, key)
-        ? configMap[key]
-        : fallback;
+function getVisualConfigEntry(configMap, key) {
+    return configMap[key];
 }
 
 function pickTerrainSprite(spriteKey) {
@@ -202,7 +196,10 @@ const SITUATIONED_SPRITESHEET_FAMILIES = deepFreezeConfig({
 
 const SITUATIONED_SPRITESHEET_FAMILY_BY_AREA_TYPE = deepFreezeConfig({
     [AREA_TYPES.OVERWORLD]: 'ancientFactory',
-    [AREA_TYPES.DUNGEON]: 'desert'
+    [AREA_TYPES.DUNGEON]: 'desert',
+    [AREA_TYPES.SWAMP]: 'desert',
+    [AREA_TYPES.FLOATING]: 'desert',
+    [AREA_TYPES.CATACOMBS]: 'desert'
 });
 
 
@@ -221,46 +218,32 @@ function cloneSpriteGridPosition(position) {
 }
 
 function getFamilyConfig(familyName) {
-    if (typeof familyName !== 'string') {
-        return null;
-    }
     return getVisualConfigEntry(SITUATIONED_SPRITESHEET_FAMILIES, familyName);
 }
 
 function getSituationedSpriteSheetFamilyAt(world) {
-    const areaType = typeof world?.getAreaType === 'function'
-        ? world.getAreaType(world.currentFloor)
-        : null;
-    const familyName = getVisualConfigEntry(SITUATIONED_SPRITESHEET_FAMILY_BY_AREA_TYPE, areaType, 'desert');
-    return getFamilyConfig(familyName) ? familyName : 'desert';
+    const areaType = world.getAreaType(world.currentFloor);
+    return getVisualConfigEntry(SITUATIONED_SPRITESHEET_FAMILY_BY_AREA_TYPE, areaType);
 }
 
 function getWallRuinSpriteSheetKeyAt(world) {
     const familyName = getSituationedSpriteSheetFamilyAt(world);
     const familyConfig = getFamilyConfig(familyName);
-    return familyConfig?.wallSheetKey || 'wallDesert';
+    return familyConfig.wallSheetKey;
 }
 
 function getGroundRuinSpriteSheetKeyAt(world) {
     const familyName = getSituationedSpriteSheetFamilyAt(world);
     const familyConfig = getFamilyConfig(familyName);
-    return familyConfig?.groundSheetKey || 'groundDesert';
+    return familyConfig.groundSheetKey;
 }
 
 function getSituationedSpriteSheetVariantCount(familyName, surfaceType, situationKey) {
     const familyConfig = getFamilyConfig(familyName);
-    if (!familyConfig) {
-        return 0;
-    }
-
     const variantCounts = surfaceType === 'ground'
-        ? (familyConfig.groundSituationVariantCounts || familyConfig.situationVariantCounts)
-        : (familyConfig.wallSituationVariantCounts || familyConfig.situationVariantCounts);
-    const configuredCount = getVisualConfigEntry(variantCounts, situationKey, 0);
-    if (!Number.isFinite(configuredCount)) {
-        return 0;
-    }
-
+        ? familyConfig.groundSituationVariantCounts
+        : familyConfig.wallSituationVariantCounts;
+    const configuredCount = getVisualConfigEntry(variantCounts, situationKey);
     return Math.max(0, Math.floor(configuredCount));
 }
 
@@ -275,9 +258,8 @@ function getGroundRuinSituationVariantCount(world, situationKey) {
 
 function getStableVariantSeed(surfaceType, situationKey, x, y) {
     const situationId = Number.parseInt(situationKey, 2);
-    const safeSituationId = Number.isFinite(situationId) ? situationId : 0;
     const typeSalt = surfaceType === 'ground' ? 0x27d4eb2f : 0x165667b1;
-    return ((x * 0x9e3779b1) ^ (y * 0x85ebca6b) ^ (safeSituationId * 0xc2b2ae35) ^ typeSalt) >>> 0;
+    return ((x * 0x9e3779b1) ^ (y * 0x85ebca6b) ^ (situationId * 0xc2b2ae35) ^ typeSalt) >>> 0;
 }
 
 function getStableVariantNormalized(surfaceType, situationKey, x, y) {
@@ -360,9 +342,7 @@ function getWallRuinVariantSprite(baseSprite, variantIndex) {
         return null;
     }
 
-    const safeVariantIndex = Number.isFinite(variantIndex)
-        ? Math.max(0, Math.floor(variantIndex))
-        : 0;
+    const safeVariantIndex = Math.max(0, Math.floor(variantIndex));
 
     return {
         x: baseSprite.x + safeVariantIndex * SITUATIONED_VARIANT_X_STEP,
@@ -390,9 +370,7 @@ function getGroundRuinVariantSprite(baseSprite, variantIndex) {
         return null;
     }
 
-    const safeVariantIndex = Number.isFinite(variantIndex)
-        ? Math.max(0, Math.floor(variantIndex))
-        : 0;
+    const safeVariantIndex = Math.max(0, Math.floor(variantIndex));
 
     return {
         x: baseSprite.x + safeVariantIndex * SITUATIONED_VARIANT_X_STEP,
@@ -450,10 +428,6 @@ function getGroundNeighborhood(world, x, y) {
 }
 
 function getNormalizedWallRuinNeighborhood(neighborhood) {
-    if (!neighborhood || typeof neighborhood !== 'object') {
-        return neighborhood;
-    }
-
     const top = Boolean(neighborhood.t);
     const right = Boolean(neighborhood.r);
     const bottom = Boolean(neighborhood.b);
@@ -496,7 +470,7 @@ function getWallRuinSpriteAt(world, x, y) {
         return exactSprite;
     }
 
-    return cloneSpriteGridPosition(getVisualConfigEntry(SITUATIONED_SPRITESHEET_SITUATIONS, 'default'));
+    return null;
 }
 
 function getGroundRuinSpriteAt(world, x, y) {
@@ -523,7 +497,7 @@ function getGroundRuinSpriteAt(world, x, y) {
         return exactSprite;
     }
 
-    return cloneSpriteGridPosition(getVisualConfigEntry(SITUATIONED_SPRITESHEET_SITUATIONS, 'default'));
+    return null;
 }
 
 const TERRAIN_SPRITESHEET_PATH = 'assets/terrain.png';
@@ -532,6 +506,15 @@ const TERRAIN_SPRITESHEET_TILE_SIZE = 16;
 const TERRAIN_SPRITESHEET_TILE_HEIGHT = 16;
 const TERRAIN_SPRITESHEET_SPACING = 0;
 const TERRAIN_SPRITESHEET_MARGIN = 0;
+
+const PLAYER_SPRITESHEET_PATH = 'assets/player.png';
+const PLAYER_SPRITESHEET_VERSION = '1';
+const PLAYER_SPRITESHEET_TILE_WIDTH = 76.8;
+const PLAYER_SPRITESHEET_TILE_HEIGHT = 20;
+const PLAYER_SPRITESHEET_COLUMNS = 5;
+const PLAYER_SPRITESHEET_ROWS = 8;
+const PLAYER_SPRITESHEET_SPACING = 0;
+const PLAYER_SPRITESHEET_MARGIN = 0;
 
 const ENTITY_VISUALS = deepFreezeConfig({
     player: { color: '#66d9ff', miniMapInset: 0 },
@@ -567,6 +550,35 @@ const UI_VISUALS = deepFreezeConfig({
     hitPulseNeutral: '#ffffff'
 });
 
+const MINIMAP_VISUALS = deepFreezeConfig({
+    viewportScale: 0.72,
+    minSize: 260,
+    maxSize: 460,
+    outerPadding: 10,
+    framePadding: 0,
+    visibleTileAlpha: 0.3,
+    exploredTileAlpha: 0.65,
+    walkedTileAlpha: 0.2,
+    tileColors: {
+        explored: 0x506783,
+        visible: 0xffff00,
+        walked: 0xffffff
+    },
+    markers: {
+        item: { color: 0xffff00, alpha: 0.95, scale: 0.7 },
+        enemy: { color: 0xff0000 },
+        trap: { color: 0xff0000, alpha: 0.95, lineWidth: 1.5, insetScale: 0.2, minInset: 0.5 },
+        ally: { color: 0x00ff00 },
+        player: { color: 0xffffff },
+        stairs: { color: 0xc77dff, alpha: 0.95, insetScale: 0.1, minInset: 0.5 }
+    },
+    walls: {
+        color: 0xffffff,
+        alpha: 0.75,
+        lineWidth: 1
+    }
+});
+
 const HEALTH_BAR_PALETTES = deepFreezeConfig({
     player: {
         background: UI_VISUALS.playerHealthBarBackground,
@@ -585,19 +597,11 @@ const HEALTH_BAR_PALETTES = deepFreezeConfig({
 });
 
 function getTileVisual(tileType) {
-    return getVisualConfigEntry(TILE_VISUALS, tileType, TILE_VISUALS[TILE_TYPES.FLOOR]);
+    return getVisualConfigEntry(TILE_VISUALS, tileType);
 }
 
-function getTileVisualAt(tileType, world = null, x = null, y = null) {
+function getTileVisualAt(tileType, world, x, y) {
     const baseVisual = getTileVisual(tileType);
-    if (
-        !world
-        || typeof world.getTile !== 'function'
-        || !Number.isFinite(x)
-        || !Number.isFinite(y)
-    ) {
-        return baseVisual;
-    }
 
     if (tileType === TILE_TYPES.WALL) {
         return {
@@ -628,7 +632,11 @@ function getEntityVisual(entityKind, entity = null) {
         }
     }
 
-    return getVisualConfigEntry(ENTITY_VISUALS, entityKind, ENTITY_VISUALS.enemy);
+    return getVisualConfigEntry(ENTITY_VISUALS, entityKind);
+}
+
+function getMinimapVisuals() {
+    return MINIMAP_VISUALS;
 }
 
 

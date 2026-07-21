@@ -64,7 +64,7 @@ function getAttackVarianceMultiplier(randomFn = Math.random) {
 }
 
 function calculateStandardAttackDamage(attackPower, randomFn = Math.random) {
-    const normalizedPower = Math.max(0, Number(attackPower) || 0);
+    const normalizedPower = Math.max(0, Number(attackPower));
     const variance = getAttackVarianceMultiplier(randomFn);
     return Math.max(1, Math.round(normalizedPower * variance) + 1);
 }

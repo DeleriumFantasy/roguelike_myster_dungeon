@@ -75,11 +75,11 @@ Object.assign(Game.prototype, {
         };
     },
 
-    pickQuestgiverNameFromPool(poolKey, rng, fallback = '') {
+    pickQuestgiverNameFromPool(poolKey, rng) {
         const entries = typeof getQuestgiverNamePoolEntries === 'function'
             ? getQuestgiverNamePoolEntries(poolKey)
             : [];
-        return pickRandom(entries, rng, entries[0] || fallback);
+        return pickRandom(entries, rng);
     },
 
     buildQuestgiverEscortExtraFields(config) {
@@ -94,7 +94,7 @@ Object.assign(Game.prototype, {
 
     buildQuestgiverRetrieveItemExtraFields(config, _entry, _targetFloor, rng) {
         return {
-            itemName: this.pickQuestgiverNameFromPool(config?.itemNamePoolKey, rng, 'Sealed relic')
+            itemName: this.pickQuestgiverNameFromPool(config?.itemNamePoolKey, rng)
         };
     },
 
@@ -104,10 +104,10 @@ Object.assign(Game.prototype, {
         const materialCount = getRngRandomInt(rng, materialCountMin, materialCountMax);
 
         return {
-            materialName: this.pickQuestgiverNameFromPool(config?.materialNamePoolKey, rng, 'Reinforcement crate'),
+            materialName: this.pickQuestgiverNameFromPool(config?.materialNamePoolKey, rng),
             materialCount,
             requiredCount: materialCount,
-            engineerName: this.pickQuestgiverNameFromPool(config?.engineerNamePoolKey, rng, 'Engineer Hale')
+            engineerName: this.pickQuestgiverNameFromPool(config?.engineerNamePoolKey, rng)
         };
     },
 
@@ -413,7 +413,7 @@ Object.assign(Game.prototype, {
         }
 
         this.consumeMaterialDeliveryQuestItems(quest);
-        this.clearQuestEventById?.(quest.id, 'material-delivery');
+        this.clearQuestEventById(quest.id, 'material-delivery');
 
         const questState = this.ensureQuestgiverState();
         if (questState.activeQuest?.id === quest.id) {
@@ -677,7 +677,7 @@ Object.assign(Game.prototype, {
             return null;
         }
 
-        this.removeEnemyFromCurrentFloor?.(matchingAlly);
+        this.removeEnemyFromCurrentFloor(matchingAlly);
         matchingAlly.untame?.();
         return matchingAlly;
     },
@@ -691,7 +691,7 @@ Object.assign(Game.prototype, {
         this.updateQuestgiverQuestDisplay(quest);
 
         if (options.eventType) {
-            this.clearQuestEventById?.(quest.id, options.eventType);
+            this.clearQuestEventById(quest.id, options.eventType);
         }
 
         if (options.removeEnemy) {
@@ -746,13 +746,13 @@ Object.assign(Game.prototype, {
                 if (retrievedItem) {
                     this.player.removeItem(retrievedItem);
                 }
-                this.clearQuestEventById?.(quest.id, 'retrieve-item');
+                this.clearQuestEventById(quest.id, 'retrieve-item');
                 break;
             }
 
             case 'material-delivery':
                 this.consumeMaterialDeliveryQuestItems(quest);
-                this.clearQuestEventById?.(quest.id, 'material-delivery');
+                this.clearQuestEventById(quest.id, 'material-delivery');
                 break;
 
             default:
@@ -770,7 +770,7 @@ Object.assign(Game.prototype, {
         this.player.money = Math.max(0, Math.floor(Number(this.player.money) || 0)) + Math.max(0, Math.floor(Number(quest.rewardMoney) || 0));
         const rewardItem = this.createNpcRewardEquipmentForTier(quest.rewardTier, createMathRng());
         if (rewardItem) {
-            const rewardResult = this.tryAddItemToPlayerInventory?.(rewardItem, { dropIfFull: true });
+            const rewardResult = this.tryAddItemToPlayerInventory(rewardItem, { dropIfFull: true });
             if (rewardResult?.added) {
                 this.ui.addMessage(`${enemy.name}: Excellent work. Take ${quest.rewardMoney} money and ${getItemLabel(rewardItem)}.`);
             } else {
@@ -833,7 +833,7 @@ Object.assign(Game.prototype, {
     },
 
     trackQuestProgressForFloorVisit(floorIndex) {
-        if (this.isOverworldFloor?.(floorIndex)) {
+        if (this.isOverworldFloor(floorIndex)) {
             return;
         }
 
@@ -869,7 +869,7 @@ Object.assign(Game.prototype, {
         }
 
         if (activeQuest?.type === 'save-lost-explorer' && enemy?.lostExplorerQuestId === activeQuest.id) {
-            this.clearQuestEventById?.(activeQuest.id, 'save-lost-explorer');
+            this.clearQuestEventById(activeQuest.id, 'save-lost-explorer');
             questState.activeQuest = null;
             this.ui.addMessage('The lost explorer has perished. The rescue task has failed.');
             return;
@@ -960,9 +960,7 @@ Object.assign(Game.prototype, {
     },
 
     getNpcItemChoiceDisplay(item) {
-        const label = typeof this.ui?.formatInventoryItemLabel === 'function'
-            ? this.ui.formatInventoryItemLabel(item)
-            : getItemLabel(item);
+        const label = this.ui.formatInventoryItemLabel(item);
         const typeLabel = String(item?.type || 'item');
         const prettyTypeLabel = typeLabel
             ? `${typeLabel.charAt(0).toUpperCase()}${typeLabel.slice(1)}`
@@ -1013,7 +1011,7 @@ Object.assign(Game.prototype, {
         const cancelMessage = typeof options.cancelMessage === 'string' ? options.cancelMessage : '';
         const hasCancelValue = Object.prototype.hasOwnProperty.call(options, 'cancelValue');
 
-        return this.ui?.openGamePrompt?.({
+        return this.ui.openGamePrompt({
             titleText,
             messageText: String(messageText || ''),
             buttons: normalizedButtons,
@@ -1039,11 +1037,11 @@ Object.assign(Game.prototype, {
                     this.ui.addMessage(`${titleText}: ${cancelMessage}`);
                 }
             }
-        }) || false;
+        });
     },
 
     openNpcConfirmDialog(enemy, message, onDecision = null, options = {}) {
-        return this.ui?.openConfirmPrompt?.(
+        return this.ui.openConfirmPrompt(
             this.getNpcPromptTitle(enemy),
             String(message || ''),
             onDecision,
@@ -1078,7 +1076,7 @@ Object.assign(Game.prototype, {
         });
         choices.push({ label: options.cancelLabel || 'Cancel', value: -1, cancel: true, listStyle: true });
 
-        return this.ui?.openChoicePrompt?.(
+        return this.ui.openChoicePrompt(
             titleText,
             String(header || 'Choose an option:'),
             choices,
@@ -1093,11 +1091,11 @@ Object.assign(Game.prototype, {
                     this.invokeNpcSelectionCallback(onSelect, null);
                 }
             }
-        ) || false;
+        );
     },
 
     openNpcNumericPrompt(enemy, message, defaultValue = 0, onSubmit = null, options = {}) {
-        return this.ui?.openTextPrompt?.(
+        return this.ui.openTextPrompt(
             this.getNpcPromptTitle(enemy),
             String(message || ''),
             String(defaultValue ?? ''),
@@ -1192,7 +1190,7 @@ Object.assign(Game.prototype, {
 
             this.player.removeAlly(selectedAlly);
             storedAllies.push(selectedAlly);
-            this.world.removeEnemy(selectedAlly);
+            this.world.removeActor(selectedAlly);
             this.ui.addMessage(`${enemy.name}: I'll keep ${selectedAlly.name} safe until you return.`);
         });
     },
@@ -1279,7 +1277,7 @@ Object.assign(Game.prototype, {
                 const foodTier = this.getFoodTierForNpcTrade(selectedFood);
                 const rewardItem = this.createNpcRewardEquipmentForTier(foodTier);
                 if (rewardItem) {
-                    const rewardResult = this.tryAddItemToPlayerInventory?.(rewardItem, { dropIfFull: true });
+                    const rewardResult = this.tryAddItemToPlayerInventory(rewardItem, { dropIfFull: true });
                     if (rewardResult?.added) {
                         this.ui.addMessage(`${enemy.name}: Thank you. Please take ${getItemLabel(rewardItem)}.`);
                     } else {
@@ -1413,9 +1411,7 @@ Object.assign(Game.prototype, {
             return () => this.interactWithMaterialEngineerNpc(enemy);
         }
 
-        const npcRole = typeof enemy?.npcRole === 'string' && enemy.npcRole.length > 0
-            ? enemy.npcRole
-            : (ENEMY_TEMPLATES?.[enemy?.monsterType]?.npcRole || '');
+        const npcRole = this.getNpcRole(enemy);
         const handlerName = NPC_INTERACTION_HANDLER_BY_ROLE[npcRole];
 
         return typeof handlerName === 'string' && typeof this[handlerName] === 'function'
@@ -1515,16 +1511,12 @@ Object.assign(Game.prototype, {
     },
 
     getActiveShopkeeper() {
-        const actors = typeof this.world?.getAllActors === 'function'
-            ? this.world.getAllActors()
-            : [...(this.world?.getEnemies?.() || []), ...(this.world?.getNpcs?.() || [])];
+        const actors = this.world.getAllActors();
         return actors.find((actor) => actor?.isShopkeeper && !actor?.shopkeeperHostileTriggered) || null;
     },
 
     getShopSettlementState(shopkeeper = null) {
-        const unpaidItems = typeof this.getUnpaidShopItems === 'function'
-            ? this.getUnpaidShopItems()
-            : (this.player.inventory || []).filter((item) => item?.properties?.shopUnpaid);
+        const unpaidItems = this.getUnpaidShopItems();
         const pendingSales = this.getPendingShopSaleEntries(shopkeeper);
         const buyTotal = unpaidItems.reduce((sum, item) => sum + this.getShopItemPrice(item), 0);
         const sellTotal = pendingSales.reduce((sum, entry) => sum + entry.price, 0);

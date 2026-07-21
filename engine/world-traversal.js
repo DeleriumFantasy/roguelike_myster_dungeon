@@ -111,13 +111,13 @@ Object.assign(World.prototype, {
             return false;
         }
 
-        const fallbackPos = this.findNearestOpenTileExcluding(originX, originY, excludeX, excludeY);
-        if (!fallbackPos) {
+        const nearestPos = this.findNearestOpenTileExcluding(originX, originY, excludeX, excludeY);
+        if (!nearestPos) {
             return false;
         }
 
-        actor.x = fallbackPos.x;
-        actor.y = fallbackPos.y;
+        actor.x = nearestPos.x;
+        actor.y = nearestPos.y;
         return true;
     },
 
@@ -130,7 +130,7 @@ Object.assign(World.prototype, {
 
         const moveDx = Number.isFinite(player.lastMoveDirection?.dx) ? player.lastMoveDirection.dx : player.facing?.dx;
         const moveDy = Number.isFinite(player.lastMoveDirection?.dy) ? player.lastMoveDirection.dy : player.facing?.dy;
-        const movementDirection = normalizeDirection(moveDx, moveDy, { dx: 0, dy: 0 });
+        const movementDirection = normalizeDirection(moveDx, moveDy);
         const hasDirection = movementDirection.dx !== 0 || movementDirection.dy !== 0;
         if (!hasDirection) {
             return false;
@@ -231,28 +231,20 @@ Object.assign(World.prototype, {
             return [];
         }
 
-        const queue = [{ x: startX, y: startY }];
-        const visited = new Set([toGridKey(startX, startY)]);
         const region = [];
 
-        while (queue.length > 0) {
-            const current = queue.shift();
-            region.push(current);
-
-            for (const neighbor of getCardinalNeighbors(current.x, current.y)) {
-                if (!this.isWithinBounds(neighbor.x, neighbor.y) || grid[neighbor.y][neighbor.x] !== TILE_TYPES.WATER) {
-                    continue;
+        this.runBreadthFirstSearch(
+            { x: startX, y: startY },
+            {
+                getNeighbors: (node) => getCardinalNeighbors(node.x, node.y),
+                getKey: (node) => toGridKey(node.x, node.y),
+                canVisit: (neighbor) => this.isWithinBounds(neighbor.x, neighbor.y) && grid[neighbor.y][neighbor.x] === TILE_TYPES.WATER,
+                onVisit: (current) => {
+                    region.push(current);
+                    return undefined;
                 }
-
-                const key = toGridKey(neighbor.x, neighbor.y);
-                if (visited.has(key)) {
-                    continue;
-                }
-
-                visited.add(key);
-                queue.push({ x: neighbor.x, y: neighbor.y });
             }
-        }
+        );
 
         return region;
     },
@@ -315,11 +307,11 @@ Object.assign(World.prototype, {
     pushAllyAwayFromPlayerCrossing(ally, allyX, allyY, pushDx, pushDy, player) {
         const candidatePositions = this.getAllyPushDestinationCandidates(allyX, allyY, pushDx, pushDy);
         for (const candidate of candidatePositions) {
-            if (!this.canEnemyOccupy(candidate.x, candidate.y, player, ally, ally)) {
+            if (!this.canActorOccupy(candidate.x, candidate.y, player, ally, ally)) {
                 continue;
             }
 
-            this.moveEnemy(ally, candidate.x, candidate.y);
+            this.moveActor(ally, candidate.x, candidate.y);
             return true;
         }
 

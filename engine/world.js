@@ -15,11 +15,11 @@ class World {
     }
 
     normalizePathId(pathId = this.selectedDungeonPathId) {
-        return normalizeStringValue(pathId, '');
+        return normalizeStringValue(pathId);
     }
 
     normalizeFloorIndex(floorIndex = this.currentFloor) {
-        return normalizeInteger(floorIndex, 0, 0);
+        return normalizeInteger(floorIndex, 0);
     }
 
     ensurePathFloorsStore() {
@@ -49,7 +49,7 @@ class World {
             pathSeedVersions[normalizedPathId] = 0;
         }
 
-        return normalizeInteger(pathSeedVersions[normalizedPathId], 0, 0);
+        return normalizeInteger(pathSeedVersions[normalizedPathId], 0);
     }
 
     getDungeonPathSeedOffset(pathId = this.selectedDungeonPathId) {
@@ -123,6 +123,42 @@ class World {
 
     getFloorGrid(floorIndex = this.currentFloor, pathId = this.selectedDungeonPathId) {
         return this.getFloorAt(floorIndex, pathId)?.grid || null;
+    }
+
+    getFloorArray(collectionName, floor = this.getCurrentFloor()) {
+        if (!floor) {
+            return [];
+        }
+
+        if (!Array.isArray(floor[collectionName])) {
+            floor[collectionName] = [];
+        }
+
+        return floor[collectionName];
+    }
+
+    getFloorMap(collectionName, floor = this.getCurrentFloor()) {
+        if (!floor) {
+            return new Map();
+        }
+
+        if (!(floor[collectionName] instanceof Map)) {
+            floor[collectionName] = new Map();
+        }
+
+        return floor[collectionName];
+    }
+
+    getFloorSet(collectionName, floor = this.getCurrentFloor()) {
+        if (!floor) {
+            return new Set();
+        }
+
+        if (!(floor[collectionName] instanceof Set)) {
+            floor[collectionName] = new Set();
+        }
+
+        return floor[collectionName];
     }
 
     getDisposalTiles() {
@@ -262,5 +298,57 @@ class World {
 
     findRandomFloorTile(rng, attempts = 200) {
         return this.findRandomTile(rng, attempts, (x, y) => this.getTile(x, y) === TILE_TYPES.FLOOR);
+    }
+
+    runBreadthFirstSearch(start, options = {}) {
+        if (!start || !Number.isFinite(start.x) || !Number.isFinite(start.y)) {
+            return { found: false, value: null, visited: new Set() };
+        }
+
+        const {
+            getKey = (node) => this.tileKey(node.x, node.y),
+            getNeighbors = () => [],
+            canVisit = null,
+            onVisit = null,
+            onEnqueue = null
+        } = options;
+
+        const queue = [{ x: start.x, y: start.y }];
+        let queueIndex = 0;
+        const visited = new Set([getKey(start)]);
+
+        while (queueIndex < queue.length) {
+            const current = queue[queueIndex++];
+            if (typeof onVisit === 'function') {
+                const visitResult = onVisit(current, { visited, queue, queueIndex });
+                if (visitResult !== undefined) {
+                    return { found: true, value: visitResult, visited };
+                }
+            }
+
+            const neighbors = getNeighbors(current);
+            for (const neighbor of neighbors || []) {
+                if (!neighbor || !Number.isFinite(neighbor.x) || !Number.isFinite(neighbor.y)) {
+                    continue;
+                }
+
+                const neighborKey = getKey(neighbor);
+                if (visited.has(neighborKey)) {
+                    continue;
+                }
+
+                if (typeof canVisit === 'function' && !canVisit(neighbor, current)) {
+                    continue;
+                }
+
+                visited.add(neighborKey);
+                if (typeof onEnqueue === 'function') {
+                    onEnqueue(neighbor, current, neighborKey);
+                }
+                queue.push(neighbor);
+            }
+        }
+
+        return { found: false, value: null, visited };
     }
 }

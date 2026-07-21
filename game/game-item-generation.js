@@ -54,11 +54,12 @@ Object.assign(Game.prototype, {
     },
 
     getItemSpawnCountForFloor(floorIndex, rng = null) {
-        const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
-        const countRange = typeof getItemSpawnCountRangeForDisplayFloor === 'function'
-            ? getItemSpawnCountRangeForDisplayFloor(displayFloor)
-            : { minCount: 1, maxCount: 2 };
-        const minCount = Math.max(1, Math.floor(Number(countRange?.minCount) || 1));
+        const areaType = this.world.getAreaType(floorIndex);
+        const dungeonPathId = this.world.getSelectedDungeonPathId();
+        const countRange = typeof getDungeonPathFloorItemSpawnCountRange === 'function'
+            ? getDungeonPathFloorItemSpawnCountRange(areaType, floorIndex, dungeonPathId)
+            : { minCount: 0, maxCount: 0 };
+        const minCount = Math.max(0, Math.floor(Number(countRange?.minCount) || 0));
         const maxCount = Math.max(minCount, Math.floor(Number(countRange?.maxCount) || minCount));
         return getRngRandomInt(rng, minCount, maxCount);
     },
@@ -131,7 +132,10 @@ Object.assign(Game.prototype, {
             }
             this.applySpawnImprovementRolls(item, rng);
             applyWorldEnchantmentRoll(item, rng);
-            return applyWorldCurseRoll(item, rng);
+            const cursedItemChance = this.getCursedItemChanceForFloor(floorIndex);
+            return cursedItemChance > 0
+                ? applyWorldCurseRoll(item, rng, cursedItemChance)
+                : item;
         }
 
         return null;
@@ -167,10 +171,24 @@ Object.assign(Game.prototype, {
         return this.computeMoneyValueForFloor(item, this.getDungeonDepthIndex(), null);
     },
 
+    getCursedItemChanceForFloor(floorIndex) {
+        const areaType = this.world.getAreaType(floorIndex);
+        const dungeonPathId = areaType !== AREA_TYPES.OVERWORLD
+            ? this.world.getSelectedDungeonPathId()
+            : '';
+
+        return typeof getDungeonPathFloorCursedItemChance === 'function'
+            ? getDungeonPathFloorCursedItemChance(areaType, floorIndex, dungeonPathId)
+            : 0.2;
+    },
+
     rollItemTierForFloor(floorIndex, rng) {
-        const displayFloor = clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 99);
-        const weightedTiers = typeof getItemTierWeightsForDisplayFloor === 'function'
-            ? getItemTierWeightsForDisplayFloor(displayFloor)
+        const areaType = this.world.getAreaType(floorIndex);
+        const dungeonPathId = areaType !== AREA_TYPES.OVERWORLD
+            ? this.world.getSelectedDungeonPathId()
+            : '';
+        const weightedTiers = typeof getDungeonPathFloorItemTierWeights === 'function'
+            ? getDungeonPathFloorItemTierWeights(areaType, floorIndex, dungeonPathId)
             : [{ tier: 1, weight: 1 }];
 
         const totalWeight = weightedTiers.reduce((sum, entry) => sum + Math.max(1, Math.floor(Number(entry?.weight) || 1)), 0);
@@ -182,8 +200,8 @@ Object.assign(Game.prototype, {
             }
         }
 
-        const fallbackEntry = weightedTiers[weightedTiers.length - 1];
-        return Math.max(1, Math.floor(Number(fallbackEntry?.tier) || 1));
+        const terminalEntry = weightedTiers[weightedTiers.length - 1];
+        return Math.max(1, Math.floor(Number(terminalEntry?.tier) || 1));
     },
 
     rollBoostedRewardTierForFloor(floorIndex, rng) {
@@ -222,14 +240,13 @@ Object.assign(Game.prototype, {
 
             this.applySpawnImprovementRolls(item, rng);
             applyWorldEnchantmentRoll(item, rng);
-            return applyWorldCurseRoll(item, rng);
+            const cursedItemChance = this.getCursedItemChanceForFloor(floorIndex);
+            return cursedItemChance > 0
+                ? applyWorldCurseRoll(item, rng, cursedItemChance)
+                : item;
         }
 
         return null;
-    },
-
-    seedPlayerInventory() {
-        return this.equipStartingCheaterLoadout();
     },
 
     equipStartingCheaterLoadout() {
@@ -240,6 +257,7 @@ Object.assign(Game.prototype, {
             { slot: ITEM_TYPES.ACCESSORY, item: createTieredItem('accessory', 0) }
         ];
         let equippedCount = 0;
+        const equipment = this.player?.equipment;
 
         for (const entry of cheaterItems) {
             const item = entry?.item;
@@ -247,19 +265,19 @@ Object.assign(Game.prototype, {
                 continue;
             }
 
-            const equippedItem = this.player?.equipment?.get?.(entry.slot) || null;
+            const equippedItem = equipment instanceof Map ? (equipment.get(entry.slot) || null) : null;
             if (equippedItem?.name && String(equippedItem.name).startsWith('Cheater ')) {
                 continue;
             }
 
-            if (this.player.equipItem(item)) {
+            if (typeof this.player?.equipItem === 'function' && this.player.equipItem(item)) {
                 equippedCount += 1;
             }
         }
 
         const hasWallBreakingWeapon = Boolean(
-            Array.from(this.player?.equipment?.values?.() || []).some((item) => item?.properties?.breaksWalls)
-            || (this.player?.inventory || []).some((item) => item?.properties?.breaksWalls)
+            this.getPlayerEquippedItems().some((item) => item?.properties?.breaksWalls)
+            || this.getPlayerInventoryItems().some((item) => item?.properties?.breaksWalls)
         );
         if (!hasWallBreakingWeapon && typeof this.player?.addItem === 'function') {
             const pickaxe = createItemFromDefinition({

@@ -29,9 +29,6 @@ class PixiSceneOverlay {
         this.textureCache = new Map();
         this.actorTextureCache = new Map();
         this.textStyleCache = new Map();
-        this.spritePool = [];
-        this.graphicsPool = [];
-        this.textPool = [];
         this.worldColorMatrixFilter = null;
         this.atmosphereBlurFilter = null;
         this.lightingBlurFilter = null;
@@ -45,56 +42,44 @@ class PixiSceneOverlay {
         this.initialize();
     }
 
-    initialize() {
-        const resolution = window.devicePixelRatio || 1;
-        this.app = new PIXI.Application({
-            width: window.innerWidth,
-            height: window.innerHeight,
-            backgroundAlpha: 1, // Opaque for debug
-            backgroundColor: 0x222244, // Visible color for debug
-            antialias: false,
-            autoDensity: true,
-            resolution
-        });
-
-        this.app.renderer.roundPixels = true;
-
-        // Make sure the canvas and host always fill the viewport
-        this.app.view.style.position = 'fixed';
-        this.app.view.style.top = '0';
-        this.app.view.style.left = '0';
-        this.app.view.style.width = '100vw';
-        this.app.view.style.height = '100vh';
-        this.app.view.style.zIndex = '2';
-
-        this.app.view.setAttribute('aria-hidden', 'true');
-        this.app.view.style.pointerEvents = 'none';
-        this.app.view.style.display = 'block';
-        this.app.view.style.width = '100%';
-        this.app.view.style.height = '100%';
-        // Ensure #pixi-overlay fills the parent
-        if (this.hostElement) {
-            this.hostElement.style.position = 'absolute';
-            this.hostElement.style.top = '0';
-            this.hostElement.style.left = '0';
-            this.hostElement.style.width = '100%';
-            this.hostElement.style.height = '100%';
-            this.hostElement.style.zIndex = '2';
+    applyCanvasStyles() {
+        if (!this.app?.view) {
+            return;
         }
 
-        // Add window resize event to always fill the window
+        const viewStyle = this.app.view.style;
+        viewStyle.position = 'fixed';
+        viewStyle.top = '0';
+        viewStyle.left = '0';
+        viewStyle.width = '100%';
+        viewStyle.height = '100%';
+        viewStyle.zIndex = '2';
+        viewStyle.pointerEvents = 'none';
+        viewStyle.display = 'block';
+        this.app.view.setAttribute('aria-hidden', 'true');
+    }
+
+    applyHostStyles() {
+        if (!this.hostElement) {
+            return;
+        }
+
+        const hostStyle = this.hostElement.style;
+        hostStyle.position = 'absolute';
+        hostStyle.top = '0';
+        hostStyle.left = '0';
+        hostStyle.width = '100%';
+        hostStyle.height = '100%';
+        hostStyle.zIndex = '2';
+    }
+
+    attachResizeHandler() {
         window.addEventListener('resize', () => {
-            // Always use the full viewport
-            const width = window.innerWidth;
-            const height = window.innerHeight;
-            this.resize(width, height);
+            this.resize(window.innerWidth, window.innerHeight);
         });
+    }
 
-        // Force initial resize
-        let width = window.innerWidth, height = window.innerHeight;
-        // Always use the full viewport
-        this.resize(width, height);
-
+    createSceneLayers() {
         this.scene = new PIXI.Container();
         this.worldLayer = new PIXI.Container();
         this.terrainLayer = new PIXI.Container();
@@ -111,7 +96,9 @@ class PixiSceneOverlay {
         this.minimapLayer = new PIXI.Container();
         this.minimapBackdrop = new PIXI.Graphics();
         this.minimapGraphics = new PIXI.Graphics();
+    }
 
+    appendSceneLayers() {
         this.worldLayer.addChild(this.terrainLayer);
         this.worldLayer.addChild(this.itemLayer);
         this.worldLayer.addChild(this.shadowLayer);
@@ -131,13 +118,40 @@ class PixiSceneOverlay {
         this.hostElement.appendChild(this.app.view);
     }
 
+    initialize() {
+        const resolution = window.devicePixelRatio;
+        this.app = new PIXI.Application({
+            width: window.innerWidth,
+            height: window.innerHeight,
+            backgroundAlpha: 1, // Opaque for debug
+            backgroundColor: 0x222244, // Visible color for debug
+            antialias: false,
+            autoDensity: true,
+            resolution,
+            autoStart: false,
+            sharedTicker: false
+        });
+
+        // Render only when the UI requests it; avoid a constant 60 FPS redraw loop.
+        this.app.stop();
+
+        this.app.renderer.roundPixels = true;
+
+        this.applyCanvasStyles();
+        this.applyHostStyles();
+        this.attachResizeHandler();
+        this.resize(window.innerWidth, window.innerHeight);
+        this.createSceneLayers();
+        this.appendSceneLayers();
+    }
+
     resize(width, height) {
         if (!this.enabled || !this.app) {
             return;
         }
 
-        const normalizedWidth = Math.max(1, Math.floor(Number(width) || 1));
-        const normalizedHeight = Math.max(1, Math.floor(Number(height) || 1));
+        const normalizedWidth = Math.max(1, Math.floor(Number(width)));
+        const normalizedHeight = Math.max(1, Math.floor(Number(height)));
         if (this.currentWidth === normalizedWidth && this.currentHeight === normalizedHeight) {
             return;
         }
@@ -165,47 +179,12 @@ class PixiSceneOverlay {
             return;
         }
 
-        if (child instanceof PIXI.Text) {
-            child.text = '';
-            child.visible = true;
-            child.alpha = 1;
-            child.rotation = 0;
-            child.scale?.set?.(1, 1);
-            child.anchor?.set?.(0, 0);
-            this.textPool.push(child);
-            return;
-        }
-
-        if (child instanceof PIXI.Sprite) {
-            child.texture = PIXI.Texture.EMPTY;
-            child.visible = true;
-            child.alpha = 1;
-            child.rotation = 0;
-            child.tint = 0xffffff;
-            child.width = 0;
-            child.height = 0;
-            child.scale?.set?.(1, 1);
-            child.anchor?.set?.(0, 0);
-            this.spritePool.push(child);
-            return;
-        }
-
-        if (child instanceof PIXI.Graphics) {
-            child.clear();
-            child.visible = true;
-            child.alpha = 1;
-            child.rotation = 0;
-            child.scale?.set?.(1, 1);
-            this.graphicsPool.push(child);
-            return;
-        }
-
         child.destroy?.({ children: true });
     }
 
     acquireSprite(texture = PIXI.Texture.EMPTY) {
-        const sprite = this.spritePool.pop() || new PIXI.Sprite(texture);
-        sprite.texture = texture || PIXI.Texture.EMPTY;
+        const sprite = new PIXI.Sprite(texture);
+        sprite.texture = texture;
         sprite.visible = true;
         sprite.alpha = 1;
         sprite.rotation = 0;
@@ -216,7 +195,7 @@ class PixiSceneOverlay {
     }
 
     acquireGraphics() {
-        const graphics = this.graphicsPool.pop() || new PIXI.Graphics();
+        const graphics = new PIXI.Graphics();
         graphics.clear();
         graphics.visible = true;
         graphics.alpha = 1;
@@ -226,9 +205,9 @@ class PixiSceneOverlay {
     }
 
     getTextStyle(styleKey, options = {}) {
-        let cacheKey = String(styleKey || 'text');
+        let cacheKey = String(styleKey);
         try {
-            cacheKey = `${cacheKey}:${JSON.stringify(options || {})}`;
+            cacheKey = `${cacheKey}:${JSON.stringify(options)}`;
         } catch (_error) {
             // Fall back to the plain key if the options object cannot be serialized.
         }
@@ -241,7 +220,7 @@ class PixiSceneOverlay {
     }
 
     acquireText(styleKey, options, text = '') {
-        const textNode = this.textPool.pop() || new PIXI.Text('', this.getTextStyle(styleKey, options));
+        const textNode = new PIXI.Text('', this.getTextStyle(styleKey, options));
         textNode.style = this.getTextStyle(styleKey, options);
         textNode.text = text;
         textNode.visible = true;
@@ -253,8 +232,7 @@ class PixiSceneOverlay {
     }
 
     render(ui, world, player, fov) {
-        // ...existing code...
-        if (!this.enabled || !this.app || !ui || !world || !player || !fov) {
+        if (!this.enabled || !this.app) {
             return;
         }
 
@@ -269,5 +247,8 @@ class PixiSceneOverlay {
         this.renderActorShadows(renderState);
         this.renderActors(renderState);
         this.renderTransientEffects(renderState);
+        this.renderMinimap(renderState);
+
+        this.app.render();
     }
 }

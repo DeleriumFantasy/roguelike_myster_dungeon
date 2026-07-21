@@ -1,34 +1,30 @@
 // Condition, hazard, and traversal rule helpers
 
 function getConditionRule(condition) {
-    return CONDITION_RULES[condition] || null;
+    return CONDITION_RULES[condition];
 }
 
 function getHazardDefinition(hazardType) {
-    return HAZARD_DEFINITIONS[hazardType] || null;
+    return HAZARD_DEFINITIONS[hazardType];
 }
 
 function getTileEffectRule(tileType) {
-    return TILE_EFFECT_RULES[tileType] || null;
+    return TILE_EFFECT_RULES[tileType];
 }
 
-function getConditionDuration(condition, fallback = 1) {
-    const configuredDuration = getConditionRule(condition)?.duration;
-    if (configuredDuration === Infinity || Number.isFinite(configuredDuration)) {
-        return configuredDuration;
-    }
-
-    return fallback;
+function getConditionDuration(condition, fallbackDuration = 0) {
+    const duration = Number(getConditionRule(condition)?.duration);
+    return Number.isFinite(duration) ? duration : fallbackDuration;
 }
 
-function getConditionTickDamage(condition, fallback = 0) {
-    const tickDamage = getConditionRule(condition)?.tickDamage;
-    return Number.isFinite(tickDamage) ? tickDamage : fallback;
+function getConditionTickDamage(condition, fallbackDamage = 0) {
+    const tickDamage = Number(getConditionRule(condition)?.tickDamage);
+    return Number.isFinite(tickDamage) ? tickDamage : fallbackDamage;
 }
 
-function getConditionTickHunger(condition, fallback = 0) {
-    const tickHunger = getConditionRule(condition)?.tickHunger;
-    return Number.isFinite(tickHunger) ? tickHunger : fallback;
+function getConditionTickHunger(condition, fallbackHunger = 0) {
+    const tickHunger = Number(getConditionRule(condition)?.tickHunger);
+    return Number.isFinite(tickHunger) ? tickHunger : fallbackHunger;
 }
 
 function shouldRemoveConditionOnFloorChange(condition) {
@@ -47,9 +43,9 @@ function conditionSurvivesFatalDamage(condition) {
     return Boolean(getConditionRule(condition)?.surviveFatalDamage);
 }
 
-function getConditionDamageMultiplier(condition, fallback = 1) {
-    const multiplier = getConditionRule(condition)?.damageMultiplier;
-    return Number.isFinite(multiplier) ? multiplier : fallback;
+function getConditionDamageMultiplier(condition, fallbackMultiplier = 1) {
+    const multiplier = Number(getConditionRule(condition)?.damageMultiplier);
+    return Number.isFinite(multiplier) ? multiplier : fallbackMultiplier;
 }
 
 function conditionPreventsPassiveHungerLoss(condition) {
@@ -58,26 +54,26 @@ function conditionPreventsPassiveHungerLoss(condition) {
 
 function getTrapDefinition(trapType) {
     const definition = getHazardDefinition(trapType);
-    return definition?.category === 'trap' ? definition : null;
+    return definition && definition.category === 'trap' ? definition : null;
 }
 
 function getTrapTypes() {
-    return Object.keys(HAZARD_DEFINITIONS).filter((hazardType) => getHazardDefinition(hazardType)?.category === 'trap');
+    return Object.keys(HAZARD_DEFINITIONS).filter((hazardType) => getHazardDefinition(hazardType).category === 'trap');
 }
 
 function getHazardEffectRule(hazardType) {
     const definition = getHazardDefinition(hazardType);
-    return definition?.category === 'effect' ? definition : null;
+    return definition && definition.category === 'effect' ? definition : null;
 }
 
-function getEnvironmentalDamageForTile(tileType, fallback = 0) {
-    const damage = getTileEffectRule(tileType)?.damage;
-    return Number.isFinite(damage) ? damage : fallback;
+function getEnvironmentalDamageForTile(tileType, fallbackDamage = 0) {
+    const rule = getTileEffectRule(tileType);
+    return Number.isFinite(rule?.damage) ? rule.damage : fallbackDamage;
 }
 
-function getEnvironmentalDamageForHazard(hazardType, fallback = 0) {
-    const damage = getHazardEffectRule(hazardType)?.damage;
-    return Number.isFinite(damage) ? damage : fallback;
+function getEnvironmentalDamageForHazard(hazardType, fallbackDamage = 0) {
+    const rule = getHazardEffectRule(hazardType);
+    return Number.isFinite(rule?.damage) ? rule.damage : fallbackDamage;
 }
 
 function doesTileBurnItems(tileType) {
@@ -94,8 +90,14 @@ function canEnemyTypeTraverseTile(tileType, enemyTypes = []) {
 }
 
 function isEnemyTypeImmuneToTileEffect(tileType, enemyTypes = []) {
-    const immuneTypes = getTileEffectRule(tileType)?.enemyImmuneTypes || [];
-    const traversalRequiredTypes = ENEMY_TILE_TRAVERSAL_RULES[tileType]?.requiredTypes || [];
+    const tileEffectRule = getTileEffectRule(tileType) || {};
+    const traversalRule = ENEMY_TILE_TRAVERSAL_RULES[tileType] || {};
+    const immuneTypes = Array.isArray(tileEffectRule.enemyImmuneTypes)
+        ? tileEffectRule.enemyImmuneTypes
+        : [];
+    const traversalRequiredTypes = Array.isArray(traversalRule.requiredTypes)
+        ? traversalRule.requiredTypes
+        : [];
     const combinedImmuneTypes = [...new Set([...immuneTypes, ...traversalRequiredTypes])];
     return combinedImmuneTypes.some((enemyType) => enemyTypes.includes(enemyType));
 }

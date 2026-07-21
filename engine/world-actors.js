@@ -1,36 +1,25 @@
 // World actor collections and occupancy helpers
 
 Object.assign(World.prototype, {
+    isActorAlive(actor) {
+        return Boolean(actor?.isAlive?.());
+    },
+
+    getLivingActors(actors) {
+        const actorList = Array.isArray(actors) ? actors : [];
+        return actorList.filter((actor) => this.isActorAlive(actor));
+    },
+
     getEnemyCollection(floor = this.getCurrentFloor()) {
-        if (!floor) {
-            return [];
-        }
-
-        if (!Array.isArray(floor.enemies)) {
-            floor.enemies = [];
-        }
-
-        return floor.enemies;
+        return this.getFloorArray('enemies', floor);
     },
 
     getNpcCollection(floor = this.getCurrentFloor()) {
-        if (!floor) {
-            return [];
-        }
-
-        if (!Array.isArray(floor.npcs)) {
-            floor.npcs = [];
-        }
-
-        return floor.npcs;
+        return this.getFloorArray('npcs', floor);
     },
 
     ensureEnemyOccupancyIndex(floor = this.getCurrentFloor()) {
-        if (!(floor.enemyOccupancy instanceof Map)) {
-            floor.enemyOccupancy = new Map();
-        }
-
-        return floor.enemyOccupancy;
+        return this.getFloorMap('enemyOccupancy', floor);
     },
 
     getEnemyOccupancyKey(x, y) {
@@ -38,7 +27,7 @@ Object.assign(World.prototype, {
     },
 
     indexEnemy(enemy, floor = this.getCurrentFloor()) {
-        if (!enemy || !enemy.isAlive?.()) {
+        if (!enemy || !this.isActorAlive(enemy)) {
             return;
         }
 
@@ -68,11 +57,7 @@ Object.assign(World.prototype, {
         const occupancy = this.ensureEnemyOccupancyIndex(floor);
         occupancy.clear();
 
-        for (const enemy of this.getEnemyCollection(floor)) {
-            if (!enemy?.isAlive?.()) {
-                continue;
-            }
-
+        for (const enemy of this.getLivingActors(this.getEnemyCollection(floor))) {
             const key = this.getEnemyOccupancyKey(enemy.x, enemy.y);
             occupancy.set(key, enemy);
             enemy._occupancyKey = key;
@@ -82,72 +67,73 @@ Object.assign(World.prototype, {
         return occupancy;
     },
 
-    moveEnemy(enemy, x, y) {
-        if (!enemy) {
+    moveActor(actor, x, y) {
+        if (!actor) {
             return false;
         }
 
         const floor = this.getCurrentFloor();
-        const isIndexedEnemy = this.getEnemyCollection(floor).includes(enemy);
+        const isIndexedEnemy = this.getEnemyCollection(floor).includes(actor);
         if (isIndexedEnemy) {
-            this.unindexEnemy(enemy, floor);
+            this.unindexEnemy(actor, floor);
         }
 
-        enemy.x = x;
-        enemy.y = y;
+        actor.x = x;
+        actor.y = y;
 
         if (isIndexedEnemy) {
-            this.indexEnemy(enemy, floor);
+            this.indexEnemy(actor, floor);
         }
 
         return true;
     },
 
-    addEnemy(enemy) {
-        const tile = this.getTile(enemy.x, enemy.y);
-        if (typeof enemy.canTraverseTile === 'function' && !enemy.canTraverseTile(tile)) {
+    addActor(actor) {
+        if (!actor) {
             return;
         }
 
-        if (typeof enemy.canTraverseTile !== 'function' && tile === TILE_TYPES.WALL) {
+        const tile = this.getTile(actor.x, actor.y);
+        if (typeof actor.canTraverseTile === 'function' && !actor.canTraverseTile(tile)) {
             return;
         }
 
-        if (this.getActorAt(enemy.x, enemy.y)) {
+        if (typeof actor.canTraverseTile !== 'function' && tile === TILE_TYPES.WALL) {
+            return;
+        }
+
+        if (this.getActorAt(actor.x, actor.y)) {
             return;
         }
 
         // Route NPCs to NPC collection, enemies to enemy collection
-        if (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc()) {
-            this.addNpc(enemy);
+        if (typeof actor.isNeutralNpc === 'function' && actor.isNeutralNpc()) {
+            this.addNpc(actor);
         } else {
-            this.getEnemyCollection().push(enemy);
-            this.indexEnemy(enemy);
+            this.getEnemyCollection().push(actor);
+            this.indexEnemy(actor);
+        }
+    },
+
+    removeActor(actor) {
+        const enemies = this.getEnemyCollection();
+        const index = enemies.indexOf(actor);
+        if (index > -1) {
+            this.unindexEnemy(actor);
+            enemies.splice(index, 1);
         }
     },
 
     removeEnemy(enemy) {
-        const enemies = this.getEnemyCollection();
-        const index = enemies.indexOf(enemy);
-        if (index > -1) {
-            this.unindexEnemy(enemy);
-            enemies.splice(index, 1);
-        }
+        this.removeActor(enemy);
     },
 
     getEnemies() {
         return this.getEnemyCollection();
     },
 
-    getHostileEnemies() {
-        const enemies = this.getEnemyCollection();
-        return enemies.filter((enemy) => enemy?.isAlive?.() && !enemy.isAlly);
-    },
-
-    getFriendlyActors() {
-        const allies = this.getEnemyCollection().filter((enemy) => enemy?.isAlive?.() && enemy.isAlly);
-        const npcs = this.getNpcCollection().filter((npc) => npc?.isAlive?.());
-        return [...allies, ...npcs];
+    getHostileActors() {
+        return this.getLivingActors(this.getEnemyCollection()).filter((enemy) => !enemy.isAlly);
     },
 
     addNpc(npc) {
@@ -179,7 +165,7 @@ Object.assign(World.prototype, {
         }
 
         for (const npc of this.getNpcCollection()) {
-            if (npc?.x === x && npc?.y === y && npc?.isAlive?.()) {
+            if (npc?.x === x && npc?.y === y && this.isActorAlive(npc)) {
                 return npc;
             }
         }
@@ -205,8 +191,9 @@ Object.assign(World.prototype, {
         }
 
         const enemy = occupancy.get(this.getEnemyOccupancyKey(x, y)) || null;
-        if (!enemy || enemy === excludeEnemy || !enemy.isAlive?.()) {
-            if (enemy && !enemy.isAlive?.()) {
+        const isAlive = this.isActorAlive(enemy);
+        if (!enemy || enemy === excludeEnemy || !isAlive) {
+            if (enemy && !isAlive) {
                 occupancy.delete(this.getEnemyOccupancyKey(x, y));
             }
             return null;
@@ -224,7 +211,7 @@ Object.assign(World.prototype, {
         return !this.getActorAt(x, y);
     },
 
-    canEnemyOccupy(x, y, player, enemy, candidateEnemy = null, options = {}) {
+    canActorOccupy(x, y, player, excludedActor, candidateActor = null, options = {}) {
         if (!this.isWithinBounds(x, y)) {
             return false;
         }
@@ -244,27 +231,27 @@ Object.assign(World.prototype, {
             }
         }
 
-        if (candidateEnemy && typeof candidateEnemy.canTraverseTile === 'function') {
+        if (candidateActor && typeof candidateActor.canTraverseTile === 'function') {
             const tile = this.getTile(x, y);
-            if (!candidateEnemy.canTraverseTile(tile)) {
+            if (!candidateActor.canTraverseTile(tile)) {
                 return false;
             }
         }
 
-        const enemyAtTile = this.getEnemyAt(x, y, enemy);
+        const enemyAtTile = this.getEnemyAt(x, y, excludedActor);
         if (enemyAtTile) {
             return false;
         }
 
         const npcAtTile = this.getNpcAt(x, y);
-        if (npcAtTile && npcAtTile !== enemy) {
+        if (npcAtTile && npcAtTile !== excludedActor) {
             return false;
         }
 
         return true;
     },
 
-    findRandomOpenTile(rng, player = null, attempts = 200, candidateEnemy = null, options = {}) {
-        return this.findRandomTile(rng, attempts, (x, y) => this.canEnemyOccupy(x, y, player, null, candidateEnemy, options));
+    findRandomOpenActorTile(rng, player = null, attempts = 200, candidateActor = null, options = {}) {
+        return this.findRandomTile(rng, attempts, (x, y) => this.canActorOccupy(x, y, player, null, candidateActor, options));
     }
 });

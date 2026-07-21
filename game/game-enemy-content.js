@@ -63,10 +63,6 @@ Object.assign(Game.prototype, {
         return secondQuestgiver;
     },
 
-    isBankerTypeKey(enemyTypeKey) {
-        return this.getEnemyTemplateMetadata(enemyTypeKey)?.npcRole === 'banker';
-    },
-
     isOverworldNpcTypeKey(enemyTypeKey) {
         const template = this.getEnemyTemplateMetadata(enemyTypeKey);
         return Array.isArray(template?.spawnContexts)
@@ -179,7 +175,7 @@ Object.assign(Game.prototype, {
             ) <= safeRadius);
 
         for (const enemy of enemiesToRemove) {
-            this.world.removeEnemy(enemy);
+            this.world.removeActor(enemy);
         }
 
         return enemiesToRemove.length;
@@ -206,7 +202,7 @@ Object.assign(Game.prototype, {
             }
 
             const enemy = this.createEnemyForType(0, 0, chosenEntry.key, floorIndex);
-            if (!this.world.canEnemyOccupy(x, y, this.player, null, enemy, {
+            if (!this.world.canActorOccupy(x, y, this.player, null, enemy, {
                 minDistanceFromPlayer: spawnSafetyRadius
             })) {
                 continue;
@@ -236,7 +232,7 @@ Object.assign(Game.prototype, {
                 continue;
             }
 
-            const spawn = this.world.findRandomOpenTile(rng, this.player, 200, npc, {
+            const spawn = this.world.findRandomOpenActorTile(rng, this.player, 200, npc, {
                 minDistanceFromPlayer: spawnSafetyRadius
             });
             if (!spawn) {
@@ -249,15 +245,19 @@ Object.assign(Game.prototype, {
     },
 
     getEnemySpawnCountForFloor(floorIndex) {
-        return typeof getEnemySpawnCountForDepth === 'function'
-            ? getEnemySpawnCountForDepth(floorIndex)
-            : clamp(4 + Math.floor(floorIndex / 2), 4, 12);
+        const areaType = this.world.getAreaType(floorIndex);
+        const dungeonPathId = this.world.getSelectedDungeonPathId();
+        return typeof getDungeonPathFloorEnemySpawnCount === 'function'
+            ? getDungeonPathFloorEnemySpawnCount(areaType, floorIndex, dungeonPathId)
+            : 0;
     },
 
     getDungeonNpcSpawnChanceForFloor(floorIndex) {
-        return typeof getDungeonNpcSpawnChanceForFloorIndex === 'function'
-            ? getDungeonNpcSpawnChanceForFloorIndex(floorIndex)
-            : 0.15;
+        const areaType = this.world.getAreaType(floorIndex);
+        const dungeonPathId = this.world.getSelectedDungeonPathId();
+        return typeof getDungeonPathFloorDungeonNpcSpawnChance === 'function'
+            ? getDungeonPathFloorDungeonNpcSpawnChance(areaType, floorIndex, dungeonPathId)
+            : 0;
     },
 
     shouldSpawnDungeonNpcForFloor(floorIndex, rng) {
@@ -279,7 +279,7 @@ Object.assign(Game.prototype, {
             const npcEntry = this.chooseWeightedEntry(rng, npcEntries);
             if (npcEntry) {
                 const npc = this.createEnemyForType(0, 0, npcEntry.key, floorIndex);
-                const npcSpawn = this.world.findRandomOpenTile(rng, this.player, 200, npc, {
+                const npcSpawn = this.world.findRandomOpenActorTile(rng, this.player, 200, npc, {
                     minDistanceFromPlayer: spawnSafetyRadius
                 });
                 if (npcSpawn) {
@@ -299,7 +299,7 @@ Object.assign(Game.prototype, {
 
             const enemyTypeKey = chosenEntry.key;
             const enemy = this.createEnemyForType(0, 0, enemyTypeKey, floorIndex);
-            const spawn = this.world.findRandomOpenTile(rng, this.player, 200, enemy, {
+            const spawn = this.world.findRandomOpenActorTile(rng, this.player, 200, enemy, {
                 minDistanceFromPlayer: spawnSafetyRadius
             });
             if (!spawn) {
@@ -320,13 +320,42 @@ Object.assign(Game.prototype, {
         })).filter((entry) => entry.weight > 0);
 
         const floorEntries = getWeightedEntriesForFloor(entries, floorIndex);
+        const areaType = this.world.getAreaType(floorIndex);
+        const dungeonPathId = this.world.getSelectedDungeonPathId();
+        const enemyTypeWeightMap = typeof getDungeonPathFloorEnemyTypeWeightMap === 'function'
+            ? getDungeonPathFloorEnemyTypeWeightMap(areaType, floorIndex, dungeonPathId)
+            : null;
+        const applyEnemyTypeWeights = (candidateEntries) => {
+            if (!enemyTypeWeightMap || !Array.isArray(candidateEntries)) {
+                return Array.isArray(candidateEntries) ? candidateEntries : [];
+            }
+
+            const weightedEntries = candidateEntries
+                .map((entry) => {
+                    const baseWeight = Math.max(0, Number(entry?.weight) || 0);
+                    const typeMultiplier = Number(enemyTypeWeightMap?.[entry?.key]);
+                    if (!Number.isFinite(typeMultiplier)) {
+                        return entry;
+                    }
+
+                    return {
+                        ...entry,
+                        weight: Math.max(0, baseWeight * Math.max(0, typeMultiplier))
+                    };
+                })
+                .filter((entry) => Number(entry?.weight) > 0);
+
+            return weightedEntries.length > 0 ? weightedEntries : candidateEntries;
+        };
+
         const isOverworld = this.world.getAreaType() === AREA_TYPES.OVERWORLD;
         if (isOverworld) {
-            return floorEntries.filter((entry) => !this.isDungeonNpcTypeKey(entry.key));
+            return applyEnemyTypeWeights(floorEntries.filter((entry) => !this.isDungeonNpcTypeKey(entry.key)));
         }
 
         const dungeonEntries = floorEntries.filter((entry) => !this.isOverworldNpcTypeKey(entry.key));
-        return this.applyEnemyFamilySpawnBalancing(dungeonEntries, floorIndex);
+        const weightedDungeonEntries = applyEnemyTypeWeights(dungeonEntries);
+        return this.applyEnemyFamilySpawnBalancing(weightedDungeonEntries, floorIndex);
     },
 
     createEnemyForType(x, y, enemyTypeKey, floorIndex = this.world.currentFloor) {
@@ -339,7 +368,7 @@ Object.assign(Game.prototype, {
     },
 
     assignInitialEnemyHeldItem(enemy) {
-        if (!enemy || typeof enemy.hasEnemyType !== 'function') {
+        if (!enemy) {
             return;
         }
 
@@ -347,7 +376,7 @@ Object.assign(Game.prototype, {
     },
 
     assignSlimeHeldDrop(enemy) {
-        if (!enemy || typeof enemy.hasEnemyType !== 'function' || !enemy.hasEnemyType(ENEMY_TYPES.SLIME)) {
+        if (!enemy || !enemy.hasEnemyType(ENEMY_TYPES.SLIME)) {
             return;
         }
 

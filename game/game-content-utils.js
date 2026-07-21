@@ -10,6 +10,11 @@ Object.assign(Game.prototype, {
         return Array.isArray(inventory) ? inventory : [];
     },
 
+    getPlayerEquippedItems() {
+        const equipment = this.player?.equipment;
+        return equipment instanceof Map ? Array.from(equipment.values()) : [];
+    },
+
     getPlayerAllies(options = {}) {
         const { aliveOnly = false, filter = null } = options;
         const allies = Array.isArray(this.player?.allies) ? this.player.allies : [];
@@ -79,12 +84,7 @@ Object.assign(Game.prototype, {
                 continue;
             }
 
-            const match = actors.find((actor) => {
-                const actorRole = typeof actor?.npcRole === 'string' && actor.npcRole.length > 0
-                    ? actor.npcRole
-                    : (ENEMY_TEMPLATES?.[actor?.monsterType]?.npcRole || '');
-                return actorRole === npcRole;
-            });
+            const match = actors.find((actor) => this.getNpcRole(actor) === npcRole);
             if (match) {
                 return match;
             }

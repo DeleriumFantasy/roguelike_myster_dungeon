@@ -74,11 +74,12 @@ function isValidPosition(x, y, grid) {
 
 function findNearestSafeTile(x, y, grid, floor) {
     const queue = [{ x, y }];
+    let queueIndex = 0;
     const visited = new Set();
     visited.add(toGridKey(x, y));
 
-    while (queue.length > 0) {
-        const current = queue.shift();
+    while (queueIndex < queue.length) {
+        const current = queue[queueIndex++];
         if (isSafeTile(current.x, current.y, grid)) {
             return { x: current.x, y: current.y };
         }

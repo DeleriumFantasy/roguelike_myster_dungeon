@@ -1,10 +1,6 @@
 // UI inventory helpers
 
 Object.assign(UI.prototype, {
-    refreshUiAfterInventoryMutation() {
-        this.renderCurrentGameState();
-    },
-
     addMessagesFromList(messages = []) {
         for (const message of Array.isArray(messages) ? messages : []) {
             if (typeof message === 'string' && message.length > 0) {
@@ -18,12 +14,12 @@ Object.assign(UI.prototype, {
             ? options.failureMessage
             : '';
 
-        if (outcome?.handled === false && failureMessage) {
+        if (outcome.handled === false && failureMessage) {
             this.addMessage(failureMessage);
         }
 
-        this.addMessagesFromList(outcome?.messages || []);
-        this.refreshUiAfterInventoryMutation();
+        this.addMessagesFromList(outcome.messages);
+        this.renderCurrentGameState();
 
         if (options.reopen !== false) {
             this.reopenInventoryForCurrentPlayer();
@@ -37,9 +33,7 @@ Object.assign(UI.prototype, {
         const div = document.createElement('div');
         div.className = 'inventory-item';
         div.textContent = text;
-        if (textColor) {
-            div.style.color = textColor;
-        }
+        div.style.color = '#fff';
         if (typeof onClick === 'function') {
             div.onclick = onClick;
         }
@@ -64,37 +58,29 @@ Object.assign(UI.prototype, {
             return;
         }
 
-        const isIdentified = typeof item.isIdentified === 'function' ? item.isIdentified() : true;
+        const isIdentified = item.isIdentified();
         if (!isIdentified) {
-            detailsContent.innerHTML = '<p>This item is unknown.</p>';
+            detailsContent.innerHTML = '';
             detailsPanel.style.display = 'block';
             this.updateInventoryItemDetailsPosition(event);
             return;
         }
 
-        const enchantments = typeof item.getVisibleEnchantmentNames === 'function'
-            ? item.getVisibleEnchantmentNames()
-            : [];
-        const slots = Number(item?.properties?.slots || 0);
-        const power = Number(item?.properties?.power || 0);
-        const armor = Number(item?.properties?.armor || 0);
-        const improvement = typeof item.getImprovementLevel === 'function'
-            ? item.getImprovementLevel()
-            : Number(item?.properties?.improvementLevel || 0);
-        const quantity = typeof item.getQuantity === 'function' ? item.getQuantity() : 1;
+        const enchantments = item.getVisibleEnchantmentNames();
+        const slots = Number(item.properties.slots);
+        const power = Number(item.properties.power);
+        const armor = Number(item.properties.armor);
+        const improvement = item.getImprovementLevel();
+        const quantity = item.getQuantity();
         const cursed = getItemCursedState(item);
-        const potType = typeof item?.getPotType === 'function' ? item.getPotType() : String(item?.properties?.potType || '');
-        const storedItems = typeof item?.getStoredItems === 'function' ? item.getStoredItems() : [];
-        const potCapacity = typeof item?.getPotCapacity === 'function'
-            ? item.getPotCapacity()
-            : Math.max(1, Math.floor(Number(item?.properties?.potCapacity) || 1));
-        const remainingPotSpace = typeof item?.getRemainingPotSpace === 'function'
-            ? item.getRemainingPotSpace()
-            : Math.max(0, potCapacity - storedItems.length);
+        const potType = item.getPotType();
+        const storedItems = item.getStoredItems();
+        const potCapacity = item.getPotCapacity();
+        const remainingPotSpace = item.getRemainingPotSpace();
 
         const lines = [
             `<p>Name: ${this.formatInventoryItemLabel(item)}</p>`,
-            `<p>Type: ${String(item?.type || 'unknown')}</p>`
+            `<p>Type: ${String(item.type)}</p>`
         ];
 
         if (Number.isFinite(power) && power !== 0) {
@@ -109,10 +95,10 @@ Object.assign(UI.prototype, {
         if (Number.isFinite(improvement) && improvement > 0) {
             lines.push(`<p>Improvement: +${Math.floor(improvement)}</p>`);
         }
-        if (item?.type === ITEM_TYPES.THROWABLE) {
-            lines.push(`<p>Quantity: ${Math.max(1, Math.floor(Number(quantity) || 1))}</p>`);
+        if (item.type === ITEM_TYPES.THROWABLE) {
+            lines.push(`<p>Quantity: ${Math.max(1, Math.floor(Number(quantity)))}</p>`);
         }
-        if (item?.type === ITEM_TYPES.POT) {
+        if (item.type === ITEM_TYPES.POT) {
             const prettyPotType = potType
                 ? `${potType.charAt(0).toUpperCase()}${potType.slice(1)}`
                 : 'Basic';
@@ -132,23 +118,23 @@ Object.assign(UI.prototype, {
         this.updateInventoryItemDetailsPosition(event);
     },
 
-    updateInventoryItemDetailsPosition(event = null) {
+    updateInventoryItemDetailsPosition(event = {}) {
         const { detailsPanel } = this.getInventoryDetailsElements();
         if (!detailsPanel || detailsPanel.style.display === 'none') {
             return;
         }
 
-        const panelWidth = detailsPanel.offsetWidth || 280;
-        const panelHeight = detailsPanel.offsetHeight || 180;
+        const panelWidth = detailsPanel.offsetWidth;
+        const panelHeight = detailsPanel.offsetHeight;
         const margin = 14;
 
-        let anchorX = Number(event?.clientX);
-        let anchorY = Number(event?.clientY);
+        let anchorX = Number(event.clientX);
+        let anchorY = Number(event.clientY);
 
         if (!Number.isFinite(anchorX) || !Number.isFinite(anchorY)) {
-            const modalRect = this.inventoryModal?.getBoundingClientRect?.();
-            anchorX = Number(modalRect?.right) || 24;
-            anchorY = Number(modalRect?.top) || 24;
+            const modalRect = this.inventoryModal.getBoundingClientRect();
+            anchorX = Number(modalRect.right);
+            anchorY = Number(modalRect.top);
         }
 
         let nextLeft = anchorX + margin;
@@ -181,37 +167,32 @@ Object.assign(UI.prototype, {
     },
 
     updateInventoryTitle(player) {
-        const title = this.inventoryModal?.querySelector('#inventory-title')
-            || this.inventoryModal?.querySelector('h3');
+        const title = this.inventoryModal.querySelector('#inventory-title');
         if (!title) {
             return;
         }
 
-        const itemCount = typeof player?.getInventoryItemCount === 'function'
-            ? player.getInventoryItemCount()
-            : this.getPlayerInventoryItems(player).length;
-        const maxItems = typeof player?.getMaxInventoryItems === 'function'
-            ? player.getMaxInventoryItems()
-            : 20;
+        const itemCount = player.getInventoryItemCount();
+        const maxItems = player.getMaxInventoryItems();
 
         title.textContent = `Inventory [${itemCount}/${maxItems}]`;
     },
 
     buildInventoryDisplayEntries(player) {
         const entries = [];
-        const equippedItems = typeof player?.getEquippedItems === 'function' ? player.getEquippedItems() : [];
+        const equippedItems = player.getEquippedItems();
         for (const [slot, item] of equippedItems) {
             entries.push({
                 displayName: `[E] ${this.formatInventoryItemLabel(item)}`,
                 onClick: () => this.handleEquippedItemClick(slot, item),
-                textColor: getItemTypeColor(item?.type),
+                textColor: getItemTypeColor(item.type),
                 item
             });
         }
 
         const allies = this.getPlayerAllies(player, { aliveOnly: true });
         for (const ally of allies) {
-            if (!ally?.isAlive?.() || typeof ally.equipment?.entries !== 'function') {
+            if (!ally.isAlive()) {
                 continue;
             }
 
@@ -219,7 +200,7 @@ Object.assign(UI.prototype, {
                 entries.push({
                     displayName: `[E - ${ally.name}] ${this.formatInventoryItemLabel(item)}`,
                     onClick: () => this.handleAllyEquippedItemClick(ally, slot, item),
-                    textColor: getItemTypeColor(item?.type),
+                    textColor: getItemTypeColor(item.type),
                     item
                 });
             }
@@ -230,7 +211,7 @@ Object.assign(UI.prototype, {
             entries.push({
                 displayName: this.formatInventoryItemLabel(item),
                 onClick: () => this.handleInventoryClick(item),
-                textColor: getItemTypeColor(item?.type),
+                textColor: getItemTypeColor(item.type),
                 item
             });
         }
@@ -298,8 +279,8 @@ Object.assign(UI.prototype, {
                     return leftRank - rightRank;
                 }
 
-                const leftName = String(getItemLabel(left.item) || '').toLowerCase();
-                const rightName = String(getItemLabel(right.item) || '').toLowerCase();
+                const leftName = String(getItemLabel(left.item)).toLowerCase();
+                const rightName = String(getItemLabel(right.item)).toLowerCase();
                 const byName = leftName.localeCompare(rightName);
                 if (byName !== 0) {
                     return byName;
@@ -311,7 +292,7 @@ Object.assign(UI.prototype, {
     },
 
     getInventorySortCategory(item) {
-        const type = item?.type;
+        const type = item.type;
         if (type === ITEM_TYPES.MONEY) {
             return 'money';
         }
@@ -335,19 +316,19 @@ Object.assign(UI.prototype, {
         }
 
         if (type === ITEM_TYPES.CONSUMABLE) {
-            if (Number.isFinite(item?.properties?.health)) {
+            if (Number.isFinite(item.properties.health)) {
                 return 'healing';
             }
-            if (Number.isFinite(item?.properties?.hunger)) {
+            if (Number.isFinite(item.properties.hunger)) {
                 return 'food';
             }
-            if (item?.properties?.condition) {
+            if (item.properties.condition) {
                 return 'statusconsumable';
             }
-            if (typeof item?.properties?.scrollEffect === 'string') {
+            if (typeof item.properties.scrollEffect === 'string') {
                 return 'statusconsumable';
             }
-            if (Array.isArray(item?.properties?.improvesItemTypes)) {
+            if (Array.isArray(item.properties.improvesItemTypes)) {
                 return 'statusconsumable';
             }
         }
@@ -397,11 +378,11 @@ Object.assign(UI.prototype, {
     },
 
     getActiveInventoryAllies() {
-        return this.getPlayerAllies(this.game?.player, { aliveOnly: true });
+        return this.getPlayerAllies(this.game.player, { aliveOnly: true });
     },
 
     runInventoryAction(choice, item, actionContext = {}) {
-        const itemLabel = actionContext.itemLabel || this.formatInventoryItemLabel(item);
+        const itemLabel = actionContext.itemLabel;
         const formatItemLabel = typeof actionContext.formatItemLabel === 'function'
             ? actionContext.formatItemLabel
             : (target) => this.formatInventoryItemLabel(target);
@@ -415,7 +396,7 @@ Object.assign(UI.prototype, {
                         formatItemLabel,
                         chooseTarget: (promptLabel, targets, promptOptions = {}) => {
                             const normalizedTargets = Array.isArray(targets)
-                                ? targets.filter((entry) => entry?.item)
+                                ? targets.filter((entry) => entry.item)
                                 : [];
 
                             if (selectedTarget !== undefined) {
@@ -443,9 +424,13 @@ Object.assign(UI.prototype, {
                         return;
                     }
 
-                    this.applyInventoryOutcome(useResult, {
+                    const appliedOutcome = this.applyInventoryOutcome(useResult, {
                         failureMessage: `Could not use ${itemLabel}`
                     });
+
+                    if (appliedOutcome.turnConsumed) {
+                        this.game.performTurn({ type: 'wait' });
+                    }
                 };
 
                 runUseSelection();
@@ -472,7 +457,7 @@ Object.assign(UI.prototype, {
 
                     const equipTarget = choice === 'player'
                         ? { kind: 'player' }
-                        : { kind: 'ally', ally: allies[Math.floor(Number(choice))] || null };
+                        : { kind: 'ally', ally: allies[Math.floor(Number(choice))] };
                     if (equipTarget.kind === 'ally' && !equipTarget.ally) {
                         this.addMessage('Invalid selection.');
                         this.reopenInventoryForCurrentPlayer();
@@ -532,7 +517,7 @@ Object.assign(UI.prototype, {
     },
 
     pluralizeItemLabel(label) {
-        const name = String(label || '').trim();
+        const name = String(label).trim();
         if (!name) {
             return name;
         }
@@ -550,12 +535,12 @@ Object.assign(UI.prototype, {
 
     formatInventoryItemLabel(item) {
         const baseLabel = getItemLabel(item);
-        const identified = typeof item.isIdentified === 'function' ? item.isIdentified() : true;
+        const identified = item.isIdentified();
         const cursed = getItemCursedState(item);
-        const quantity = typeof item.getQuantity === 'function' ? item.getQuantity() : 1;
+        const quantity = item.getQuantity();
 
         let label = baseLabel;
-        if (item?.type === ITEM_TYPES.THROWABLE && quantity > 1) {
+        if (item.type === ITEM_TYPES.THROWABLE && quantity > 1) {
             label = `${this.pluralizeItemLabel(baseLabel)} x${quantity}`;
         }
 
@@ -568,7 +553,7 @@ Object.assign(UI.prototype, {
 
     openInventoryTargetPrompt(itemLabel, targets, options = {}, onSelect = null) {
         const normalizedTargets = Array.isArray(targets)
-            ? targets.filter((entry) => entry?.item)
+            ? targets.filter((entry) => entry.item)
             : [];
         if (normalizedTargets.length === 0) {
             if (typeof onSelect === 'function') {
@@ -617,18 +602,18 @@ Object.assign(UI.prototype, {
 
 
     getAvailableInventoryActions(item) {
-        const configuredActions = Array.isArray(item?.properties?.inventoryActions)
+        const configuredActions = Array.isArray(item.properties.inventoryActions)
             ? item.properties.inventoryActions.filter((action) => ['use', 'equip', 'throw', 'drop'].includes(action))
             : null;
         const baseActions = (configuredActions && configuredActions.length > 0)
             ? configuredActions
-            : getInventoryActionsForItemType(item?.type);
+            : getInventoryActionsForItemType(item.type);
 
         return baseActions.filter((action) => {
-            if (action === 'use' && item?.properties?.useBlocked) {
+            if (action === 'use' && item.properties.useBlocked) {
                 return false;
             }
-            if (action === 'throw' && item?.properties?.throwBlocked) {
+            if (action === 'throw' && item.properties.throwBlocked) {
                 return false;
             }
             return true;

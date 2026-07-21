@@ -45,18 +45,18 @@ Object.assign(Enemy.prototype, {
         };
     },
 
-    getTierFromMonsterType(regex, fallbackTier = 1) {
+    getTierFromMonsterType(regex) {
         const match = String(this.monsterType || '').match(regex);
         const parsedTier = match ? Number(match[1]) : NaN;
-        return Number.isFinite(parsedTier) ? Math.max(1, parsedTier) : fallbackTier;
+        return Math.max(1, parsedTier);
     },
 
     getVandalTier() {
-        return this.getTierFromMonsterType(/vandalTier(\d+)/i, 1);
+        return this.getTierFromMonsterType(/vandalTier(\d+)/i);
     },
 
     getThiefTier() {
-        return this.getTierFromMonsterType(/thiefTier(\d+)/i, 1);
+        return this.getTierFromMonsterType(/thiefTier(\d+)/i);
     },
 
     getThiefStealConfig() {
@@ -84,7 +84,7 @@ Object.assign(Enemy.prototype, {
             const rng = createMathRng();
             const tile = world.findRandomTile(rng, maxAttempts, (x, y) => this.canOccupyTile(world, x, y, player, { avoidDamagingTiles }));
             if (tile) {
-                world.moveEnemy(this, tile.x, tile.y);
+                world.moveActor(this, tile.x, tile.y);
                 return true;
             }
             return false;
@@ -94,7 +94,7 @@ Object.assign(Enemy.prototype, {
             const x = randomInt(1, GRID_SIZE - 2);
             const y = randomInt(1, GRID_SIZE - 2);
             if (this.canOccupyTile(world, x, y, player, { avoidDamagingTiles })) {
-                world.moveEnemy(this, x, y);
+                world.moveActor(this, x, y);
                 return true;
             }
         }

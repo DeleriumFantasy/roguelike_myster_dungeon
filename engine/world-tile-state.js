@@ -1,30 +1,6 @@
 // World tile state, hazard state, and item placement helpers
 
 Object.assign(World.prototype, {
-    getFloorMap(collectionName, floor = this.getCurrentFloor()) {
-        if (!floor) {
-            return new Map();
-        }
-
-        if (!(floor[collectionName] instanceof Map)) {
-            floor[collectionName] = new Map();
-        }
-
-        return floor[collectionName];
-    },
-
-    getFloorSet(collectionName, floor = this.getCurrentFloor()) {
-        if (!floor) {
-            return new Set();
-        }
-
-        if (!(floor[collectionName] instanceof Set)) {
-            floor[collectionName] = new Set();
-        }
-
-        return floor[collectionName];
-    },
-
     getEnvironmentalDamageProfile(x, y) {
         const tile = this.getTile(x, y);
         const hazard = typeof this.getHazard === 'function' ? this.getHazard(x, y) : null;
@@ -128,9 +104,9 @@ Object.assign(World.prototype, {
     },
 
     isItemTileOccupied(x, y) {
-        const floor = this.getCurrentFloor();
+        const itemsByTile = this.getFloorMap('items');
         const key = this.tileKey(x, y);
-        const items = floor.items.get(key);
+        const items = itemsByTile.get(key);
         return Array.isArray(items) && items.length > 0;
     },
 
@@ -171,34 +147,25 @@ Object.assign(World.prototype, {
     },
 
     findNearestEmptyItemTile(x, y, item) {
-        const queue = [{ x, y }];
-        const visited = new Set([this.tileKey(x, y)]);
         const originOccupied = this.isItemTileOccupied(x, y);
+        const bfsResult = this.runBreadthFirstSearch(
+            { x, y },
+            {
+                getNeighbors: (node) => getNeighbors(node.x, node.y),
+                canVisit: (neighbor) => this.isWithinBounds(neighbor.x, neighbor.y),
+                onVisit: (current) => {
+                    const isOrigin = current.x === x && current.y === y;
+                    const allowCurrentTile = !(isOrigin && originOccupied);
+                    if (allowCurrentTile && this.canPlaceItemAt(current.x, current.y, item)) {
+                        return current;
+                    }
 
-        while (queue.length > 0) {
-            const current = queue.shift();
-            const isOrigin = current.x === x && current.y === y;
-            const allowCurrentTile = !(isOrigin && originOccupied);
-            if (allowCurrentTile && this.canPlaceItemAt(current.x, current.y, item)) {
-                return current;
-            }
-
-            for (const neighbor of getNeighbors(current.x, current.y)) {
-                if (!this.isWithinBounds(neighbor.x, neighbor.y)) {
-                    continue;
+                    return undefined;
                 }
-
-                const key = this.tileKey(neighbor.x, neighbor.y);
-                if (visited.has(key)) {
-                    continue;
-                }
-
-                visited.add(key);
-                queue.push(neighbor);
             }
-        }
+        );
 
-        return null;
+        return bfsResult.found ? bfsResult.value : null;
     },
 
     addItem(x, y, item) {
@@ -216,20 +183,20 @@ Object.assign(World.prototype, {
             return this.createItemPlacementResult({ placed: false, blocked: true });
         }
 
-        const floor = this.getCurrentFloor();
+        const itemsByTile = this.getFloorMap('items');
         const key = this.tileKey(target.x, target.y);
-        if (!floor.items.has(key)) {
-            floor.items.set(key, []);
+        if (!itemsByTile.has(key)) {
+            itemsByTile.set(key, []);
         }
 
-        floor.items.get(key).push(item);
+        itemsByTile.get(key).push(item);
         return this.createItemPlacementResult({ placed: true, x: target.x, y: target.y });
     },
 
     removeItem(x, y, item) {
-        const floor = this.getCurrentFloor();
+        const itemsByTile = this.getFloorMap('items');
         const key = this.tileKey(x, y);
-        const items = floor.items.get(key);
+        const items = itemsByTile.get(key);
         if (!items) {
             return;
         }
@@ -238,15 +205,15 @@ Object.assign(World.prototype, {
         if (index > -1) {
             items.splice(index, 1);
             if (items.length === 0) {
-                floor.items.delete(key);
+                itemsByTile.delete(key);
             }
         }
     },
 
     getItems(x, y) {
-        const floor = this.getCurrentFloor();
+        const itemsByTile = this.getFloorMap('items');
         const key = this.tileKey(x, y);
-        return floor.items.get(key) || [];
+        return itemsByTile.get(key) || [];
     },
 
     canSpawnItemAt(x, y, player = null) {
@@ -274,28 +241,29 @@ Object.assign(World.prototype, {
     advanceHazards() {
         const activatedSteam = [];
         const floor = this.getCurrentFloor();
+        const hazards = this.getFloorMap('hazards', floor);
         const steamRule = getHazardEffectRule(HAZARD_TYPES.STEAM);
 
         for (let y = 0; y < GRID_SIZE; y++) {
             for (let x = 0; x < GRID_SIZE; x++) {
                 const tile = floor.grid[y][x];
                 const key = this.tileKey(x, y);
-                const existingHazard = floor.hazards.get(key);
+                const existingHazard = hazards.get(key);
 
                 if (tile !== steamRule?.spawnTile) {
-                    floor.hazards.delete(key);
+                    hazards.delete(key);
                     continue;
                 }
 
                 if (existingHazard === HAZARD_TYPES.STEAM) {
                     if (Math.random() < (steamRule?.dissipateChance ?? 0)) {
-                        floor.hazards.delete(key);
+                        hazards.delete(key);
                     }
                     continue;
                 }
 
                 if (Math.random() < (steamRule?.activationChance ?? 0)) {
-                    floor.hazards.set(key, HAZARD_TYPES.STEAM);
+                    hazards.set(key, HAZARD_TYPES.STEAM);
                     activatedSteam.push(key);
                 }
             }

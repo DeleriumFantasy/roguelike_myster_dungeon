@@ -80,10 +80,10 @@ Object.assign(Game.prototype, {
                 continue;
             }
 
-            const fallbackResult = this.world.addItem(this.player.x, this.player.y, item);
-            if (fallbackResult?.burned) {
+            const playerTileResult = this.world.addItem(this.player.x, this.player.y, item);
+            if (playerTileResult?.burned) {
                 dropped.push({ item, x: this.player.x, y: this.player.y, burned: true });
-            } else if (fallbackResult?.placed) {
+            } else if (playerTileResult?.placed) {
                 dropped.push({ item, x: this.player.x, y: this.player.y, burned: false });
             }
         }
@@ -251,7 +251,7 @@ Object.assign(Game.prototype, {
         const enemyX = enemy.x;
         const enemyY = enemy.y;
 
-        this.world.moveEnemy(enemy, playerX, playerY);
+        this.world.moveActor(enemy, playerX, playerY);
         this.player.x = enemyX;
         this.player.y = enemyY;
         return true;
@@ -272,10 +272,8 @@ Object.assign(Game.prototype, {
     },
 
     resolveThrowAgainstFuser(enemy, item, x, y) {
-        if (typeof enemy.canSwallowThrownItems === 'function' && enemy.canSwallowThrownItems()) {
-            const swallowResult = typeof enemy.swallowThrownItem === 'function'
-                ? enemy.swallowThrownItem(item)
-                : null;
+        if (enemy.canSwallowThrownItems()) {
+            const swallowResult = enemy.swallowThrownItem(item);
 
             if (swallowResult) {
                 const ejectedItems = Array.isArray(swallowResult.ejectedItems)
@@ -334,8 +332,8 @@ Object.assign(Game.prototype, {
             type: 'hit',
             enemy,
             enemyDefeated,
-            damage: throwImpact.damage || 0,
-            healing: throwImpact.healing || 0,
+            damage: throwImpact?.damage || 0,
+            healing: throwImpact?.healing || 0,
             inflictedConditions: Array.isArray(throwImpact?.inflictedConditions)
                 ? throwImpact.inflictedConditions
                 : [],
@@ -354,7 +352,7 @@ Object.assign(Game.prototype, {
             return this.createPotShatterResult(item, x, y, enemy);
         }
 
-        const isFuser = typeof enemy.hasEnemyType === 'function' && enemy.hasEnemyType(ENEMY_TYPES.FUSER);
+        const isFuser = enemy.hasEnemyType(ENEMY_TYPES.FUSER);
         if (isFuser) {
             return this.resolveThrowAgainstFuser(enemy, item, x, y);
         }
@@ -425,8 +423,8 @@ Object.assign(Game.prototype, {
             outcome: 'hit-player',
             item,
             target: this.player,
-            damage: throwImpact.damage || 0,
-            healing: throwImpact.healing || 0,
+            damage: throwImpact?.damage || 0,
+            healing: throwImpact?.healing || 0,
             x,
             y
         };
@@ -456,8 +454,8 @@ Object.assign(Game.prototype, {
             item,
             target: targetEnemy,
             targetDefeated,
-            damage: throwImpact.damage || 0,
-            healing: throwImpact.healing || 0,
+            damage: throwImpact?.damage || 0,
+            healing: throwImpact?.healing || 0,
             x,
             y
         };
@@ -556,11 +554,11 @@ Object.assign(Game.prototype, {
             };
         }
 
-        const fallbackDrops = this.dropItemsNearEnemy(enemy, [item]);
+        const droppedItems = this.dropItemsNearEnemy(enemy, [item]);
         return {
-            type: 'fallback-drop',
+            type: 'item-drop',
             item,
-            drop: fallbackDrops[0] || null
+            drop: droppedItems[0] || null
         };
     },
 
@@ -601,7 +599,7 @@ Object.assign(Game.prototype, {
 
             const added = this.player.addItem(item);
             if (!added) {
-                this.ui?.addMessage?.(`Inventory is full. ${getItemLabel(item)} stays on the ground.`);
+                this.ui.addMessage(`Inventory is full. ${getItemLabel(item)} stays on the ground.`);
                 continue;
             }
 

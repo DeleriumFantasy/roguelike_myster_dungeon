@@ -1,5 +1,51 @@
-// Item creation and transformation helpers
 
+// =============================
+// Item Factories and Helpers
+// =============================
+
+// --- Runtime Guard: Ensure item-data.js is loaded ---
+if (typeof TIERED_ITEM_DEFINITIONS === 'undefined') {
+    throw new Error('TIERED_ITEM_DEFINITIONS is not defined. Ensure item-data.js is loaded before item-factories.js in index.html.');
+}
+
+// --- Staff Factory ---
+function createStaff(staffType, charges) {
+    const requestedEffect = staffType === 'teleport'
+        ? 'blink'
+        : (staffType === 'switch' ? 'switch' : '');
+    if (!requestedEffect) {
+        return null;
+    }
+
+    const staffTierOneDefinitions = normalizeTierDefinitions(TIERED_ITEM_DEFINITIONS.staff?.[1]);
+    const baseDefinition = staffTierOneDefinitions.find((definition) => definition?.properties?.staffEffect === requestedEffect);
+    if (!baseDefinition) {
+        return null;
+    }
+
+    const nextCharges = Number(charges);
+    const normalizedCharges = Number.isFinite(nextCharges) && nextCharges > 0
+        ? Math.max(1, Math.floor(nextCharges))
+        : null;
+    const definition = {
+        name: baseDefinition.name,
+        type: baseDefinition.type,
+        properties: {
+            ...(baseDefinition.properties || {})
+        }
+    };
+
+    if (normalizedCharges !== null) {
+        definition.properties.charges = normalizedCharges;
+        definition.properties.maxCharges = normalizedCharges;
+    }
+
+    return createItemFromDefinition(definition);
+}
+
+// --- Item Creation and Transformation Helpers ---
+
+// Apply spawn improvements to equipment items
 function applyConfiguredSpawnImprovements(item, rng = null) {
     if (!item || !item.properties) {
         return item;
@@ -42,6 +88,7 @@ function applyConfiguredSpawnImprovements(item, rng = null) {
     return item;
 }
 
+// Apply randomized pot capacity if not set
 function applyConfiguredPotCapacity(item, rng = null) {
     if (!item?.isPotItem?.()) {
         return item;
@@ -66,6 +113,7 @@ function applyConfiguredPotCapacity(item, rng = null) {
     return item;
 }
 
+// Create an item from a definition object
 function createItemFromDefinition(definition, rng = null) {
     if (!definition) {
         return null;
@@ -76,6 +124,7 @@ function createItemFromDefinition(definition, rng = null) {
     return applyConfiguredSpawnImprovements(item, rng);
 }
 
+// Find the tier/category match for an item
 function getTieredItemMatch(item) {
     if (!item) {
         return null;
@@ -142,6 +191,7 @@ function getTieredItemMatch(item) {
     return null;
 }
 
+// Copy persistent state (enchantments, curse, knowledge, etc.) between items
 function copyItemPersistentState(sourceItem, targetItem, options = {}) {
     if (!sourceItem || !targetItem) {
         return targetItem;
@@ -202,6 +252,7 @@ function copyItemPersistentState(sourceItem, targetItem, options = {}) {
     return targetItem;
 }
 
+// Check if an item has a specific enchantment
 function itemHasEnchantment(item, enchantmentId) {
     if (!item || typeof enchantmentId !== 'string' || enchantmentId.length === 0) {
         return false;
@@ -215,6 +266,7 @@ function itemHasEnchantment(item, enchantmentId) {
         && item.properties.enchantments.includes(enchantmentId);
 }
 
+// Create a lower-tier version of an item, preserving state
 function createLowerTierVersionOfItem(item) {
     const match = getTieredItemMatch(item);
     if (!match) {
@@ -242,6 +294,7 @@ function createLowerTierVersionOfItem(item) {
     });
 }
 
+// Create a bitter seeds item, optionally copying knowledge state
 function createBitterSeedsItemFrom(sourceItem = null) {
     const bitterSeeds = createTieredItem('food', 1);
     if (!bitterSeeds) {
@@ -255,6 +308,7 @@ function createBitterSeedsItemFrom(sourceItem = null) {
     return bitterSeeds;
 }
 
+// Estimate item tier from value
 function estimateItemTierFromValue(value) {
     const numericValue = Math.max(0, Math.floor(Number(value) || 0));
     if (numericValue >= 45) {
@@ -269,6 +323,7 @@ function estimateItemTierFromValue(value) {
     return 1;
 }
 
+// Choose a weighted entry from a list
 function chooseWeightedItemEntry(entries, rng = null) {
     const validEntries = Array.isArray(entries)
         ? entries.filter((entry) => Number(entry?.weight) > 0 && typeof entry?.create === 'function')
@@ -293,6 +348,7 @@ function chooseWeightedItemEntry(entries, rng = null) {
     return validEntries[validEntries.length - 1] || null;
 }
 
+// Create a money item with a specific value
 function createMoneyItemWithValue(value) {
     const moneyItem = createTieredItem('money', 1);
     if (!moneyItem) {
@@ -304,6 +360,7 @@ function createMoneyItemWithValue(value) {
     return moneyItem;
 }
 
+// Create a food item as a pot result
 function createFoodPotResultItem(sourceItem = null, rng = null) {
     const match = getTieredItemMatch(sourceItem);
     const tier = Number.isFinite(Number(match?.tier))
@@ -313,6 +370,7 @@ function createFoodPotResultItem(sourceItem = null, rng = null) {
     return createTieredItem('food', tier, rng) || createBitterSeedsItemFrom(sourceItem);
 }
 
+// Create a randomized item as a pot result
 function createRandomizedPotResultItem(sourceItem = null, rng = null, floorIndex = 0) {
     const match = getTieredItemMatch(sourceItem);
     if (match && getRngRoll(rng) < 0.65) {
@@ -335,10 +393,10 @@ function createRandomizedPotResultItem(sourceItem = null, rng = null, floorIndex
         }
     }
 
-    const fallbackTier = match
+    const targetTier = match
         ? clamp(Math.floor(Number(match.tier) || 1), 1, 4)
         : clamp(Math.floor(Number(floorIndex) || 0) + 1, 1, 4);
-    const weightedEntries = getWeightedItemEntriesForTier(fallbackTier)
+    const weightedEntries = getWeightedItemEntriesForTier(targetTier)
         .filter((entry) => entry?.category !== 'money');
 
     for (let attempt = 0; attempt < 12; attempt++) {
@@ -355,14 +413,15 @@ function createRandomizedPotResultItem(sourceItem = null, rng = null, floorIndex
         return transformedItem;
     }
 
-    const fallbackItem = createTieredItem('food', fallbackTier, rng);
-    if (sourceItem?.type === ITEM_TYPES.THROWABLE && fallbackItem?.type === ITEM_TYPES.THROWABLE) {
-        fallbackItem.setQuantity?.(sourceItem.getQuantity?.() || 1);
+    const transformedItem = createTieredItem('food', targetTier, rng);
+    if (sourceItem?.type === ITEM_TYPES.THROWABLE && transformedItem?.type === ITEM_TYPES.THROWABLE) {
+        transformedItem.setQuantity?.(sourceItem.getQuantity?.() || 1);
     }
 
-    return fallbackItem;
+    return transformedItem;
 }
 
+// Transform an item for a pot result
 function transformItemForPot(sourceItem, potItem, options = {}) {
     if (!sourceItem || !potItem) {
         return sourceItem || null;
@@ -391,11 +450,13 @@ function transformItemForPot(sourceItem, potItem, options = {}) {
     return sourceItem;
 }
 
+// Check if an item is restricted to enemy drops
 function isEnemyDropRestrictedItem(item) {
     const restrictedTypes = item?.properties?.dropOnlyEnemyTypes;
     return Array.isArray(restrictedTypes) && restrictedTypes.length > 0;
 }
 
+// Check if an enemy can drop a specific item
 function canEnemyDropItem(item, enemy) {
     if (!isEnemyDropRestrictedItem(item)) {
         return true;
@@ -408,6 +469,7 @@ function canEnemyDropItem(item, enemy) {
     return item.properties.dropOnlyEnemyTypes.some((enemyType) => enemy.hasEnemyType(enemyType));
 }
 
+// Create a tiered item by category and tier
 function createTieredItem(category, tier, rng = null) {
     let definition = TIERED_ITEM_DEFINITIONS[category]?.[tier] || null;
     if (Array.isArray(definition)) {
@@ -416,6 +478,7 @@ function createTieredItem(category, tier, rng = null) {
     return createItemFromDefinition(definition, rng);
 }
 
+// Create a status consumable item for a condition
 function createStatusConsumable(condition) {
     const definitions = getStatusConsumableDefinitions();
     const normalizedCondition = normalizeConditionKey(condition);
@@ -441,6 +504,7 @@ function createStatusConsumable(condition) {
     }, null);
 }
 
+// Get weighted item entries for a tier
 function getWeightedItemEntriesForTier(tier) {
     const normalizedTier = clamp(tier, 1, 4);
     const entries = ITEM_SPAWN_POOL_BY_TIER[normalizedTier] || ITEM_SPAWN_POOL_BY_TIER[1];
@@ -453,63 +517,7 @@ function getWeightedItemEntriesForTier(tier) {
     }));
 }
 
-function createAllStatusConsumables() {
-    const conditions = [...new Set(getStatusConsumableDefinitions().map((definition) => definition.properties.condition))];
-    return conditions
-        .map((condition) => createStatusConsumable(condition))
-        .filter((item) => Boolean(item));
-}
-
-function createAllImprovementScrolls() {
-    const improvementScrollDefinitions = normalizeTierDefinitions(TIERED_ITEM_DEFINITIONS.scroll?.[4])
-        .filter((definition) => Array.isArray(definition?.properties?.improvesItemTypes));
-    return improvementScrollDefinitions
-        .map((definition) => createItemFromDefinition(definition))
-        .filter((item) => Boolean(item));
-}
-
-function createAllTieredItems() {
-    const items = [];
-
-    for (const tierDefinitions of Object.values(TIERED_ITEM_DEFINITIONS || {})) {
-        const orderedTierKeys = Object.keys(tierDefinitions || {})
-            .map((tierKey) => Number(tierKey))
-            .filter((tier) => Number.isFinite(tier))
-            .sort((left, right) => right - left);
-
-        for (const tier of orderedTierKeys) {
-            const tierDefinition = tierDefinitions[tier];
-            for (const definition of normalizeTierDefinitions(tierDefinition)) {
-                if (!definition) {
-                    continue;
-                }
-
-                const item = createItemFromDefinition(definition);
-                if (item) {
-                    items.push(item);
-                }
-            }
-        }
-    }
-
-    return items;
-}
-
-/**
- * Creates a set of starter items, one for each category, all at tier 1.
- */
-function createTieredStarterItems() {
-    return [
-        createTieredItem('healing', 1),
-        createTieredItem('food', 1),
-        createTieredItem('throwable', 1),
-        createTieredItem('weapon', 1),
-        createTieredItem('shield', 1),
-        createTieredItem('armor', 1),
-        createTieredItem('accessory', 1)
-    ];
-}
-
+// Check if an item can be cursed
 function canItemBeCursed(item) {
     if (!item) return false;
     return item.type === ITEM_TYPES.WEAPON ||
@@ -518,6 +526,7 @@ function canItemBeCursed(item) {
         item.type === ITEM_TYPES.ACCESSORY;
 }
 
+// Prepare an equipment item for rolling (placeholder for future logic)
 function prepareRollableEquipmentItem(item) {
     if (!item || !canItemBeCursed(item)) {
         return null;

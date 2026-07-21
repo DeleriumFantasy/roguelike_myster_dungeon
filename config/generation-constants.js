@@ -17,22 +17,6 @@ const CATACOMBS_GENERATION_CONFIG = deepFreezeConfig({
     hallwayHazardTiles: [TILE_TYPES.LAVA, TILE_TYPES.WATER, TILE_TYPES.SPIKE]
 });
 
-const AREA_SELECTION_RULES = deepFreezeConfig({
-    floatingModulo: 9,
-    floatingRemainder: 8,
-    swampModulo: 7,
-    swampRemainder: 5,
-    dungeonModulo: 5,
-    dungeonRemainder: 2
-});
-
-const AREA_FALLBACK_SELECTION_RULES = Object.freeze([
-    { areaType: AREA_TYPES.FLOATING, modulo: AREA_SELECTION_RULES.floatingModulo, remainder: AREA_SELECTION_RULES.floatingRemainder },
-    { areaType: AREA_TYPES.SWAMP, modulo: AREA_SELECTION_RULES.swampModulo, remainder: AREA_SELECTION_RULES.swampRemainder },
-    { areaType: AREA_TYPES.DUNGEON, modulo: AREA_SELECTION_RULES.dungeonModulo, remainder: AREA_SELECTION_RULES.dungeonRemainder },
-    { areaType: AREA_TYPES.CATACOMBS, default: true }
-]);
-
 const AREA_RUNTIME_GENERATION_RULES = Object.freeze({
     [AREA_TYPES.OVERWORLD]: {
         generatorMethod: 'generateOverworldGrid',
@@ -249,39 +233,559 @@ const ITEM_SPAWN_IMPROVEMENT_RULES = Object.freeze({
     chancePerRoll: 0.05
 });
 
-const ITEM_SPAWN_COUNT_RULES = Object.freeze([
-    { maxDisplayFloor: 25, minCount: 4, maxCount: 5 },
-    { maxDisplayFloor: 50, minCount: 3, maxCount: 4 },
-    { maxDisplayFloor: 75, minCount: 2, maxCount: 3 },
-    { maxDisplayFloor: 99, minCount: 1, maxCount: 2 }
-]);
-
-const ITEM_TIER_WEIGHT_RULES = Object.freeze([
-    {
-        minDisplayFloor: 1,
-        maxDisplayFloor: 25,
-        tiers: {
-            1: { start: 80, end: 55 },
-            2: { start: 20, end: 45 }
-        }
-    },
-    {
-        minDisplayFloor: 26,
-        maxDisplayFloor: 99,
-        tiers: {
-            1: { start: 50, end: 2 },
-            2: { start: 30, end: 8 },
-            3: { start: 15, end: 20 },
-            4: { start: 5, end: 70 }
-        }
-    }
-]);
-
 const ITEM_REWARD_TIER_BOOST_CHANCES = Object.freeze([0.7, 0.35]);
+
+// Dungeon-path + floor spawn tuning.
+//
+// Supported fields:
+// - enemyCount: fixed enemy spawn count
+// - enemyTypeWeights: enemy type weight multipliers ({ enemyTypeKey: multiplier })
+// - dungeonNpcChance: 0..1 chance for neutral dungeon NPC spawn roll
+// - trapSpawnChance: 0..1 per-floor-tile trap placement chance
+// - trapFailureChance: 0..1 chance that a hidden trap is revealed but fails to trigger
+// - excludedTrapTypes: trap type ids that are not allowed for that floor
+// - itemMinCount / itemMaxCount: item spawn range for the floor
+// - itemTierWeights: weighted item-tier list for that floor (array of { tier, weight })
+// - itemCategoryWeights: category weight multipliers for that floor ({ categoryKey: multiplier })
+// - noCursedItems: when true, spawned items do not receive world curse rolls
+// - cursedItemChance: 0..1 chance for spawned items to roll a curse
+const DUNGEON_PATH_FLOOR_SPAWN_RULES = deepFreezeConfig({
+    anomalousRuins: {
+        default: {
+            enemyCount: 4,
+            enemyTypeWeights: {
+                slimeTier1: 1.35,
+                beastTier1: 1.3,
+                aquaticTier1: 1.2,
+                floatingTier1: 1.2,
+                vandalTier1: 1.15,
+                thiefTier1: 1.1,
+                ghostTier1: 0.85,
+                fuserTier1: 0.8,
+                pariahTier1: 0.75,
+                crafterTier1: 0.7,
+                slimeTier2: 0.5,
+                beastTier2: 0.45,
+                aquaticTier2: 0.45,
+                floatingTier2: 0.45,
+                vandalTier2: 0.45,
+                thiefTier2: 0.45,
+                ghostTier2: 0.35,
+                fuserTier2: 0.35,
+                pariahTier2: 0.35,
+                crafterTier2: 0.35,
+                slimeTier3: 0.15,
+                beastTier3: 0.15,
+                aquaticTier3: 0.15,
+                floatingTier3: 0.15,
+                vandalTier3: 0.15,
+                thiefTier3: 0.15,
+                ghostTier3: 0.1,
+                fuserTier3: 0.1,
+                pariahTier3: 0.1,
+                crafterTier3: 0.1,
+                slimeTier4: 0.05,
+                beastTier4: 0.05,
+                aquaticTier4: 0.05,
+                floatingTier4: 0.05,
+                vandalTier4: 0.05,
+                thiefTier4: 0.05,
+                ghostTier4: 0.03,
+                fuserTier4: 0.03,
+                pariahTier4: 0.03,
+                crafterTier4: 0.03
+            },
+            dungeonNpcChance: 0.14,
+            trapSpawnChance: 0.03,
+            trapFailureChance: 0.5,
+            excludedTrapTypes: [HAZARD_TYPES.TRAP_SLEEP, HAZARD_TYPES.TRAP_BLIND, HAZARD_TYPES.TRAP_TRIP],
+            noCursedItems: true,
+            cursedItemChance: 0,
+            itemMinCount: 5,
+            itemMaxCount: 10,
+            itemTierWeights: [
+                { tier: 1, weight: 78 },
+                { tier: 2, weight: 19 },
+                { tier: 3, weight: 3 }
+            ],
+            itemCategoryWeights: {
+                money: 0.9,
+                healing: 1.35,
+                scroll: 0.12,
+                statusConsumable: 1.3,
+                throwable: 1.15,
+                weapon: 1.35,
+                armor: 1.3,
+                shield: 1.25,
+                accessory: 1.2,
+                food: 1.25,
+                pot: 0.15
+            }
+        },
+        floorRanges: [
+            {
+                minDisplayFloor: 1,
+                maxDisplayFloor: 3,
+                enemyCount: 4,
+                dungeonNpcChance: 0.18,
+                trapSpawnChance: 0.022,
+                trapFailureChance: 0.5,
+                enemyTypeWeights: {
+                    slimeTier2: 0.08,
+                    beastTier2: 0.12,
+                    aquaticTier2: 0.12,
+                    floatingTier2: 0.12,
+                    vandalTier2: 0.12,
+                    thiefTier2: 0.12,
+                    ghostTier2: 0.06,
+                    fuserTier2: 0.06,
+                    pariahTier2: 0.06,
+                    crafterTier2: 0.06,
+                    slimeTier3: 0,
+                    beastTier3: 0,
+                    aquaticTier3: 0,
+                    floatingTier3: 0,
+                    vandalTier3: 0,
+                    thiefTier3: 0,
+                    ghostTier3: 0,
+                    fuserTier3: 0,
+                    pariahTier3: 0,
+                    crafterTier3: 0,
+                    slimeTier4: 0,
+                    beastTier4: 0,
+                    aquaticTier4: 0,
+                    floatingTier4: 0,
+                    vandalTier4: 0,
+                    thiefTier4: 0,
+                    ghostTier4: 0,
+                    fuserTier4: 0,
+                    pariahTier4: 0,
+                    crafterTier4: 0
+                },
+                itemMinCount: 4,
+                itemMaxCount: 5,
+                itemTierWeights: [
+                    { tier: 1, weight: 85 },
+                    { tier: 2, weight: 14 },
+                    { tier: 4, weight: 1 }
+                ]
+            },
+            {
+                minDisplayFloor: 4,
+                maxDisplayFloor: 7,
+                enemyCount: 4,
+                dungeonNpcChance: 0.14,
+                trapSpawnChance: 0.03,
+                trapFailureChance: 0.5,
+                enemyTypeWeights: {
+                    slimeTier2: 0.35,
+                    beastTier2: 0.32,
+                    aquaticTier2: 0.32,
+                    floatingTier2: 0.32,
+                    vandalTier2: 0.32,
+                    thiefTier2: 0.32,
+                    ghostTier2: 0.24,
+                    fuserTier2: 0.24,
+                    pariahTier2: 0.24,
+                    crafterTier2: 0.24,
+                    slimeTier3: 0.05,
+                    beastTier3: 0.05,
+                    aquaticTier3: 0.05,
+                    floatingTier3: 0.05,
+                    vandalTier3: 0.05,
+                    thiefTier3: 0.05,
+                    ghostTier3: 0.03,
+                    fuserTier3: 0.03,
+                    pariahTier3: 0.03,
+                    crafterTier3: 0.03,
+                    slimeTier4: 0,
+                    beastTier4: 0,
+                    aquaticTier4: 0,
+                    floatingTier4: 0,
+                    vandalTier4: 0,
+                    thiefTier4: 0,
+                    ghostTier4: 0,
+                    fuserTier4: 0,
+                    pariahTier4: 0,
+                    crafterTier4: 0
+                },
+                itemMinCount: 3,
+                itemMaxCount: 4,
+                itemTierWeights: [
+                    { tier: 1, weight: 72 },
+                    { tier: 2, weight: 24 },
+                    { tier: 3, weight: 4 }
+                ]
+            },
+            {
+                minDisplayFloor: 8,
+                maxDisplayFloor: 15,
+                enemyCount: 5,
+                dungeonNpcChance: 0.1,
+                trapSpawnChance: 0.038,
+                trapFailureChance: 0.5,
+                itemMinCount: 2,
+                itemMaxCount: 3,
+                itemTierWeights: [
+                    { tier: 1, weight: 60 },
+                    { tier: 2, weight: 30 },
+                    { tier: 3, weight: 9 },
+                    { tier: 4, weight: 1 }
+                ]
+            }
+        ]
+    },
+    waterfallPath: {
+        default: {
+            enemyCount: 5,
+            enemyTypeWeights: {
+                slimeTier1: 0.95,
+                beastTier1: 0.95,
+                aquaticTier1: 1.0,
+                floatingTier1: 0.95,
+                vandalTier1: 0.95,
+                thiefTier1: 1.0,
+                ghostTier1: 1.0,
+                fuserTier1: 1.05,
+                pariahTier1: 1.05,
+                crafterTier1: 1.05,
+                slimeTier2: 1.3,
+                beastTier2: 1.3,
+                aquaticTier2: 1.35,
+                floatingTier2: 1.25,
+                vandalTier2: 1.3,
+                thiefTier2: 1.3,
+                ghostTier2: 1.35,
+                fuserTier2: 1.4,
+                pariahTier2: 1.4,
+                crafterTier2: 1.4,
+                slimeTier3: 0.8,
+                beastTier3: 0.85,
+                aquaticTier3: 0.85,
+                floatingTier3: 0.8,
+                vandalTier3: 0.85,
+                thiefTier3: 0.85,
+                ghostTier3: 0.95,
+                fuserTier3: 0.95,
+                pariahTier3: 0.95,
+                crafterTier3: 0.95,
+                slimeTier4: 0.3,
+                beastTier4: 0.35,
+                aquaticTier4: 0.35,
+                floatingTier4: 0.3,
+                vandalTier4: 0.35,
+                thiefTier4: 0.35,
+                ghostTier4: 0.45,
+                fuserTier4: 0.45,
+                pariahTier4: 0.45,
+                crafterTier4: 0.45
+            },
+            dungeonNpcChance: 0.16,
+            trapSpawnChance: 0.02,
+            cursedItemChance: 0.12,
+            itemMinCount: 3,
+            itemMaxCount: 6,
+            itemTierWeights: [
+                { tier: 1, weight: 34 },
+                { tier: 2, weight: 36 },
+                { tier: 3, weight: 22 },
+                { tier: 4, weight: 8 }
+            ],
+            itemCategoryWeights: {
+                money: 1,
+                healing: 1.1,
+                food: 1.1,
+                pot: 1.05,
+                statusConsumable: 1,
+                scroll: 1,
+                throwable: 1.05,
+                weapon: 0.95,
+                armor: 0.95,
+                shield: 0.95,
+                accessory: 1
+            }
+        },
+        floorRanges: [
+            {
+                minDisplayFloor: 1,
+                maxDisplayFloor: 4,
+                enemyCount: 5,
+                dungeonNpcChance: 0.2,
+                trapSpawnChance: 0.016,
+                enemyTypeWeights: {
+                    slimeTier2: 0.28,
+                    beastTier2: 0.28,
+                    aquaticTier2: 0.28,
+                    floatingTier2: 0.26,
+                    vandalTier2: 0.28,
+                    thiefTier2: 0.28,
+                    ghostTier2: 0.22,
+                    fuserTier2: 0.22,
+                    pariahTier2: 0.22,
+                    crafterTier2: 0.22,
+                    slimeTier3: 0.04,
+                    beastTier3: 0.04,
+                    aquaticTier3: 0.04,
+                    floatingTier3: 0.04,
+                    vandalTier3: 0.04,
+                    thiefTier3: 0.04,
+                    ghostTier3: 0.02,
+                    fuserTier3: 0.02,
+                    pariahTier3: 0.02,
+                    crafterTier3: 0.02,
+                    slimeTier4: 0,
+                    beastTier4: 0,
+                    aquaticTier4: 0,
+                    floatingTier4: 0,
+                    vandalTier4: 0,
+                    thiefTier4: 0,
+                    ghostTier4: 0,
+                    fuserTier4: 0,
+                    pariahTier4: 0,
+                    crafterTier4: 0
+                },
+                itemMinCount: 3,
+                itemMaxCount: 6
+            },
+            {
+                minDisplayFloor: 5,
+                maxDisplayFloor: 10,
+                enemyCount: 6,
+                dungeonNpcChance: 0.14,
+                trapSpawnChance: 0.02,
+                trapFailureChance: 0.5,
+                enemyTypeWeights: {
+                    slimeTier2: 0.7,
+                    beastTier2: 0.7,
+                    aquaticTier2: 0.72,
+                    floatingTier2: 0.68,
+                    vandalTier2: 0.7,
+                    thiefTier2: 0.7,
+                    ghostTier2: 0.62,
+                    fuserTier2: 0.62,
+                    pariahTier2: 0.62,
+                    crafterTier2: 0.62,
+                    slimeTier3: 0.2,
+                    beastTier3: 0.2,
+                    aquaticTier3: 0.2,
+                    floatingTier3: 0.2,
+                    vandalTier3: 0.2,
+                    thiefTier3: 0.2,
+                    ghostTier3: 0.16,
+                    fuserTier3: 0.16,
+                    pariahTier3: 0.16,
+                    crafterTier3: 0.16,
+                    slimeTier4: 0.04,
+                    beastTier4: 0.04,
+                    aquaticTier4: 0.04,
+                    floatingTier4: 0.04,
+                    vandalTier4: 0.04,
+                    thiefTier4: 0.04,
+                    ghostTier4: 0.03,
+                    fuserTier4: 0.03,
+                    pariahTier4: 0.03,
+                    crafterTier4: 0.03
+                },
+                itemMinCount: 3,
+                itemMaxCount: 4
+            },
+            {
+                minDisplayFloor: 11,
+                maxDisplayFloor: 15,
+                enemyCount: 7,
+                dungeonNpcChance: 0.1,
+                trapSpawnChance: 0.026,
+                trapFailureChance: 0.5,
+                itemMinCount: 2,
+                itemMaxCount: 3,
+                itemTierWeights: [
+                    { tier: 1, weight: 20 },
+                    { tier: 2, weight: 34 },
+                    { tier: 3, weight: 30 },
+                    { tier: 4, weight: 16 }
+                ]
+            }
+        ]
+    },
+    graspingPillars: {
+        default: {
+            enemyCount: 5,
+            enemyTypeWeights: {
+                slimeTier1: 1.0,
+                beastTier1: 1.0,
+                aquaticTier1: 0.95,
+                floatingTier1: 0.95,
+                vandalTier1: 1.0,
+                thiefTier1: 1.0,
+                ghostTier1: 1.05,
+                fuserTier1: 1.1,
+                pariahTier1: 1.15,
+                crafterTier1: 1.15,
+                slimeTier2: 1.15,
+                beastTier2: 1.2,
+                aquaticTier2: 1.15,
+                floatingTier2: 1.1,
+                vandalTier2: 1.2,
+                thiefTier2: 1.2,
+                ghostTier2: 1.3,
+                fuserTier2: 1.35,
+                pariahTier2: 1.35,
+                crafterTier2: 1.35,
+                slimeTier3: 0.65,
+                beastTier3: 0.7,
+                aquaticTier3: 0.65,
+                floatingTier3: 0.6,
+                vandalTier3: 0.7,
+                thiefTier3: 0.7,
+                ghostTier3: 0.8,
+                fuserTier3: 0.8,
+                pariahTier3: 0.85,
+                crafterTier3: 0.85,
+                slimeTier4: 0.2,
+                beastTier4: 0.25,
+                aquaticTier4: 0.2,
+                floatingTier4: 0.2,
+                vandalTier4: 0.25,
+                thiefTier4: 0.25,
+                ghostTier4: 0.35,
+                fuserTier4: 0.35,
+                pariahTier4: 0.35,
+                crafterTier4: 0.35
+            },
+            dungeonNpcChance: 0.12,
+            trapSpawnChance: 0.028,
+            trapFailureChance: 0.5,
+            cursedItemChance: 0.20,
+            itemMinCount: 3,
+            itemMaxCount: 6,
+            itemTierWeights: [
+                { tier: 1, weight: 38 },
+                { tier: 2, weight: 36 },
+                { tier: 3, weight: 20 },
+                { tier: 4, weight: 6 }
+            ],
+            itemCategoryWeights: {
+                money: 1,
+                weapon: 0.55,
+                armor: 0.5,
+                shield: 0.5,
+                accessory: 0.6,
+                healing: 0.95,
+                food: 0.9,
+                pot: 2.2,
+                statusConsumable: 1.25,
+                scroll: 2,
+                throwable: 1.1
+            }
+        },
+        floorRanges: [
+            {
+                minDisplayFloor: 1,
+                maxDisplayFloor: 5,
+                enemyCount: 5,
+                dungeonNpcChance: 0.14,
+                trapSpawnChance: 0.024,
+                trapFailureChance: 0.5,
+                enemyTypeWeights: {
+                    slimeTier2: 0.32,
+                    beastTier2: 0.32,
+                    aquaticTier2: 0.3,
+                    floatingTier2: 0.3,
+                    vandalTier2: 0.32,
+                    thiefTier2: 0.32,
+                    ghostTier2: 0.26,
+                    fuserTier2: 0.26,
+                    pariahTier2: 0.26,
+                    crafterTier2: 0.26,
+                    slimeTier3: 0.05,
+                    beastTier3: 0.05,
+                    aquaticTier3: 0.05,
+                    floatingTier3: 0.05,
+                    vandalTier3: 0.05,
+                    thiefTier3: 0.05,
+                    ghostTier3: 0.03,
+                    fuserTier3: 0.03,
+                    pariahTier3: 0.03,
+                    crafterTier3: 0.03,
+                    slimeTier4: 0,
+                    beastTier4: 0,
+                    aquaticTier4: 0,
+                    floatingTier4: 0,
+                    vandalTier4: 0,
+                    thiefTier4: 0,
+                    ghostTier4: 0,
+                    fuserTier4: 0,
+                    pariahTier4: 0,
+                    crafterTier4: 0
+                },
+                itemMinCount: 3,
+                itemMaxCount: 6
+            },
+            {
+                minDisplayFloor: 6,
+                maxDisplayFloor: 10,
+                enemyCount: 6,
+                dungeonNpcChance: 0.1,
+                trapSpawnChance: 0.03,
+                trapFailureChance: 0.5,
+                enemyTypeWeights: {
+                    slimeTier2: 0.78,
+                    beastTier2: 0.8,
+                    aquaticTier2: 0.78,
+                    floatingTier2: 0.75,
+                    vandalTier2: 0.8,
+                    thiefTier2: 0.8,
+                    ghostTier2: 0.7,
+                    fuserTier2: 0.7,
+                    pariahTier2: 0.7,
+                    crafterTier2: 0.7,
+                    slimeTier3: 0.24,
+                    beastTier3: 0.24,
+                    aquaticTier3: 0.24,
+                    floatingTier3: 0.22,
+                    vandalTier3: 0.24,
+                    thiefTier3: 0.24,
+                    ghostTier3: 0.2,
+                    fuserTier3: 0.2,
+                    pariahTier3: 0.2,
+                    crafterTier3: 0.2,
+                    slimeTier4: 0.05,
+                    beastTier4: 0.05,
+                    aquaticTier4: 0.05,
+                    floatingTier4: 0.05,
+                    vandalTier4: 0.05,
+                    thiefTier4: 0.05,
+                    ghostTier4: 0.04,
+                    fuserTier4: 0.04,
+                    pariahTier4: 0.04,
+                    crafterTier4: 0.04
+                },
+                itemMinCount: 2,
+                itemMaxCount: 3
+            },
+            {
+                minDisplayFloor: 11,
+                maxDisplayFloor: 15,
+                enemyCount: 7,
+                dungeonNpcChance: 0.07,
+                trapSpawnChance: 0.036,
+                trapFailureChance: 0.5,
+                itemMinCount: 1,
+                itemMaxCount: 2,
+                itemTierWeights: [
+                    { tier: 1, weight: 20 },
+                    { tier: 2, weight: 35 },
+                    { tier: 3, weight: 30 },
+                    { tier: 4, weight: 15 }
+                ]
+            }
+        ]
+    }
+});
 
 const FLOOR_EVENT_GLOBAL_RULES = Object.freeze({
     randomEventChance: 0.02,
-    guaranteedHoardFloors: [1]
+    guaranteedHoardFloors: []
 });
 
 const FLOOR_EVENT_RULES = Object.freeze({
@@ -317,12 +821,12 @@ const FLOOR_EVENT_RULES = Object.freeze({
     },
     'retrieve-item': {
         title: () => 'Quest: Retrieve Item',
-        objective: ({ itemName }) => `Recover ${itemName || 'the quest item'} and return it to the Questgiver.`,
+        objective: ({ itemName }) => `Recover ${itemName} and return it to the Questgiver.`,
         appendTurnsRemaining: false
     },
     'material-delivery': {
         title: () => 'Quest: Material Delivery',
-        objective: ({ engineerName, materialCount, materialName }) => `Bring ${materialCount || 1} ${materialName || 'delivery material'}${(materialCount || 1) === 1 ? '' : 's'} to ${engineerName || 'the engineer'}.`,
+        objective: ({ engineerName, materialCount, materialName }) => `Bring ${materialCount} ${materialName}${materialCount === 1 ? '' : 's'} to ${engineerName}.`,
         appendTurnsRemaining: false
     }
 });
@@ -473,27 +977,20 @@ const PREMADE_TERRAIN_PLACEMENT_RULES = {
 };
 
 function normalizeConfigKey(key) {
-    return typeof key === 'string' ? key : '';
+    return String(key);
 }
 
-function getConfigMapValue(configMap, key, fallback = null) {
-    if (!configMap || typeof configMap !== 'object') {
-        return fallback;
-    }
-
+function getConfigMapValue(configMap, key) {
     const normalizedKey = normalizeConfigKey(key);
-    return Object.prototype.hasOwnProperty.call(configMap, normalizedKey)
-        ? configMap[normalizedKey]
-        : fallback;
+    return configMap[normalizedKey];
 }
 
 function getConfigArrayEntries(configMap, key) {
-    const entries = getConfigMapValue(configMap, key, []);
-    return Array.isArray(entries) ? entries : [];
+    return getConfigMapValue(configMap, key);
 }
 
 function getAreaGenerationRule(areaType) {
-    return getConfigMapValue(AREA_GENERATION_RULES, areaType, AREA_GENERATION_RULES[AREA_TYPES.DUNGEON]);
+    return getConfigMapValue(AREA_GENERATION_RULES, areaType);
 }
 
 function getCatacombsGenerationConfig() {
@@ -504,38 +1001,8 @@ function getOverworldGenerationConfig() {
     return OVERWORLD_GENERATION_CONFIG;
 }
 
-function getAreaSelectionRules() {
-    return AREA_SELECTION_RULES;
-}
-
-function getAreaFallbackSelectionRules() {
-    return Array.isArray(AREA_FALLBACK_SELECTION_RULES)
-        ? [...AREA_FALLBACK_SELECTION_RULES]
-        : [];
-}
-
-function getFallbackAreaTypeForDungeonDepth(dungeonDepthIndex) {
-    const normalizedDepthIndex = Math.max(0, Math.floor(Number(dungeonDepthIndex) || 0));
-    const selectionRules = getAreaFallbackSelectionRules();
-
-    for (const rule of selectionRules) {
-        if (!rule || rule.default) {
-            continue;
-        }
-
-        const modulo = Math.max(1, Math.floor(Number(rule.modulo) || 1));
-        const remainder = Math.floor(Number(rule.remainder) || 0);
-        if (normalizedDepthIndex % modulo === remainder) {
-            return rule.areaType;
-        }
-    }
-
-    const defaultRule = selectionRules.find((rule) => Boolean(rule?.default));
-    return defaultRule?.areaType || AREA_TYPES.CATACOMBS;
-}
-
 function getAreaRuntimeGenerationRule(areaType) {
-    return getConfigMapValue(AREA_RUNTIME_GENERATION_RULES, areaType, AREA_RUNTIME_GENERATION_RULES[AREA_TYPES.DUNGEON] || null);
+    return getConfigMapValue(AREA_RUNTIME_GENERATION_RULES, areaType);
 }
 
 function getDungeonPathDefinitions() {
@@ -544,75 +1011,53 @@ function getDungeonPathDefinitions() {
 
 function getDefaultDungeonPathId() {
     const pathIds = Object.keys(DUNGEON_PATH_DEFINITIONS);
-    const initiallyUnlockedPathId = pathIds.find((pathId) => Boolean(DUNGEON_PATH_DEFINITIONS[pathId]?.startsUnlocked));
-    return initiallyUnlockedPathId || pathIds[0] || 'anomalousRuins';
+    const initiallyUnlockedPathId = pathIds.find((pathId) => Boolean(DUNGEON_PATH_DEFINITIONS[pathId].startsUnlocked));
+    return initiallyUnlockedPathId;
 }
 
 function getDungeonPathDefinition(pathId) {
-    return getConfigMapValue(DUNGEON_PATH_DEFINITIONS, pathId, null);
+    return getConfigMapValue(DUNGEON_PATH_DEFINITIONS, pathId);
 }
 
 function getInitiallyUnlockedDungeonPathIds() {
     const pathIds = Object.keys(DUNGEON_PATH_DEFINITIONS)
-        .filter((pathId) => Boolean(DUNGEON_PATH_DEFINITIONS[pathId]?.startsUnlocked));
-    return pathIds.length > 0 ? pathIds : [getDefaultDungeonPathId()];
+        .filter((pathId) => Boolean(DUNGEON_PATH_DEFINITIONS[pathId].startsUnlocked));
+    return pathIds;
 }
 
 function getDungeonPathUnlocksOnComplete(pathId) {
-    const unlocksOnComplete = getDungeonPathDefinition(pathId)?.unlocksOnComplete;
-    return Array.isArray(unlocksOnComplete)
-        ? unlocksOnComplete.filter((unlockPathId) => Boolean(getDungeonPathDefinition(unlockPathId)))
-        : [];
+    return getDungeonPathDefinition(pathId).unlocksOnComplete
+        .filter((unlockPathId) => Boolean(getDungeonPathDefinition(unlockPathId)));
 }
 
 function getDungeonWorldEventRule(eventId) {
-    return getConfigMapValue(DUNGEON_WORLD_EVENT_RULES, eventId, null);
+    return getConfigMapValue(DUNGEON_WORLD_EVENT_RULES, eventId);
 }
 
 function getDungeonWorldEventRequiredCompletedPaths(eventId) {
-    const requiredCompletedPaths = getDungeonWorldEventRule(eventId)?.requiredCompletedPaths;
-    return Array.isArray(requiredCompletedPaths)
-        ? requiredCompletedPaths.filter((pathId) => Boolean(getDungeonPathDefinition(pathId)))
-        : [];
+    return getDungeonWorldEventRule(eventId).requiredCompletedPaths
+        .filter((pathId) => Boolean(getDungeonPathDefinition(pathId)));
 }
 
 function getDungeonWorldEventUnlockMessage(eventId) {
-    const unlockMessage = getDungeonWorldEventRule(eventId)?.unlockMessage;
-    return typeof unlockMessage === 'string' ? unlockMessage : '';
+    return getDungeonWorldEventRule(eventId).unlockMessage;
 }
 
 function getDungeonPathMaxDepth(pathId) {
     const definition = getDungeonPathDefinition(pathId);
-    const maxDepth = Number(definition?.maxDepth);
-    if (!Number.isFinite(maxDepth) || maxDepth <= 0) {
-        return null;
-    }
-
-    return Math.floor(maxDepth);
+    return Math.floor(Number(definition.maxDepth));
 }
 
 function getDungeonPathDisallowedTiles(pathId) {
     const definition = getDungeonPathDefinition(pathId);
-    const disallowed = Array.isArray(definition?.disallowedTiles)
-        ? definition.disallowedTiles
-        : [];
-    return disallowed.filter((tileType) => Object.values(TILE_TYPES).includes(tileType));
+    return definition.disallowedTiles
+        .filter((tileType) => Object.values(TILE_TYPES).includes(tileType));
 }
 
 function getDungeonAreaTypeForDepth(pathId, dungeonDepthIndex) {
     const definition = getDungeonPathDefinition(pathId);
-    if (!definition) {
-        return null;
-    }
-
-    const sequence = Array.isArray(definition.areaSequence)
-        ? definition.areaSequence.filter((areaType) => Object.values(AREA_TYPES).includes(areaType))
-        : [];
-    if (sequence.length === 0) {
-        return null;
-    }
-
-    const depthIndex = Math.max(0, Math.floor(Number(dungeonDepthIndex) || 0));
+    const sequence = definition.areaSequence.filter((areaType) => Object.values(AREA_TYPES).includes(areaType));
+    const depthIndex = Math.max(0, Math.floor(Number(dungeonDepthIndex)));
     if (definition.loopSequence) {
         return sequence[depthIndex % sequence.length];
     }
@@ -625,7 +1070,7 @@ function getQuestgiverQuestPool(poolKey) {
 }
 
 function getQuestgiverAdvanceQuestConfig(configKey) {
-    return getConfigMapValue(QUESTGIVER_ADVANCE_QUEST_CONFIGS, configKey, null);
+    return getConfigMapValue(QUESTGIVER_ADVANCE_QUEST_CONFIGS, configKey);
 }
 
 function getQuestgiverNamePoolEntries(poolKey) {
@@ -633,9 +1078,7 @@ function getQuestgiverNamePoolEntries(poolKey) {
 }
 
 function getQuestgiverQuestBuilderMethods() {
-    return Array.isArray(QUESTGIVER_QUEST_BUILDER_METHODS)
-        ? [...QUESTGIVER_QUEST_BUILDER_METHODS]
-        : [];
+    return [...QUESTGIVER_QUEST_BUILDER_METHODS];
 }
 
 function getEnemyScalingRules() {
@@ -646,55 +1089,8 @@ function getItemSpawnImprovementRules() {
     return ITEM_SPAWN_IMPROVEMENT_RULES;
 }
 
-function getItemSpawnCountRangeForDisplayFloor(displayFloor) {
-    const normalizedFloor = Math.max(1, Math.min(99, Math.floor(Number(displayFloor) || 1)));
-    const matchingRule = ITEM_SPAWN_COUNT_RULES.find((rule) => normalizedFloor <= Math.max(1, Math.floor(Number(rule?.maxDisplayFloor) || 1)));
-
-    if (!matchingRule) {
-        return { minCount: 1, maxCount: 2 };
-    }
-
-    return {
-        minCount: Math.max(1, Math.floor(Number(matchingRule.minCount) || 1)),
-        maxCount: Math.max(1, Math.floor(Number(matchingRule.maxCount) || 1))
-    };
-}
-
-function getItemTierWeightsForDisplayFloor(displayFloor) {
-    const normalizedFloor = Math.max(1, Math.min(99, Math.floor(Number(displayFloor) || 1)));
-    const matchingRule = ITEM_TIER_WEIGHT_RULES.find((rule) => {
-        const minDisplayFloor = Math.max(1, Math.floor(Number(rule?.minDisplayFloor) || 1));
-        const maxDisplayFloor = Math.max(minDisplayFloor, Math.floor(Number(rule?.maxDisplayFloor) || minDisplayFloor));
-        return normalizedFloor >= minDisplayFloor && normalizedFloor <= maxDisplayFloor;
-    }) || ITEM_TIER_WEIGHT_RULES[ITEM_TIER_WEIGHT_RULES.length - 1];
-
-    if (!matchingRule || typeof matchingRule !== 'object') {
-        return [{ tier: 1, weight: 1 }];
-    }
-
-    const minDisplayFloor = Math.max(1, Math.floor(Number(matchingRule.minDisplayFloor) || normalizedFloor));
-    const maxDisplayFloor = Math.max(minDisplayFloor, Math.floor(Number(matchingRule.maxDisplayFloor) || minDisplayFloor));
-    const progress = maxDisplayFloor === minDisplayFloor
-        ? 0
-        : (normalizedFloor - minDisplayFloor) / (maxDisplayFloor - minDisplayFloor);
-
-    return Object.entries(matchingRule.tiers || {})
-        .map(([tier, weightRule]) => {
-            const startWeight = Number(weightRule?.start ?? weightRule);
-            const endWeight = Number(weightRule?.end ?? startWeight);
-            const interpolatedWeight = Math.round(startWeight + (endWeight - startWeight) * progress);
-            return {
-                tier: Math.max(1, Math.floor(Number(tier) || 1)),
-                weight: Math.max(1, interpolatedWeight)
-            };
-        })
-        .sort((a, b) => a.tier - b.tier);
-}
-
 function getItemRewardTierBoostChances() {
-    return Array.isArray(ITEM_REWARD_TIER_BOOST_CHANCES)
-        ? [...ITEM_REWARD_TIER_BOOST_CHANCES]
-        : [];
+    return [...ITEM_REWARD_TIER_BOOST_CHANCES];
 }
 
 function getFloorEventGlobalRules() {
@@ -702,33 +1098,27 @@ function getFloorEventGlobalRules() {
 }
 
 function getFloorEventRule(eventType) {
-    return getConfigMapValue(FLOOR_EVENT_RULES, eventType, null);
+    return getConfigMapValue(FLOOR_EVENT_RULES, eventType);
 }
 
 function getRandomFloorEventTypeKeys() {
-    return Array.isArray(RANDOM_FLOOR_EVENT_TYPES)
-        ? [...RANDOM_FLOOR_EVENT_TYPES]
-        : [];
+    return [...RANDOM_FLOOR_EVENT_TYPES];
 }
 
 function getRandomFloorEventActivatorMethod(eventType) {
-    return getConfigMapValue(RANDOM_FLOOR_EVENT_ACTIVATORS, eventType, '');
+    return getConfigMapValue(RANDOM_FLOOR_EVENT_ACTIVATORS, eventType);
 }
 
 function getQuestFloorEventTypeKeys() {
-    return Array.isArray(QUEST_FLOOR_EVENT_TYPES)
-        ? [...QUEST_FLOOR_EVENT_TYPES]
-        : [];
+    return [...QUEST_FLOOR_EVENT_TYPES];
 }
 
 function getQuestFloorEventActivatorMethods() {
-    return Array.isArray(QUEST_FLOOR_EVENT_ACTIVATOR_METHODS)
-        ? [...QUEST_FLOOR_EVENT_ACTIVATOR_METHODS]
-        : [];
+    return [...QUEST_FLOOR_EVENT_ACTIVATOR_METHODS];
 }
 
 function getPremadeTerrainShape(shapeId) {
-    return getConfigMapValue(PREMADE_TERRAIN_SHAPES, shapeId, null);
+    return getConfigMapValue(PREMADE_TERRAIN_SHAPES, shapeId);
 }
 
 function getPremadeTerrainLegend() {
@@ -744,9 +1134,221 @@ function getPremadeTerrainPlacementRulesForFloor(areaType, floorIndex) {
 }
 
 function getWeightedEntriesForFloor(entries, floorIndex) {
+    if (!Array.isArray(entries)) {
+        return [];
+    }
+
+    const normalizedFloor = Math.max(0, Math.floor(Number(floorIndex) || 0));
+
     return entries.filter((entry) => {
-        const minFloor = Number.isFinite(entry.minFloor) ? entry.minFloor : 0;
-        const maxFloor = Number.isFinite(entry.maxFloor) ? entry.maxFloor : Infinity;
-        return floorIndex >= minFloor && floorIndex <= maxFloor;
+        const minFloorValue = Number(entry?.minFloor);
+        const maxFloorValue = Number(entry?.maxFloor);
+        const minFloor = Number.isFinite(minFloorValue) ? Math.floor(minFloorValue) : 0;
+        const maxFloor = Number.isFinite(maxFloorValue) ? Math.floor(maxFloorValue) : Number.POSITIVE_INFINITY;
+        return normalizedFloor >= minFloor && normalizedFloor <= maxFloor;
     });
+}
+
+function normalizeDisplayFloor(displayFloor) {
+    return Math.max(1, Math.min(99, Math.floor(Number(displayFloor))));
+}
+
+function getDisplayFloorFromFloorIndex(floorIndex) {
+    return normalizeDisplayFloor(Math.floor(Number(floorIndex)) + 1);
+}
+
+function createFallbackDungeonPathFloorSpawnRule() {
+    return {
+        enemyCount: 0,
+        enemyTypeWeights: {},
+        dungeonNpcChance: 0,
+        trapSpawnChance: 0,
+        trapFailureChance: 0,
+        excludedTrapTypes: [],
+        noCursedItems: false,
+        cursedItemChance: 0,
+        itemMinCount: 0,
+        itemMaxCount: 0,
+        itemTierWeights: [],
+        itemCategoryWeights: {}
+    };
+}
+
+function getDungeonPathFloorSpawnRuleSet(dungeonPathId) {
+    const normalizedPathId = String(dungeonPathId || '').trim();
+    if (normalizedPathId.length > 0) {
+        const requestedRuleSet = getConfigMapValue(DUNGEON_PATH_FLOOR_SPAWN_RULES, normalizedPathId);
+        if (requestedRuleSet) {
+            return requestedRuleSet;
+        }
+    }
+
+    const defaultPathId = getDefaultDungeonPathId();
+    if (defaultPathId) {
+        const defaultRuleSet = getConfigMapValue(DUNGEON_PATH_FLOOR_SPAWN_RULES, defaultPathId);
+        if (defaultRuleSet) {
+            return defaultRuleSet;
+        }
+    }
+
+    const firstAvailableRuleSet = Object.values(DUNGEON_PATH_FLOOR_SPAWN_RULES)
+        .find((ruleSet) => Boolean(ruleSet));
+
+    if (firstAvailableRuleSet) {
+        return firstAvailableRuleSet;
+    }
+
+    return {
+        default: createFallbackDungeonPathFloorSpawnRule(),
+        floorRanges: []
+    };
+}
+
+function buildFloorSpawnRuleForDisplayFloor(ruleSet, normalizedFloor) {
+    const fallbackRule = createFallbackDungeonPathFloorSpawnRule();
+    const resolvedRuleSet = ruleSet && typeof ruleSet === 'object'
+        ? ruleSet
+        : {};
+    const defaultRule = resolvedRuleSet.default && typeof resolvedRuleSet.default === 'object'
+        ? resolvedRuleSet.default
+        : {};
+    const baseRule = {
+        ...fallbackRule,
+        ...defaultRule
+    };
+    const floorRanges = Array.isArray(resolvedRuleSet.floorRanges)
+        ? resolvedRuleSet.floorRanges
+        : [];
+
+    for (const rangeRule of floorRanges) {
+        if (!rangeRule || typeof rangeRule !== 'object') {
+            continue;
+        }
+
+        const minDisplayFloor = normalizeDisplayFloor(Number(rangeRule.minDisplayFloor));
+        const maxDisplayFloor = Math.max(minDisplayFloor, normalizeDisplayFloor(Number(rangeRule.maxDisplayFloor)));
+        if (normalizedFloor < minDisplayFloor || normalizedFloor > maxDisplayFloor) {
+            continue;
+        }
+
+        Object.assign(baseRule, rangeRule);
+    }
+
+    return baseRule;
+}
+
+function getDungeonPathFloorSpawnRuleForDisplayFloor(areaType, displayFloor, dungeonPathId = '') {
+    const normalizedFloor = normalizeDisplayFloor(displayFloor);
+    const dungeonRuleSet = getDungeonPathFloorSpawnRuleSet(dungeonPathId);
+    return buildFloorSpawnRuleForDisplayFloor(dungeonRuleSet, normalizedFloor);
+}
+
+function getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId = '') {
+    return getDungeonPathFloorSpawnRuleForDisplayFloor(areaType, getDisplayFloorFromFloorIndex(floorIndex), dungeonPathId);
+}
+
+function getDungeonPathFloorEnemySpawnCount(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    const enemyCount = Number(rule.enemyCount);
+    return Math.max(0, Math.floor(enemyCount));
+}
+
+function getDungeonPathFloorEnemyTypeWeightMap(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    const configuredMap = rule.enemyTypeWeights;
+
+    const normalizedMap = {};
+    for (const [enemyTypeKey, weightMultiplier] of Object.entries(configuredMap)) {
+        const normalizedTypeKey = String(enemyTypeKey).trim();
+        const normalizedWeight = Number(weightMultiplier);
+        if (normalizedTypeKey.length === 0 || !Number.isFinite(normalizedWeight) || normalizedWeight < 0) {
+            continue;
+        }
+
+        normalizedMap[normalizedTypeKey] = normalizedWeight;
+    }
+
+    return normalizedMap;
+}
+
+function getDungeonPathFloorDungeonNpcSpawnChance(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    const configuredChance = Number(rule.dungeonNpcChance);
+    return Math.min(1, Math.max(0, configuredChance));
+}
+
+function getDungeonPathFloorTrapSpawnChance(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    const configuredChance = Number(rule.trapSpawnChance);
+    return Math.min(1, Math.max(0, configuredChance));
+}
+
+function getDungeonPathFloorTrapFailureChance(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    const configuredChance = Number(rule.trapFailureChance);
+    return Math.min(1, Math.max(0, configuredChance));
+}
+
+function getDungeonPathFloorAllowedTrapTypes(areaType, floorIndex, dungeonPathId = '', trapTypes) {
+    const baseTrapTypes = trapTypes
+        .filter((trapType) => typeof trapType === 'string' && trapType.length > 0);
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    const excludedTrapTypes = new Set(rule.excludedTrapTypes
+        .map((trapType) => String(trapType).trim())
+        .filter((trapType) => trapType.length > 0));
+
+    return baseTrapTypes.filter((trapType) => !excludedTrapTypes.has(trapType));
+}
+
+function getDungeonPathFloorCursedItemChance(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    if (rule.noCursedItems === true) {
+        return 0;
+    }
+
+    const configuredChance = Number(rule.cursedItemChance);
+    return Math.min(1, Math.max(0, configuredChance));
+}
+
+function getDungeonPathFloorItemSpawnCountRange(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    const configuredMin = Number(rule.itemMinCount);
+    const configuredMax = Number(rule.itemMaxCount);
+    const minCount = Math.max(0, Math.floor(configuredMin));
+    const maxCount = Math.max(minCount, Math.floor(configuredMax));
+
+    return { minCount, maxCount };
+}
+
+function normalizeItemTierWeightEntries(weightEntries) {
+    return weightEntries
+        .map((entry) => ({
+            tier: Math.max(1, Math.floor(Number(entry.tier))),
+            weight: Math.max(0, Math.floor(Number(entry.weight)))
+        }))
+        .filter((entry) => entry.weight > 0)
+        .sort((left, right) => left.tier - right.tier);
+}
+
+function getDungeonPathFloorItemTierWeights(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    return normalizeItemTierWeightEntries(rule.itemTierWeights);
+}
+
+function getDungeonPathFloorItemCategoryWeightMap(areaType, floorIndex, dungeonPathId = '') {
+    const rule = getDungeonPathFloorSpawnRuleForFloorIndex(areaType, floorIndex, dungeonPathId);
+    const configuredMap = rule.itemCategoryWeights;
+
+    const normalizedMap = {};
+    for (const [categoryKey, weightMultiplier] of Object.entries(configuredMap)) {
+        const normalizedCategory = String(categoryKey).trim();
+        const normalizedWeight = Number(weightMultiplier);
+        if (normalizedCategory.length === 0 || !Number.isFinite(normalizedWeight) || normalizedWeight < 0) {
+            continue;
+        }
+
+        normalizedMap[normalizedCategory] = normalizedWeight;
+    }
+
+    return normalizedMap;
 }

@@ -25,9 +25,9 @@ function isNeutralNpcActor(actor) {
         && actor.creatureTypes.includes(ENEMY_TYPES.NPC);
 }
 
-function getItemLabel(item, fallback = 'item') {
+function getItemLabel(item) {
     if (!item) {
-        return fallback;
+        return '';
     }
 
     if (hasCallableMethod(item, 'getDisplayName')) {
@@ -38,26 +38,22 @@ function getItemLabel(item, fallback = 'item') {
         return item.name;
     }
 
-    return fallback;
+    return item.name;
 }
 
-function normalizeDirection(dx, dy, fallback = { dx: 0, dy: -1 }) {
-    const normalizedDx = Math.sign(Number(dx) || 0);
-    const normalizedDy = Math.sign(Number(dy) || 0);
-    if (normalizedDx === 0 && normalizedDy === 0) {
-        return { dx: fallback.dx, dy: fallback.dy };
-    }
-
+function normalizeDirection(dx, dy) {
+    const normalizedDx = Math.sign(Number(dx));
+    const normalizedDy = Math.sign(Number(dy));
     return { dx: normalizedDx, dy: normalizedDy };
 }
 
-function getActorFacing(actor, fallback = { dx: 0, dy: -1 }) {
+function getActorFacing(actor) {
     if (hasCallableMethod(actor, 'getFacingDirection')) {
         const facing = actor.getFacingDirection();
-        return normalizeDirection(facing?.dx, facing?.dy, fallback);
+        return normalizeDirection(facing.dx, facing.dy);
     }
 
-    return normalizeDirection(actor?.facing?.dx, actor?.facing?.dy, fallback);
+    return normalizeDirection(actor.facing.dx, actor.facing.dy);
 }
 
 function isActorAlive(actor) {

@@ -14,8 +14,8 @@ Object.assign(UI.prototype, {
     },
 
     haltPlayerMovementForPopup() {
-        this.game?.stopAutoExplore?.();
-        this.game?.inputController?.reset?.();
+        this.game.stopAutoExplore();
+        this.game.inputController.reset();
     },
 
     getGamePromptElements() {
@@ -45,7 +45,7 @@ Object.assign(UI.prototype, {
 
     closeGamePrompt(options = {}) {
         const { invokeCancel = false, value = null, skipFocusRestore = false } = options;
-        const promptConfig = this.activeGamePromptConfig || null;
+        const promptConfig = this.activeGamePromptConfig;
         this.activeGamePromptConfig = null;
 
         const { modal, title, message, input, buttons } = this.getGamePromptElements();
@@ -84,11 +84,11 @@ Object.assign(UI.prototype, {
         this.haltPlayerMovementForPopup();
 
         const {
-            titleText = 'Prompt',
-            messageText = '',
-            defaultValue = '',
+            titleText,
+            messageText,
+            defaultValue,
             useInput = false,
-            placeholder = '',
+            placeholder,
             buttons: buttonOptions = [],
             onSubmit = null,
             onCancel = null
@@ -97,7 +97,7 @@ Object.assign(UI.prototype, {
         this.activeGamePromptConfig = { onSubmit, onCancel };
 
         const finalize = (value = null, canceled = false) => {
-            const promptConfig = this.activeGamePromptConfig || { onSubmit, onCancel };
+            const promptConfig = this.activeGamePromptConfig;
             this.closeGamePrompt({ skipFocusRestore: true });
             if (canceled) {
                 if (typeof promptConfig?.onCancel === 'function') {
@@ -112,13 +112,13 @@ Object.assign(UI.prototype, {
             }
         };
 
-        title.textContent = String(titleText || 'Prompt');
-        message.textContent = String(messageText || '');
+        title.textContent = String(titleText);
+        message.textContent = String(messageText);
         buttons.innerHTML = '';
 
         input.style.display = useInput ? 'block' : 'none';
-        input.value = String(defaultValue ?? '');
-        input.placeholder = String(placeholder || '');
+        input.value = String(defaultValue);
+        input.placeholder = String(placeholder);
         input.onkeydown = (event) => {
             if (event.key === 'Enter') {
                 event.preventDefault();
@@ -154,10 +154,10 @@ Object.assign(UI.prototype, {
                 button.style.gap = '2px';
 
                 const labelSpan = document.createElement('span');
-                labelSpan.textContent = String(buttonOption?.label || 'OK');
+                labelSpan.textContent = String(buttonOption?.label);
                 button.appendChild(labelSpan);
 
-                const descriptionText = String(buttonOption?.description || '').trim();
+                const descriptionText = String(buttonOption?.description).trim();
                 if (descriptionText) {
                     const descriptionSpan = document.createElement('span');
                     descriptionSpan.textContent = descriptionText;
@@ -166,7 +166,7 @@ Object.assign(UI.prototype, {
                     button.appendChild(descriptionSpan);
                 }
             } else {
-                button.textContent = String(buttonOption?.label || 'OK');
+                button.textContent = String(buttonOption?.label);
             }
 
             if (buttonOption?.primary) {
@@ -202,16 +202,12 @@ Object.assign(UI.prototype, {
     },
 
     normalizeGamePromptButtons(buttonOptions = [], options = {}) {
-        const { useInput = false, defaultValue = '' } = options;
+        const { useInput = false, defaultValue } = options;
         if (Array.isArray(buttonOptions) && buttonOptions.length > 0) {
             return buttonOptions;
         }
 
-        return [{
-            label: 'OK',
-            value: useInput ? String(defaultValue ?? '') : true,
-            primary: true
-        }];
+        return [];
     },
 
     openChoicePrompt(titleText, messageText, choices = [], onSelect = null, options = {}) {
@@ -238,8 +234,8 @@ Object.assign(UI.prototype, {
             titleText,
             messageText,
             [
-                { label: options.confirmLabel || 'Confirm', value: true, primary: true },
-                { label: options.cancelLabel || 'Cancel', value: false, cancel: true }
+                { label: options.confirmLabel, value: true, primary: true },
+                { label: options.cancelLabel, value: false, cancel: true }
             ],
             (value) => {
                 if (typeof onDecision === 'function') {
@@ -256,16 +252,16 @@ Object.assign(UI.prototype, {
         );
     },
 
-    openTextPrompt(titleText, messageText, defaultValue = '', onSubmit = null, options = {}) {
+    openTextPrompt(titleText, messageText, defaultValue, onSubmit = null, options = {}) {
         return this.openGamePrompt({
             titleText,
             messageText,
             useInput: true,
             defaultValue,
-            placeholder: options.placeholder || '',
+            placeholder: options.placeholder,
             buttons: [
-                { label: options.confirmLabel || 'OK', value: '__INPUT__', primary: true },
-                { label: options.cancelLabel || 'Cancel', value: null, cancel: true }
+                { label: options.confirmLabel, value: '__INPUT__', primary: true },
+                { label: options.cancelLabel, value: null, cancel: true }
             ],
             onSubmit: (value) => {
                 if (typeof onSubmit === 'function') {
@@ -290,41 +286,24 @@ Object.assign(UI.prototype, {
         this.applyOverlayVisibility();
     },
 
-    toggleMapOverlay() {
-        this.mapOpen = !this.mapOpen;
-        if (this.mapOpen) {
-            this.haltPlayerMovementForPopup();
-        } else {
-            this.focusGameSurface();
-        }
-
-        this.renderCurrentGameState();
-    },
-
-    isBlockingOverlayOpen(options = {}) {
-        const { includeMap = false } = options;
+    isBlockingOverlayOpen() {
         return Boolean(
-            this.game?.inventoryOpen
+            this.game.inventoryOpen
             || this.gamePromptOpen
             || this.settingsOpen
             || this.dungeonSelectionOpen
-            || (includeMap && this.mapOpen)
         );
     },
 
     shouldBlockGameplayInput(key, lowerKey) {
         const action = getInputActionForKey(lowerKey);
 
-        if (this.game?.inventoryOpen) {
+        if (this.game.inventoryOpen) {
             return key !== 'Escape' && action !== 'open-inventory';
         }
 
         if (this.gamePromptOpen || this.settingsOpen || this.dungeonSelectionOpen) {
             return key !== 'Escape';
-        }
-
-        if (this.mapOpen) {
-            return key !== 'Escape' && action !== 'toggle-map';
         }
 
         return false;
@@ -336,8 +315,8 @@ Object.assign(UI.prototype, {
             return true;
         }
 
-        if (this.game?.inventoryOpen) {
-            this.closeInventory?.();
+        if (this.game.inventoryOpen) {
+            this.closeInventory();
             return true;
         }
 
@@ -348,13 +327,6 @@ Object.assign(UI.prototype, {
 
         if (this.dungeonSelectionOpen) {
             this.closeDungeonSelection();
-            return true;
-        }
-
-        if (this.mapOpen) {
-            this.mapOpen = false;
-            this.renderCurrentGameState();
-            this.focusGameSurface();
             return true;
         }
 
@@ -382,10 +354,10 @@ Object.assign(UI.prototype, {
         const { modal, descendImmediately, alliesPassive } = this.getSettingsElements();
         if (!modal) return;
         this.haltPlayerMovementForPopup();
-        if (descendImmediately && this.game?.settings) {
+        if (descendImmediately) {
             descendImmediately.checked = this.game.settings.autoExploreDescendImmediately;
         }
-        if (alliesPassive && this.game?.settings) {
+        if (alliesPassive) {
             alliesPassive.checked = this.game.settings.alliesPassive;
         }
         modal.style.display = 'block';
@@ -401,7 +373,12 @@ Object.assign(UI.prototype, {
         this.haltPlayerMovementForPopup();
 
         const normalizedOptions = Array.isArray(options)
-            ? options.filter((option) => option && typeof option.id === 'string')
+            ? options.filter((option) => (
+                option
+                && typeof option.id === 'string'
+                && typeof option.name === 'string'
+                && option.name.length > 0
+            ))
             : [];
 
         list.innerHTML = '';
@@ -409,7 +386,7 @@ Object.assign(UI.prototype, {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'dungeon-selection-option';
-            button.textContent = String(option.name || option.id);
+            button.textContent = option.name;
             button.addEventListener('click', () => {
                 if (typeof onSelect === 'function') {
                     onSelect(option.id);
@@ -438,7 +415,7 @@ Object.assign(UI.prototype, {
         const { modal, descendImmediately, alliesPassive } = this.getSettingsElements();
         if (!modal) return;
 
-        this.game?.applySettingsChanges?.({
+        this.game.applySettingsChanges({
             autoExploreDescendImmediately: Boolean(descendImmediately?.checked),
             alliesPassive: Boolean(alliesPassive?.checked)
         });
@@ -448,15 +425,8 @@ Object.assign(UI.prototype, {
         this.focusGameSurface();
     },
 
-    getFocusRestoreTarget() {
-        return this.game?.canvas
-            || this.pixiOverlay?.app?.view
-            || this.pixiOverlayHost
-            || null;
-    },
-
     focusGameSurface() {
-        const focusTarget = this.getFocusRestoreTarget();
+        const focusTarget = this.game.canvas;
         if (!focusTarget || typeof focusTarget.focus !== 'function') {
             return;
         }
@@ -470,17 +440,8 @@ Object.assign(UI.prototype, {
         });
     },
 
-    runNativePrompt(callback) {
-        this.haltPlayerMovementForPopup();
-        const result = typeof callback === 'function' ? callback() : null;
-        this.game?.inputController?.reset?.();
-        this.focusGameSurface();
-        return result;
-    },
-
     confirmPickupShopItem(item, price, message, onDecision = null) {
-        const itemName = item?.getDisplayName?.() || item?.name || 'item';
-        const promptText = message || `This item costs ${price} gold. Pick up ${itemName}?`;
+        const promptText = message;
 
         if (typeof onDecision === 'function') {
             this.openConfirmPrompt('Shop item', promptText, onDecision, {
@@ -496,10 +457,10 @@ Object.assign(UI.prototype, {
     buildShopSettlementPromptText(shopkeeperName, settlementSummary, buyTotal, sellTotal, balanceLine, footerLine) {
         const sections = [
             `${shopkeeperName}: Let's settle up.`,
-            settlementSummary || 'No items selected.',
+            settlementSummary,
             `Buying total: ${buyTotal} money`,
             `Selling total: ${sellTotal} money`,
-            balanceLine || 'This is an even trade.'
+            balanceLine
         ];
 
         if (footerLine) {
@@ -520,7 +481,7 @@ Object.assign(UI.prototype, {
         );
 
         if (typeof onDecision === 'function') {
-            this.openConfirmPrompt(shopkeeperName || 'Shopkeeper', promptText, onDecision, {
+            this.openConfirmPrompt(shopkeeperName, promptText, onDecision, {
                 confirmLabel: 'Settle up',
                 cancelLabel: 'Later'
             });
@@ -542,14 +503,14 @@ Object.assign(UI.prototype, {
 
         if (typeof onDecision === 'function') {
             this.openChoicePrompt(
-                shopkeeperName || 'Shopkeeper',
+                shopkeeperName,
                 promptText,
                 [
                     { label: 'Pay now', value: 'yes', primary: true },
                     { label: 'Stay in shop', value: 'no', cancel: true },
                     { label: 'Run away', value: 'run-away' }
                 ],
-                (value) => onDecision(String(value || 'no')),
+                (value) => onDecision(String(value)),
                 {
                     onCancel: () => onDecision('no')
                 }
@@ -561,17 +522,25 @@ Object.assign(UI.prototype, {
     },
 
     updateInfoPanel(player, world, fov) {
-        if (!world) return;
-        const areaType = world.getAreaType(world.currentFloor);
+        const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        const minPanelUpdateIntervalMs = 90;
+        const lastUpdateAt = Number(this.lastInfoPanelUpdateAt);
+        if (now - lastUpdateAt < minPanelUpdateIntervalMs) {
+            return;
+        }
+        this.lastInfoPanelUpdateAt = now;
+
         const playerBlind = this.isActorBlind(player);
         const conditionText = this.formatActorConditionText(player);
         const allies = this.getPlayerAllies(player, { aliveOnly: true });
         const visibleEnemyLines = [];
         if (!playerBlind) {
             for (const enemy of world.getEnemies()) {
-                if (enemy?.isAlly) continue;
+                if (enemy.isAlly) continue;
                 if (!this.isEnemyVisibleInFov(enemy, fov)) continue;
-                const aiState = enemy.lastResolvedAi || enemy.baseAiType || enemy.aiType || AI_TYPES.WANDER;
+                const aiState = enemy.lastResolvedAi;
                 const fuserSummary = this.getFuserFusionSummary(enemy);
                 const displayName = this.getEnemyDisplayName(enemy);
                 visibleEnemyLines.push(`${displayName} (${enemy.x},${enemy.y}) - ${aiState}${fuserSummary}`);
@@ -584,25 +553,18 @@ Object.assign(UI.prototype, {
         const allyDebugHtml = allies.length > 0
             ? allies.map((ally) => {
                 const allyConditionText = this.formatActorConditionText(ally);
-                const allyPower = typeof ally.getAttackPower === 'function' ? ally.getAttackPower() : ally.power;
-                const allyArmor = typeof ally.getEffectiveArmor === 'function' ? ally.getEffectiveArmor() : ally.armor;
+                const allyPower = ally.getAttackPower();
+                const allyArmor = ally.getEffectiveArmor();
                 return `<p>${ally.name}: HP ${ally.health}/${ally.maxHealth}, LV ${ally.allyLevel}, EXP ${ally.allyExp}/${ally.allyExpToNextLevel}, POW ${allyPower}, ARM ${allyArmor}, Conditions ${allyConditionText}</p>`;
             }).join('')
             : '<p>(none)</p>';
 
-        const floorLabel = typeof this.game?.getDisplayFloorLabel === 'function'
-            ? this.game.getDisplayFloorLabel(world.currentFloor)
-            : String(world.currentFloor + 1);
-        const activeQuest = player?.questgiverState?.activeQuest || null;
+        const activeQuest = player.questgiverState.activeQuest;
         const activeQuestText = activeQuest
-            ? (typeof this.game?.describeQuestgiverQuest === 'function'
-                ? this.game.describeQuestgiverQuest(activeQuest)
-                : (activeQuest.display || 'Active quest'))
+            ? this.game.describeQuestgiverQuest(activeQuest)
             : 'none';
-        const undoCount = typeof this.game?.getAvailableUndoCount === 'function'
-            ? this.game.getAvailableUndoCount()
-            : 0;
-        const undoCapacity = Math.max(1, Math.floor(Number(this.game?.maxUndoStates) || 5));
+        const undoCount = this.game.getAvailableUndoCount();
+        const undoCapacity = Math.max(1, Math.floor(Number(this.game.maxUndoStates)));
         const statsDiv = this.statsDiv;
         if (!statsDiv) return;
         const weatherName = this.getWeatherDisplayName(world);
@@ -610,17 +572,13 @@ Object.assign(UI.prototype, {
             <h3>Player Stats</h3>
             <p>Level: ${player.level}</p>
             <p>EXP: ${player.exp}/${player.expToNextLevel}</p>
-            <p>Money: ${player.money || 0}</p>
+            <p>Money: ${player.money}</p>
             <p>Health: ${player.health}/${player.maxHealth}</p>
             <p>Hunger: ${player.hunger}/${player.maxHunger}</p>
             <p>Power: ${player.power}</p>
             <p>Armor: ${player.armor}</p>
             <p>Conditions: ${conditionText}</p>
-            <p>Floor: ${floorLabel}</p>
-            <p>Area: ${areaType}</p>
             <p>Weather: ${weatherName}</p>
-            <p>Allies: ${allies.length}</p>
-            <p>Position: ${player.x}, ${player.y}</p>
             <p>Quest: ${activeQuestText}</p>
             <p>Undos: ${undoCount}/${undoCapacity}</p>
             <h3>Allies</h3>
@@ -638,7 +596,14 @@ Object.assign(UI.prototype, {
         }
 
         this.messages.push(message);
-        this.renderMessages();
+        if (this.pendingMessageRenderFrame != null) {
+            return;
+        }
+
+        this.pendingMessageRenderFrame = window.requestAnimationFrame(() => {
+            this.pendingMessageRenderFrame = null;
+            this.renderMessages();
+        });
     },
 
     renderMessages() {
@@ -646,6 +611,13 @@ Object.assign(UI.prototype, {
             return;
         }
 
-        this.messagesDiv.innerHTML = '<h3>Messages</h3>' + this.messages.slice(-10).reverse().map((msg) => `<p>${msg}</p>`).join('');
+        const latestMessages = this.messages.slice(-10).reverse();
+        const nextSignature = latestMessages.join('\n');
+        if (this.lastRenderedMessagesSignature === nextSignature) {
+            return;
+        }
+
+        this.lastRenderedMessagesSignature = nextSignature;
+        this.messagesDiv.innerHTML = '<h3>Messages</h3>' + latestMessages.map((msg) => `<p>${msg}</p>`).join('');
     }
 });

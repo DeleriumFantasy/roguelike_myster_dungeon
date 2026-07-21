@@ -72,9 +72,10 @@ Object.assign(Game.prototype, {
         const globalRules = typeof getFloorEventGlobalRules === 'function'
             ? getFloorEventGlobalRules()
             : null;
-        const guaranteedFloors = Array.isArray(globalRules?.guaranteedHoardFloors)
-            ? globalRules.guaranteedHoardFloors
-            : [1];
+        const guaranteedFloors = globalRules?.guaranteedHoardFloors;
+        if (!Array.isArray(guaranteedFloors)) {
+            return false;
+        }
         return guaranteedFloors.includes(floorIndex) && this.canActivateHoardEvent();
     },
 
@@ -294,7 +295,7 @@ Object.assign(Game.prototype, {
             room,
             rng,
             (tile) => !reservedKeys.has(toGridKey(tile.x, tile.y))
-                && this.world.canEnemyOccupy(tile.x, tile.y, this.player)
+                && this.world.canActorOccupy(tile.x, tile.y, this.player)
         );
     },
 
@@ -406,7 +407,7 @@ Object.assign(Game.prototype, {
 
             let spawn = null;
             for (let attempt = 0; attempt < 10; attempt++) {
-                const candidate = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
+                const candidate = this.world.findRandomOpenActorTile(rng, this.player, 200, enemy);
                 if (candidate && !this.roomContainsPosition(room, candidate.x, candidate.y)) {
                     spawn = candidate;
                     break;
@@ -491,16 +492,7 @@ Object.assign(Game.prototype, {
             floor.meta.specialAreas = [];
         }
 
-        const specialArea = typeof this.world?.createSpecialAreaDescriptor === 'function'
-            ? this.world.createSpecialAreaDescriptor('guarded-room', room.x, room.y, room.width, room.height, { padding: 1 })
-            : {
-                type: 'guarded-room',
-                x: room.x,
-                y: room.y,
-                width: room.width,
-                height: room.height,
-                padding: 1
-            };
+        const specialArea = this.world.createSpecialAreaDescriptor('guarded-room', room.x, room.y, room.width, room.height, { padding: 1 });
         floor.meta.specialAreas.push(specialArea);
     },
 
@@ -594,7 +586,7 @@ Object.assign(Game.prototype, {
     },
 
     getActiveQuestForFloor(questType, floorIndex = this.world.currentFloor) {
-        const activeQuest = this.ensureQuestgiverState?.().activeQuest;
+        const activeQuest = this.ensureQuestgiverState().activeQuest;
         if (!activeQuest || activeQuest.type !== questType || activeQuest.completed) {
             return null;
         }
@@ -654,10 +646,9 @@ Object.assign(Game.prototype, {
 
         const strictAttempts = Math.max(1, Math.floor(Number(options.strictAttempts) || 60));
         const relaxedAttempts = Math.max(0, Math.floor(Number(options.relaxedAttempts) || 120));
-        const fallbackAttempts = Math.max(0, Math.floor(Number(options.fallbackAttempts) || 1));
         const tryFindSpawn = (blockedKeys = null, attempts = 60) => {
             for (let attempt = 0; attempt < attempts; attempt++) {
-                const candidate = this.world.findRandomOpenTile(rng, this.player, 250, npc);
+                const candidate = this.world.findRandomOpenActorTile(rng, this.player, 250, npc);
                 if (!candidate) {
                     continue;
                 }
@@ -678,10 +669,6 @@ Object.assign(Game.prototype, {
                 this.getQuestEncounterBlockedKeys(floor, this.getRelaxedQuestEncounterPlacementOptions()),
                 relaxedAttempts
             );
-        }
-
-        if (!spawn && fallbackAttempts > 0) {
-            spawn = tryFindSpawn(null, fallbackAttempts);
         }
 
         return spawn;
@@ -847,7 +834,7 @@ Object.assign(Game.prototype, {
                 const roomTiles = this.getShuffledRoomTilesByPredicate(
                     room,
                     rng,
-                    (tile) => this.world.canEnemyOccupy(tile.x, tile.y, this.player, null, explorer)
+                    (tile) => this.world.canActorOccupy(tile.x, tile.y, this.player, null, explorer)
                 );
                 const explorerTile = roomTiles[0];
                 if (!explorerTile) {
@@ -1135,7 +1122,7 @@ Object.assign(Game.prototype, {
         const isNearRoom = (x, y) => this.isPositionAdjacentToRoom(activeEvent.room, x, y, 1);
 
         const playerIsNear = isNearRoom(this.player.x, this.player.y);
-        const allyIsNear = !playerIsNear && typeof this.world?.getEnemies === 'function'
+        const allyIsNear = !playerIsNear
             && this.world.getEnemies().some((e) => e?.isAlly && e.isAlive?.() && isNearRoom(e.x, e.y));
 
         if (!playerIsNear && !allyIsNear) {
@@ -1191,9 +1178,9 @@ Object.assign(Game.prototype, {
         const rewardRng = this.getFloorContentRng(this.world.currentFloor + 900000);
         const rewardItem = this.createThrowingChallengeRewardItem(rewardRng, this.getDungeonDepthIndex(this.world.currentFloor));
         if (rewardItem) {
-            const rewardResult = this.tryAddItemToPlayerInventory?.(rewardItem, { dropIfFull: true });
+            const rewardResult = this.tryAddItemToPlayerInventory(rewardItem, { dropIfFull: true });
             if (rewardResult && !rewardResult.added) {
-                this.ui?.addMessage?.(`Inventory is full. ${getItemLabel(rewardItem)} drops at your feet.`);
+                this.ui.addMessage(`Inventory is full. ${getItemLabel(rewardItem)} drops at your feet.`);
             }
         }
 
@@ -1202,24 +1189,25 @@ Object.assign(Game.prototype, {
     },
 
     initializeGame() {
+        this.grantStartingBread();
         this.spawnPlayerOnFloor();
         this.populateCurrentFloorIfNeeded();
-        this.clearNearbyHostileEnemiesFromPlayerSpawn?.();
+        this.clearNearbyHostileEnemiesFromPlayerSpawn();
 
         this.updateFOV();
         this.ui.render(this.world, this.player, this.fov);
     },
 
     grantDebugCheaterLoadout() {
-        const equippedCount = Number(this.equipStartingCheaterLoadout?.() || 0);
-        const allyGranted = Boolean(this.spawnStartingAlly?.());
+        const equippedCount = Number(this.equipStartingCheaterLoadout() || 0);
+        const allyGranted = Boolean(this.spawnStartingAlly());
         const message = equippedCount > 0 || allyGranted
             ? 'Debug loadout granted.'
             : 'Debug loadout refreshed.';
 
-        this.ui?.addMessage?.(message);
+        this.ui.addMessage(message);
         this.updateFOV();
-        this.ui?.render?.(this.world, this.player, this.fov);
+        this.ui.render(this.world, this.player, this.fov);
     },
 
     getDungeonDepthIndex(floorIndex = this.world.currentFloor) {
@@ -1241,7 +1229,7 @@ Object.assign(Game.prototype, {
 
     addEnemyIfMissing(enemy) {
         if (!this.world.getEnemies().includes(enemy)) {
-            this.world.addEnemy(enemy);
+            this.world.addActor(enemy);
         }
     },
 
@@ -1253,6 +1241,7 @@ Object.assign(Game.prototype, {
             if (centerSpawn) {
                 this.player.x = centerSpawn.x;
                 this.player.y = centerSpawn.y;
+                this.recordCurrentPlayerWalkedTile?.();
                 return;
             }
         }
@@ -1263,6 +1252,7 @@ Object.assign(Game.prototype, {
         if (spawn) {
             this.player.x = spawn.x;
             this.player.y = spawn.y;
+            this.recordCurrentPlayerWalkedTile?.();
         }
     },
 
@@ -1327,7 +1317,7 @@ Object.assign(Game.prototype, {
                     if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
                     const x = this.player.x + dx;
                     const y = this.player.y + dy;
-                    if (this.world.canEnemyOccupy(x, y, this.player, null, enemy)) {
+                    if (this.world.canActorOccupy(x, y, this.player, null, enemy)) {
                         candidates.push({ x, y });
                     }
                 }
@@ -1336,8 +1326,7 @@ Object.assign(Game.prototype, {
                 return pickRandom(candidates, rng);
             }
         }
-        const fallback = this.world.findRandomOpenTile(rng, this.player, 200, enemy);
-        return fallback || { x: this.player.x, y: this.player.y };
+        return this.world.findRandomOpenActorTile(rng, this.player, 200, enemy);
     },
 
     populateCurrentFloorIfNeeded() {
@@ -1400,7 +1389,7 @@ Object.assign(Game.prototype, {
             shopkeeper.aiType = AI_TYPES.GUARD;
             shopkeeper.baseAiType = AI_TYPES.GUARD;
             shopkeeper.isNeutralNpc = () => true;
-            this.world.addEnemy(shopkeeper);
+            this.world.addActor(shopkeeper);
         }
 
         for (const tile of shopTiles) {
@@ -1415,7 +1404,7 @@ Object.assign(Game.prototype, {
                     item.properties.shopOwned = true;
                     item.properties.shopUnpaid = false;
                     item.properties.shopkeeperId = shopkeeper?.id || null;
-                    item.properties.shopPrice = this.getShopItemPrice?.(item) || 30;
+                    item.properties.shopPrice = this.getShopItemPrice(item);
                     this.world.addItem(tile.x, tile.y, item);
                 }
             }

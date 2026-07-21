@@ -106,9 +106,7 @@ Object.assign(Game.prototype, {
         const targets = [];
 
         if (includeEquipped) {
-            const equippedItems = typeof this.player.getEquippedItems === 'function'
-                ? this.player.getEquippedItems()
-                : [];
+            const equippedItems = this.player.getEquippedItems();
 
             for (const [slot, equippedItem] of equippedItems) {
                 if (!equippedItem || excludedItems.has(equippedItem) || !predicate(equippedItem, { source: 'equipped', slot })) {
@@ -156,8 +154,28 @@ Object.assign(Game.prototype, {
             return [];
         }
 
+        const scrollEffect = typeof scrollItem?.getScrollEffect === 'function'
+            ? scrollItem.getScrollEffect()
+            : '';
+
         return this.buildPlayerInventoryTargets(
-            (candidate) => scrollItem.canTargetItemForScroll(candidate),
+            (candidate) => {
+                if (!scrollItem.canTargetItemForScroll(candidate)) {
+                    return false;
+                }
+
+                if (scrollEffect !== 'identify-item') {
+                    return true;
+                }
+
+                const requiresIdentification = typeof candidate?.requiresIdentification === 'function'
+                    ? candidate.requiresIdentification()
+                    : Boolean(candidate?.properties?.requiresIdentification);
+                const isIdentified = typeof candidate?.isIdentified === 'function'
+                    ? candidate.isIdentified()
+                    : true;
+                return requiresIdentification && !isIdentified;
+            },
             { excludeItems: [scrollItem] }
         );
     },
@@ -180,9 +198,7 @@ Object.assign(Game.prototype, {
         }
 
         if (potType === 'money') {
-            const moneyValue = typeof this.getValidMoneyValue === 'function'
-                ? this.getValidMoneyValue(transformedItem)
-                : Math.max(1, Math.floor(Number(transformedItem?.properties?.value) || 1));
+            const moneyValue = this.getValidMoneyValue(transformedItem);
             return `${targetLabel} turns into ${moneyValue} money inside ${potLabel}.`;
         }
 
@@ -297,7 +313,7 @@ Object.assign(Game.prototype, {
         }
     },
 
-    finalizeInventoryUse(context, consumed = false, handled = true) {
+    finalizeInventoryUse(context, consumed = false, handled = true, turnConsumed = consumed) {
         if (typeof this.player?.updateStats === 'function') {
             this.player.updateStats();
         }
@@ -305,6 +321,7 @@ Object.assign(Game.prototype, {
         return {
             handled,
             consumed,
+            turnConsumed: Boolean(turnConsumed),
             messages: context.messages
         };
     },
@@ -338,7 +355,7 @@ Object.assign(Game.prototype, {
             this.pushInventoryUseMessage(context, message);
         }
 
-        return this.finalizeInventoryUse(context, false);
+        return this.finalizeInventoryUse(context, false, true, Boolean(storageResult?.stored));
     },
 
     handleImprovementScrollInventoryUse(context) {
@@ -589,7 +606,7 @@ Object.assign(Game.prototype, {
             : (target) => String(getItemLabel(target) || 'item');
         const itemLabel = formatItemLabel(item);
         const standingOnShopTile = this.world.getTile(this.player.x, this.player.y) === TILE_TYPES.SHOP;
-        const shopkeeper = standingOnShopTile && typeof this.getActiveShopkeeper === 'function'
+        const shopkeeper = standingOnShopTile
             ? this.getActiveShopkeeper()
             : null;
 

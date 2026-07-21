@@ -111,10 +111,6 @@ Object.assign(Player.prototype, {
         return Array.from(this.conditions.keys()).some((condition) => conditionPreventsPassiveHungerLoss(condition));
     },
 
-    isItemCursed(item) {
-        return getItemCursedState(item);
-    },
-
     getIncomingDamageMultiplierAgainst(attacker) {
         const multiplier = this.getEquipmentMultiplier('getIncomingDamageMultiplierFrom', attacker);
         return Math.max(0.1, multiplier);
@@ -253,7 +249,9 @@ Object.assign(Player.prototype, {
         if (!disableHungerEffects && this.hunger <= 0) {
             this.takeDamage(1);
         } else {
-            const regenAmount = (this.level >= 20 ? 3 : (this.level >= 10 ? 2 : 1)) + this.getPassiveHealingBonus();
+            const baseRegenAmount = (this.level >= 20 ? 3 : (this.level >= 10 ? 2 : 1)) + this.getPassiveHealingBonus();
+            const sleepRegenMultiplier = this.hasCondition(CONDITIONS.SLEEP) ? 2 : 1;
+            const regenAmount = baseRegenAmount * sleepRegenMultiplier;
             this.heal(regenAmount);
         }
     },
@@ -321,13 +319,13 @@ Object.assign(Player.prototype, {
                 continue;
             }
 
-            const fallbackDuration = Number.isFinite(bonus?.grantsConditionDuration)
+            const configuredDuration = Number.isFinite(bonus?.grantsConditionDuration)
                 ? bonus.grantsConditionDuration
                 : Infinity;
 
             entries.push({
                 condition,
-                duration: getConditionDuration(condition, fallbackDuration)
+                duration: getConditionDuration(condition, configuredDuration)
             });
             seenConditions.add(condition);
         }
@@ -351,12 +349,12 @@ Object.assign(Player.prototype, {
                     continue;
                 }
 
-                const fallbackDuration = Number.isFinite(definition.grantsConditionDuration)
+                const configuredDuration = Number.isFinite(definition.grantsConditionDuration)
                     ? definition.grantsConditionDuration
                     : Infinity;
                 entries.push({
                     condition,
-                    duration: getConditionDuration(condition, fallbackDuration)
+                    duration: getConditionDuration(condition, configuredDuration)
                 });
                 seenConditions.add(condition);
             }

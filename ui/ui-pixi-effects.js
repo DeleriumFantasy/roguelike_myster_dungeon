@@ -5,33 +5,34 @@
 
 Object.assign(PixiSceneOverlay.prototype, {
     renderTransientEffects(renderState) {
-        const { ui, fov, now } = renderState;
+        const { ui, now } = renderState;
         const effects = Array.isArray(ui.activeVisualEffects) ? ui.activeVisualEffects : [];
         if (effects.length === 0) {
             return;
         }
 
         for (const effect of effects) {
-            if (!effect?.type) {
+            if (!effect.type) {
                 continue;
             }
 
-            const elapsed = now - Number(effect.startedAt || 0);
-            const duration = Math.max(1, Number(effect.durationMs) || 1);
+            const elapsed = now - Number(effect.startedAt);
+            const duration = Number.isFinite(Number(effect.durationMs)) && Number(effect.durationMs) > 0
+                ? Math.max(1, Number(effect.durationMs))
+                : 180;
             const t = clamp(elapsed / duration, 0, 1);
-
-            if (effect.type === 'melee-strike') {
-                this.renderMeleeStrikeEffect(renderState, effect, t);
-                continue;
-            }
-
-            if (effect.type === 'throw-trail') {
-                this.renderThrowTrailEffect(renderState, effect, t);
-                continue;
-            }
-
-            if (effect.type === 'hit-pulse') {
-                this.renderHitPulseEffect(renderState, effect, t);
+            switch (effect.type) {
+                case 'melee-strike':
+                    this.renderMeleeStrikeEffect(renderState, effect, t);
+                    break;
+                case 'throw-trail':
+                    this.renderThrowTrailEffect(renderState, effect, t);
+                    break;
+                case 'hit-pulse':
+                    this.renderHitPulseEffect(renderState, effect, t);
+                    break;
+                default:
+                    break;
             }
         }
     },
@@ -96,50 +97,5 @@ Object.assign(PixiSceneOverlay.prototype, {
         this.effectLayer.beginFill(this.toPixiColor(fill), alpha);
         this.effectLayer.drawCircle(center.x, center.y, radius);
         this.effectLayer.endFill();
-    },
-
-    renderActiveEventBanner(renderState) {
-        const { ui, world } = renderState;
-        const bannerData = ui.getActiveEventBannerData(world);
-        if (!bannerData) {
-            return;
-        }
-
-        const { title, objective, turnsRemaining, appendTurnsRemaining } = bannerData;
-        const textLine = Number.isFinite(turnsRemaining) && appendTurnsRemaining
-            ? `${objective} Time left: ${turnsRemaining} turns.`
-            : objective;
-        const paddingX = 12;
-        const topY = 8;
-        const lineHeight = 18;
-        const boxWidth = Math.min(this.currentWidth - 16, Math.max(320, this.currentWidth * 0.9));
-        const boxX = Math.floor((this.currentWidth - boxWidth) / 2);
-        const boxHeight = 48;
-
-        const box = this.acquireGraphics();
-        box.beginFill(0x080c14, 0.9);
-        box.lineStyle(2, 0xf7c948, 1);
-        box.drawRect(boxX, topY, boxWidth, boxHeight);
-        box.endFill();
-        this.bannerLayer.addChild(box);
-
-        const titleText = this.acquireText('event-banner-title', {
-            fontFamily: 'monospace',
-            fontSize: 14,
-            fontWeight: '700',
-            fill: '#f7c948'
-        }, title);
-        titleText.x = boxX + paddingX;
-        titleText.y = topY + 6;
-        this.bannerLayer.addChild(titleText);
-
-        const bodyText = this.acquireText('event-banner-body', {
-            fontFamily: 'monospace',
-            fontSize: 12,
-            fill: '#f4f7ff'
-        }, textLine);
-        bodyText.x = boxX + paddingX;
-        bodyText.y = topY + 6 + lineHeight;
-        this.bannerLayer.addChild(bodyText);
     }
 });

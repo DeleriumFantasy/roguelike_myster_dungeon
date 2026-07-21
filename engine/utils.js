@@ -12,15 +12,13 @@ function fromGridKey(key) {
     return result;
 }
 
-function normalizeStringValue(value, fallback = '') {
-    return typeof value === 'string' ? value : fallback;
+function normalizeStringValue(value) {
+    return String(value);
 }
 
-function normalizeInteger(value, fallback = 0, min = -Infinity, max = Infinity) {
+function normalizeInteger(value, min = -Infinity, max = Infinity) {
     const numericValue = Number(value);
-    const normalizedValue = Number.isFinite(numericValue)
-        ? Math.floor(numericValue)
-        : Math.floor(Number(fallback) || 0);
+    const normalizedValue = Math.floor(numericValue);
     return clamp(normalizedValue, min, max);
 }
 

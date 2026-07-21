@@ -47,9 +47,9 @@ function createMathRng() {
     };
 }
 
-function pickRandom(list, rng = null, fallback = null) {
+function pickRandom(list, rng = null) {
     if (!Array.isArray(list) || list.length === 0) {
-        return fallback;
+        return undefined;
     }
 
     const index = getRngRandomInt(rng, 0, list.length - 1);

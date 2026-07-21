@@ -2,22 +2,23 @@
 
 class Player {
     constructor(x, y) {
+        const cfg = window.PLAYER_BALANCE_CONFIG || {};
         this.x = x;
         this.y = y;
         this.facing = { dx: 0, dy: -1 };
         this.lastMoveDirection = { dx: 0, dy: -1 };
-        this.maxHealth = 20;
-        this.health = 20;
-        this.maxHunger = 100;
-        this.hunger = 100;
+        this.maxHealth = cfg.maxHealth ?? 20;
+        this.health = this.maxHealth;
+        this.maxHunger = cfg.maxHunger ?? 100;
+        this.hunger = this.maxHunger;
         this.turns = 0;
-        this.power = 1;
-        this.armor = 0;
+        this.power = cfg.power ?? 1;
+        this.armor = cfg.armor ?? 0;
         this.conditions = new Map();
         this.equipmentGrantedConditions = new Set();
         this.equipment = new Map();
         this.inventory = [];
-        this.maxInventoryItems = 30;
+        this.maxInventoryItems = cfg.maxInventoryItems ?? 30;
         this.allies = [];
         // EXP / level
         this.exp = 0;
@@ -42,7 +43,7 @@ class Player {
         const newY = this.y + dy;
 
         if (world.canPlayerOccupy(newX, newY)) {
-            this.lastMoveDirection = normalizeDirection(dx, dy, this.lastMoveDirection);
+            this.lastMoveDirection = normalizeDirection(dx, dy);
             this.x = newX;
             this.y = newY;
             if (applyHazards) {
@@ -54,7 +55,7 @@ class Player {
     }
 
     setFacingDirection(dx, dy) {
-        const normalizedFacing = normalizeDirection(dx, dy, this.getFacingDirection());
+        const normalizedFacing = normalizeDirection(dx, dy);
         if (normalizedFacing.dx === this.facing.dx && normalizedFacing.dy === this.facing.dy) {
             return;
         }
@@ -63,7 +64,7 @@ class Player {
     }
 
     getFacingDirection() {
-        return normalizeDirection(this.facing?.dx, this.facing?.dy, { dx: 0, dy: -1 });
+        return normalizeDirection(this.facing.dx, this.facing.dy);
     }
 
     checkHazards(world) {

@@ -23,7 +23,7 @@ Game.prototype.pickupItemsAfterMove = function(x, y, shopPickupDecisions = null)
 
         const added = this.player.addItem(item);
         if (!added) {
-            this.ui?.addMessage?.(`Inventory is full. ${getItemLabel(item)} stays on the ground.`);
+            this.ui.addMessage(`Inventory is full. ${getItemLabel(item)} stays on the ground.`);
             continue;
         }
 
@@ -41,7 +41,7 @@ Game.prototype.requestShopPickupDecisionsForTile = function(x, y, onComplete, de
     const decisions = decisionMap instanceof Map ? decisionMap : new Map();
     const itemsToPrompt = Array.isArray(promptItems)
         ? promptItems
-        : ((this.world.getItems(x, y) || []).filter((item) => item?.properties?.shopOwned));
+        : this.world.getItems(x, y).filter((item) => item?.properties?.shopOwned);
 
     if (itemIndex >= itemsToPrompt.length) {
         if (typeof onComplete === 'function') {
@@ -54,16 +54,10 @@ Game.prototype.requestShopPickupDecisionsForTile = function(x, y, onComplete, de
     const price = this.getShopItemPrice(item);
     const itemName = item?.getDisplayName?.() || item?.name || 'item';
     const confirmMsg = `This item costs ${price} gold. Pick up ${itemName}?`;
-    if (typeof this.ui?.confirmPickupShopItem === 'function') {
-        this.ui.confirmPickupShopItem(item, price, confirmMsg, (confirmed) => {
-            decisions.set(item, Boolean(confirmed));
-            this.requestShopPickupDecisionsForTile(x, y, onComplete, decisions, itemsToPrompt, itemIndex + 1);
-        });
-        return;
-    }
-
-    decisions.set(item, false);
-    this.requestShopPickupDecisionsForTile(x, y, onComplete, decisions, itemsToPrompt, itemIndex + 1);
+    this.ui.confirmPickupShopItem(item, price, confirmMsg, (confirmed) => {
+        decisions.set(item, Boolean(confirmed));
+        this.requestShopPickupDecisionsForTile(x, y, onComplete, decisions, itemsToPrompt, itemIndex + 1);
+    });
 };
 
 // Returns a price for a shop item (simple formula, can be improved)
@@ -99,7 +93,8 @@ Game.prototype.getShopSellPrice = function(item) {
 };
 
 Game.prototype.getUnpaidShopItems = function() {
-    return (this.player?.inventory || []).filter((item) => item?.properties?.shopUnpaid);
+    const inventoryItems = this.getPlayerInventoryItems();
+    return inventoryItems.filter((item) => item?.properties?.shopUnpaid);
 };
 
 Game.prototype.teleportShopkeeperNextToPlayer = function(shopkeeper, excludedPositions = []) {
@@ -115,11 +110,11 @@ Game.prototype.teleportShopkeeperNextToPlayer = function(shopkeeper, excludedPos
         .filter((pos) => !excludedKeys.has(`${pos.x},${pos.y}`));
 
     for (const candidate of candidates) {
-        if (!this.world.canEnemyOccupy(candidate.x, candidate.y, this.player, shopkeeper, shopkeeper)) {
+        if (!this.world.canActorOccupy(candidate.x, candidate.y, this.player, shopkeeper, shopkeeper)) {
             continue;
         }
 
-        this.world.moveEnemy(shopkeeper, candidate.x, candidate.y);
+        this.world.moveActor(shopkeeper, candidate.x, candidate.y);
         return true;
     }
 
@@ -129,9 +124,7 @@ Game.prototype.teleportShopkeeperNextToPlayer = function(shopkeeper, excludedPos
 Game.prototype.triggerShopkeeperHostility = function(shopkeeper = null) {
     const actors = shopkeeper
         ? [shopkeeper]
-        : (typeof this.world.getAllActors === 'function'
-            ? this.world.getAllActors()
-            : [...(this.world.getEnemies?.() || []), ...(this.world.getNpcs?.() || [])]);
+        : this.world.getAllActors();
 
     let activated = false;
     for (const actor of actors) {
@@ -144,11 +137,9 @@ Game.prototype.triggerShopkeeperHostility = function(shopkeeper = null) {
         actor.aiType = AI_TYPES.CHASE;
         actor.baseAiType = AI_TYPES.CHASE;
 
-        if (typeof this.world.removeNpc === 'function') {
-            this.world.removeNpc(actor);
-        }
+        this.world.removeNpc(actor);
         if (!this.world.getEnemies().includes(actor)) {
-            this.world.addEnemy(actor);
+            this.world.addActor(actor);
         }
 
         activated = true;
@@ -168,16 +159,12 @@ Game.prototype.handleUnpaidShopExitAttempt = function(targetX, targetY, input = 
         return null;
     }
 
-    const shopkeeper = typeof this.getActiveShopkeeper === 'function'
-        ? this.getActiveShopkeeper()
-        : null;
+    const shopkeeper = this.getActiveShopkeeper();
     if (!shopkeeper) {
         return null;
     }
 
-    const settlement = typeof this.getShopSettlementState === 'function'
-        ? this.getShopSettlementState(shopkeeper)
-        : null;
+    const settlement = this.getShopSettlementState(shopkeeper);
     if (!settlement || settlement.unpaidItems.length === 0) {
         return null;
     }
@@ -185,29 +172,23 @@ Game.prototype.handleUnpaidShopExitAttempt = function(targetX, targetY, input = 
     this.teleportShopkeeperNextToPlayer(shopkeeper, [{ x: targetX, y: targetY }]);
 
     if (!Object.prototype.hasOwnProperty.call(input || {}, 'shopExitDecision')) {
-        if (typeof this.ui?.promptShopExitDecision === 'function') {
-            this.ui.promptShopExitDecision(
-                shopkeeper.name,
-                settlement.summaryText,
-                settlement.buyTotal,
-                settlement.sellTotal,
-                settlement.balanceLine,
-                (decision) => {
-                    this.performTurn({ ...(input || {}), shopExitDecision: decision });
-                }
-            );
-            return { pendingPrompt: true };
-        }
-
-        return { stayOnShopTile: true };
+        this.ui.promptShopExitDecision(
+            shopkeeper.name,
+            settlement.summaryText,
+            settlement.buyTotal,
+            settlement.sellTotal,
+            settlement.balanceLine,
+            (decision) => {
+                this.performTurn({ ...(input || {}), shopExitDecision: decision });
+            }
+        );
+        return { pendingPrompt: true };
     }
 
     const decision = String(input?.shopExitDecision || 'no');
 
     if (decision === 'yes') {
-        const result = typeof this.attemptShopSettlement === 'function'
-            ? this.attemptShopSettlement(shopkeeper, settlement)
-            : { completed: false, reason: 'missing-settlement-helper' };
+        const result = this.attemptShopSettlement(shopkeeper, settlement);
         return result.completed
             ? { allowMove: true, purchased: true }
             : { stayOnShopTile: true };
@@ -282,7 +263,7 @@ Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY, input
     }
 
     const pendingShopItems = !(input?.shopPickupDecisions instanceof Map)
-        ? (this.world.getItems(targetX, targetY) || []).filter((item) => item?.properties?.shopOwned)
+        ? this.world.getItems(targetX, targetY).filter((item) => item?.properties?.shopOwned)
         : [];
     if (pendingShopItems.length > 0) {
         this.requestShopPickupDecisionsForTile(targetX, targetY, (shopPickupDecisions) => {
@@ -312,7 +293,7 @@ Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY, input
     const prevPlayerY = this.player.y;
 
     if (actorAtTarget.isAlly) {
-        this.world.moveEnemy(actorAtTarget, prevPlayerX, prevPlayerY);
+        this.world.moveActor(actorAtTarget, prevPlayerX, prevPlayerY);
     } else {
         actorAtTarget.x = prevPlayerX;
         actorAtTarget.y = prevPlayerY;
@@ -320,14 +301,31 @@ Game.prototype.trySwapPlayerWithFriendlyActor = function(targetX, targetY, input
 
     this.player.x = targetX;
     this.player.y = targetY;
+    this.recordCurrentPlayerWalkedTile();
     this.clearFailedMoveRecord();
-    this.tryWakeGuardedRoomEvent?.();
+    this.tryWakeGuardedRoomEvent();
     this.pickupItemsAfterMove(targetX, targetY, input?.shopPickupDecisions || null);
     return this.createPlayerMoveResult({
         consumed: true,
         moved: true,
         swappedWithAlly: true
     });
+};
+
+Game.prototype.recordPlayerWalkedTile = function(x, y) {
+    if (this.isOverworldFloor()) {
+        return;
+    }
+
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !this.world.isWithinBounds(x, y)) {
+        return;
+    }
+
+    this.world.getFloorSet('walkedTiles').add(`${x},${y}`);
+};
+
+Game.prototype.recordCurrentPlayerWalkedTile = function() {
+    this.recordPlayerWalkedTile(this.player.x, this.player.y);
 };
 
 Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
@@ -337,7 +335,7 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
     }
 
     const pendingShopItems = !(input?.shopPickupDecisions instanceof Map)
-        ? (this.world.getItems(targetX, targetY) || []).filter((item) => item?.properties?.shopOwned)
+        ? this.world.getItems(targetX, targetY).filter((item) => item?.properties?.shopOwned)
         : [];
     if (pendingShopItems.length > 0) {
         this.requestShopPickupDecisionsForTile(targetX, targetY, (shopPickupDecisions) => {
@@ -366,7 +364,33 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
         return this.createPlayerMoveResult({ consumed: false, moved: false });
     }
 
+    this.recordCurrentPlayerWalkedTile();
     this.clearFailedMoveRecord();
+    if (this.ui && Array.isArray(this.ui.activeVisualEffects)) {
+        const now = typeof performance !== 'undefined' && typeof performance.now === 'function'
+            ? performance.now()
+            : Date.now();
+        const existingWalkEffect = this.ui.activeVisualEffects.find((effect) => effect?.type === 'player-walk');
+        const walkEffectPayload = {
+            type: 'player-walk',
+            durationMs: 500,
+            columns: typeof PLAYER_SPRITESHEET_COLUMNS === 'number' ? PLAYER_SPRITESHEET_COLUMNS : 5
+        };
+
+        if (existingWalkEffect) {
+            if (existingWalkEffect.animationStartAt == null) {
+                existingWalkEffect.animationStartAt = Number(existingWalkEffect.startedAt || now);
+            }
+            existingWalkEffect.startedAt = now;
+            existingWalkEffect.durationMs = walkEffectPayload.durationMs;
+            existingWalkEffect.columns = walkEffectPayload.columns;
+        } else if (typeof this.ui.enqueueVisualEffect === 'function') {
+            this.ui.enqueueVisualEffect({
+                ...walkEffectPayload,
+                animationStartAt: now
+            });
+        }
+    }
     this.applyPlayerTrapAtCurrentPosition();
     this.pickupItemsAfterMove(targetX, targetY, input?.shopPickupDecisions || null);
     const hazardTransition = this.player.checkHazards(this.world);
@@ -383,7 +407,7 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
 
     if (hazardTransition?.returnedToOverworldFromPathEnd) {
         this.handleFloorChange(floorBeforeMove);
-        this.handleCompletedDungeonPath?.(hazardTransition.completedPathId);
+        this.handleCompletedDungeonPath(hazardTransition.completedPathId);
         return this.createPlayerMoveResult({
             consumed: true,
             moved: true,
@@ -392,7 +416,7 @@ Game.prototype.tryMovePlayerToTarget = function(input, targetX, targetY) {
     }
 
     if (this.world.currentFloor === floorBeforeMove) {
-        this.tryWakeGuardedRoomEvent?.();
+        this.tryWakeGuardedRoomEvent();
     }
 
     return this.createPlayerMoveResult({
@@ -434,12 +458,15 @@ Game.prototype.dequeuePlayerThrownItem = function(input) {
 };
 
 Game.prototype.resolvePlayerThrow = function(input, thrownItem) {
+    const throwOriginX = this.player.x;
+    const throwOriginY = this.player.y;
+
     input.item.identify?.();
     thrownItem.identify?.();
 
     const throwResult = this.resolveThrow(thrownItem, input.dx, input.dy);
     if (Number.isFinite(throwResult?.x) && Number.isFinite(throwResult?.y)) {
-        this.ui.playThrowTrailEffect?.(this.player.x, this.player.y, throwResult.x, throwResult.y);
+        this.ui.playThrowTrailEffect?.(throwOriginX, throwOriginY, throwResult.x, throwResult.y);
     }
     this.announceThrowResult(thrownItem, throwResult);
     this.clearFailedMoveRecord();
@@ -481,28 +508,20 @@ Game.prototype.applyAttackPassTrapEffects = function(targetX, targetY, hasRuinTr
         ruinedTrap: false
     };
 
-    if (typeof this.world.getTrap !== 'function') {
-        return trapOutcome;
-    }
-
     const trapType = this.world.getTrap(targetX, targetY);
     if (!trapType) {
         return trapOutcome;
     }
 
-    if (hasRuinTraps && typeof this.world.removeTrap === 'function') {
+    if (hasRuinTraps) {
         this.world.removeTrap(targetX, targetY);
         trapOutcome.ruinedTrap = true;
         return trapOutcome;
     }
 
-    if (typeof this.world.revealTrap === 'function') {
-        const alreadyRevealed = typeof this.world.isTrapRevealed === 'function'
-            ? this.world.isTrapRevealed(targetX, targetY)
-            : false;
-        this.world.revealTrap(targetX, targetY);
-        trapOutcome.revealedTrap = !alreadyRevealed;
-    }
+    const alreadyRevealed = this.world.isTrapRevealed(targetX, targetY);
+    this.world.revealTrap(targetX, targetY);
+    trapOutcome.revealedTrap = !alreadyRevealed;
 
     return trapOutcome;
 };
@@ -738,7 +757,7 @@ Game.prototype.processPlayerBerserkTurn = function() {
         }
         if (hazardTransition?.returnedToOverworldFromPathEnd) {
             this.handleFloorChange(floorBeforeMove);
-            this.handleCompletedDungeonPath?.(hazardTransition.completedPathId);
+            this.handleCompletedDungeonPath(hazardTransition.completedPathId);
             return this.createPlayerTurnResult({
                 consumed: true,
                 applyEnvironmentAfterAction: false,
@@ -746,7 +765,7 @@ Game.prototype.processPlayerBerserkTurn = function() {
             });
         }
         if (this.world.currentFloor === floorBeforeMove) {
-            this.tryWakeGuardedRoomEvent?.();
+            this.tryWakeGuardedRoomEvent();
         }
         return this.createPlayerTurnResult({ consumed: true, applyEnvironmentAfterAction: false, actionType: 'berserk-move' });
     }
@@ -764,7 +783,7 @@ Game.prototype.isPlayerBerserkTarget = function(enemy) {
         return false;
     }
 
-    return !(typeof enemy.hasCondition === 'function' && enemy.hasCondition(CONDITIONS.INVISIBLE));
+    return !enemy.hasCondition(CONDITIONS.INVISIBLE);
 };
 
 Game.prototype.getNearestPlayerBerserkTarget = function() {

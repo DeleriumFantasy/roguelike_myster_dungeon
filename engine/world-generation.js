@@ -39,6 +39,7 @@ Object.assign(World.prototype, {
             traps,
             disposalTiles,
             revealedTraps: new Set(),
+            walkedTiles: new Set(),
             items: new Map(),
             enemies: [],
             npcs: [],
@@ -56,7 +57,8 @@ Object.assign(World.prototype, {
                 premadeItemSpawns: Array.isArray(layout?.premadeItemSpawns) ? [...layout.premadeItemSpawns] : [],
                 premadeEnemySpawns: Array.isArray(layout?.premadeEnemySpawns) ? [...layout.premadeEnemySpawns] : [],
                 contentSpawned: false,
-                weather
+                weather,
+                trapFailureChance: getDungeonPathFloorTrapFailureChance(areaType, this.currentFloor, this.selectedDungeonPathId)
             }
         }, this.selectedDungeonPathId);
     },
@@ -236,10 +238,10 @@ Object.assign(World.prototype, {
         }
 
         if (rooms.length < 2) {
-            const fallbackRule = getAreaGenerationRule(AREA_TYPES.DUNGEON);
+            const areaRule = getAreaGenerationRule(AREA_TYPES.DUNGEON);
             for (let y = 0; y < GRID_SIZE; y++) {
                 for (let x = 0; x < GRID_SIZE; x++) {
-                    grid[y][x] = this.generateTileFromAreaRule(fallbackRule, rng, x, y);
+                    grid[y][x] = this.generateTileFromAreaRule(areaRule, rng, x, y);
                 }
             }
             return {
@@ -422,49 +424,48 @@ Object.assign(World.prototype, {
     findCardinalPathKeys(grid, start, goal, canTraverseTile) {
         const startKey = this.tileKey(start.x, start.y);
         const goalKey = this.tileKey(goal.x, goal.y);
-        const queue = [start];
         const cameFrom = new Map();
-        const visited = new Set([startKey]);
 
-        while (queue.length > 0) {
-            const current = queue.shift();
-            const currentKey = this.tileKey(current.x, current.y);
-            if (currentKey === goalKey) {
-                const pathKeys = new Set([goalKey]);
-                let traceKey = goalKey;
-                while (cameFrom.has(traceKey)) {
-                    traceKey = cameFrom.get(traceKey);
-                    pathKeys.add(traceKey);
+        const bfsResult = this.runBreadthFirstSearch(
+            start,
+            {
+                getNeighbors: (current) => [
+                    { x: current.x - 1, y: current.y },
+                    { x: current.x + 1, y: current.y },
+                    { x: current.x, y: current.y - 1 },
+                    { x: current.x, y: current.y + 1 }
+                ],
+                canVisit: (neighbor) => {
+                    if (neighbor.x <= 0 || neighbor.x >= GRID_SIZE - 1 || neighbor.y <= 0 || neighbor.y >= GRID_SIZE - 1) {
+                        return false;
+                    }
+
+                    const tile = grid[neighbor.y][neighbor.x];
+                    return typeof canTraverseTile !== 'function' || canTraverseTile(tile);
+                },
+                onVisit: (current) => {
+                    const currentKey = this.tileKey(current.x, current.y);
+                    if (currentKey === goalKey) {
+                        return currentKey;
+                    }
+
+                    return undefined;
+                },
+                onEnqueue: (neighbor, current, neighborKey) => {
+                    const currentKey = this.tileKey(current.x, current.y);
+                    cameFrom.set(neighborKey, currentKey);
                 }
-                return pathKeys;
             }
+        );
 
-            const cardinalNeighbors = [
-                { x: current.x - 1, y: current.y },
-                { x: current.x + 1, y: current.y },
-                { x: current.x, y: current.y - 1 },
-                { x: current.x, y: current.y + 1 }
-            ];
-
-            for (const neighbor of cardinalNeighbors) {
-                if (neighbor.x <= 0 || neighbor.x >= GRID_SIZE - 1 || neighbor.y <= 0 || neighbor.y >= GRID_SIZE - 1) {
-                    continue;
-                }
-
-                const neighborKey = this.tileKey(neighbor.x, neighbor.y);
-                if (visited.has(neighborKey)) {
-                    continue;
-                }
-
-                const tile = grid[neighbor.y][neighbor.x];
-                if (typeof canTraverseTile === 'function' && !canTraverseTile(tile)) {
-                    continue;
-                }
-
-                visited.add(neighborKey);
-                cameFrom.set(neighborKey, currentKey);
-                queue.push(neighbor);
+        if (bfsResult.found) {
+            const pathKeys = new Set([goalKey]);
+            let traceKey = goalKey;
+            while (cameFrom.has(traceKey)) {
+                traceKey = cameFrom.get(traceKey);
+                pathKeys.add(traceKey);
             }
+            return pathKeys;
         }
 
         return new Set();
@@ -782,8 +783,21 @@ Object.assign(World.prototype, {
 
     generateTrapsForGrid(grid, rng, areaType, layout = null) {
         const traps = new Map();
-        const trapTypes = getTrapTypes();
+        const baseTrapTypes = getTrapTypes();
         const { roomTileKeys, roomOnly } = this.getRoomGenFilter(areaType, layout);
+        const dungeonPathId = typeof this.getSelectedDungeonPathId === 'function'
+            ? this.getSelectedDungeonPathId()
+            : this.selectedDungeonPathId;
+        const trapSpawnChance = typeof getDungeonPathFloorTrapSpawnChance === 'function'
+            ? getDungeonPathFloorTrapSpawnChance(areaType, this.currentFloor, dungeonPathId)
+            : 0;
+        const trapTypes = typeof getDungeonPathFloorAllowedTrapTypes === 'function'
+            ? getDungeonPathFloorAllowedTrapTypes(areaType, this.currentFloor, dungeonPathId, baseTrapTypes)
+            : baseTrapTypes;
+
+        if (!Array.isArray(trapTypes) || trapTypes.length === 0) {
+            return traps;
+        }
 
         for (let y = 1; y < GRID_SIZE - 1; y++) {
             for (let x = 1; x < GRID_SIZE - 1; x++) {
@@ -797,7 +811,7 @@ Object.assign(World.prototype, {
                     continue;
                 }
 
-                if (rng.next() >= 0.025) {
+                if (rng.next() >= trapSpawnChance) {
                     continue;
                 }
 
@@ -814,22 +828,11 @@ Object.assign(World.prototype, {
         }
 
         const dungeonFloorIndex = Math.max(0, floorIndex - 1);
-        const pathAreaType = getDungeonAreaTypeForDepth(this.selectedDungeonPathId, dungeonFloorIndex);
-        if (pathAreaType) {
-            return pathAreaType;
-        }
-
-        return typeof getFallbackAreaTypeForDungeonDepth === 'function'
-            ? getFallbackAreaTypeForDungeonDepth(dungeonFloorIndex)
-            : AREA_TYPES.CATACOMBS;
+        return getDungeonAreaTypeForDepth(this.selectedDungeonPathId, dungeonFloorIndex);
     },
 
     getGeneratorType(areaType) {
-        const runtimeRule = typeof getAreaRuntimeGenerationRule === 'function'
-            ? getAreaRuntimeGenerationRule(areaType)
-            : null;
-        return typeof runtimeRule?.generatorType === 'string'
-            ? runtimeRule.generatorType
-            : `generator:${areaType}`;
+        const runtimeRule = getAreaRuntimeGenerationRule(areaType);
+        return runtimeRule.generatorType;
     }
 });

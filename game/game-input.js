@@ -173,6 +173,9 @@ class GameInputController {
         this.pressedMoveKeys.delete(normalizedMoveKey);
         if (this.pressedMoveKeys.size === 0) {
             this.cancelPendingMoveTimer();
+
+            // Let the current walk animation finish smoothly after movement stops.
+            this.game?.ui?.scheduleVisualEffectRender?.();
         }
     }
 
@@ -181,9 +184,6 @@ class GameInputController {
         switch (action) {
             case 'open-inventory':
                 this.toggleInventory();
-                return true;
-            case 'toggle-map':
-                this.game.ui.toggleMapOverlay?.();
                 return true;
             case 'toggle-stats':
                 this.game.ui.toggleStatsOverlay?.();
@@ -253,7 +253,7 @@ class GameInputController {
         this.pendingMoveTimer = window.setTimeout(() => {
             this.pendingMoveTimer = null;
 
-            if (this.game.ui?.isBlockingOverlayOpen?.({ includeMap: true })) {
+            if (this.game.ui?.isBlockingOverlayOpen?.()) {
                 this.reset();
                 return;
             }

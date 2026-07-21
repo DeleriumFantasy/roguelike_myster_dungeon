@@ -14,12 +14,12 @@ Object.assign(Enemy.prototype, {
     },
 
     getAllyExpProgressionMultiplier() {
+        const cfg = window.ALLY_BALANCE_CONFIG?.expProgression || {};
         const tier = this.getMonsterTier();
         if (tier <= 1) {
-            return 1;
+            return cfg.baseMultiplier ?? 1;
         }
-
-        return 1 + (tier - 1) * 0.5;
+        return (cfg.baseMultiplier ?? 1) + (tier - 1) * (cfg.tierStep ?? 0.5);
     },
 
     getAllyExpToNextLevel() {
@@ -29,11 +29,12 @@ Object.assign(Enemy.prototype, {
     },
 
     applyAllyLevelUpRewards() {
-        this.maxHealth += 3;
-        this.health = Math.min(this.maxHealth, this.health + 3);
-        this.power += 1;
-        if (this.allyLevel % 3 === 0) {
-            this.armor += 1;
+        const cfg = window.ALLY_BALANCE_CONFIG?.levelUp || {};
+        this.maxHealth += cfg.health ?? 3;
+        this.health = Math.min(this.maxHealth, this.health + (cfg.health ?? 3));
+        this.power += cfg.power ?? 1;
+        if (cfg.armorEvery && this.allyLevel % cfg.armorEvery === 0) {
+            this.armor += cfg.armor ?? 1;
         }
     },
 

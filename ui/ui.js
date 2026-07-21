@@ -2,8 +2,28 @@
 
 class UI {
         // --- Transient Visual Effects: Shared Effect Queue and Triggers ---
-        hasActiveVisualEffects() {
-            return Array.isArray(this.activeVisualEffects) && this.activeVisualEffects.length > 0;
+        getDefaultVisualEffectDurationMs(effectType = '') {
+            switch (effectType) {
+                case 'melee-strike':
+                    return 140;
+                case 'throw-trail':
+                    return 180;
+                case 'hit-pulse':
+                    return 200;
+                case 'player-walk':
+                    return 500;
+                default:
+                    return 180;
+            }
+        }
+
+        resolveVisualEffectDurationMs(effect = {}) {
+            const requestedDuration = Number(effect?.durationMs);
+            if (Number.isFinite(requestedDuration) && requestedDuration > 0) {
+                return Math.max(1, Math.floor(requestedDuration));
+            }
+
+            return this.getDefaultVisualEffectDurationMs(effect?.type);
         }
 
         pruneExpiredVisualEffects(now = performance.now()) {
@@ -11,8 +31,8 @@ class UI {
                 return;
             }
             this.activeVisualEffects = this.activeVisualEffects.filter((effect) => {
-                const elapsed = now - Number(effect?.startedAt || 0);
-                const duration = Math.max(1, Number(effect?.durationMs) || 1);
+                const elapsed = now - Number(effect.startedAt);
+                const duration = this.resolveVisualEffectDurationMs(effect);
                 return elapsed < duration;
             });
         }
@@ -25,7 +45,7 @@ class UI {
             const nextEffect = {
                 ...effect,
                 startedAt: now,
-                durationMs: Math.max(1, Number(effect.durationMs) || 1)
+                durationMs: this.resolveVisualEffectDurationMs(effect)
             };
             this.activeVisualEffects.push(nextEffect);
             this.renderCurrentGameState();
@@ -39,20 +59,19 @@ class UI {
                 fromY,
                 toX,
                 toY,
-                attackerSide: options.attackerSide || 'neutral',
-                durationMs: options.durationMs || 240
+                attackerSide: options.attackerSide,
+                durationMs: options.durationMs
             });
         }
 
         playThrowTrailEffect(fromX, fromY, toX, toY, options = {}) {
-            const distanceTiles = Math.max(Math.abs(toX - fromX), Math.abs(toY - fromY));
             this.enqueueVisualEffect({
                 type: 'throw-trail',
                 fromX,
                 fromY,
                 toX,
                 toY,
-                durationMs: options.durationMs || (220 + distanceTiles * 65)
+                durationMs: options.durationMs
             });
         }
 
@@ -61,8 +80,8 @@ class UI {
                 type: 'hit-pulse',
                 x,
                 y,
-                targetSide: options.targetSide || 'neutral',
-                durationMs: options.durationMs || 320
+                targetSide: options.targetSide,
+                durationMs: options.durationMs
             });
         }
     constructor(infoPanel, inventoryModal, game) {
@@ -81,7 +100,6 @@ class UI {
         this.messagesDiv = this.infoPanel.querySelector('#messages');
         this.statsOpen = true;
         this.messagesOpen = true;
-        this.mapOpen = false;
         this.settingsOpen = false;
         this.dungeonSelectionOpen = false;
         this.gamePromptOpen = false;
@@ -98,8 +116,50 @@ class UI {
         this.topDownOffsetY = 0;
         this.activeVisualEffects = [];
         this.pendingAnimationFrame = null;
+        this.perfDebug = {
+            enabled: Boolean(window?.__GAME_PERF_DEBUG === true),
+            reportIntervalMs: 5000,
+            lastReportAt: 0,
+            renderSamples: 0,
+            renderTotalMs: 0,
+            renderPixiMs: 0,
+            renderInfoMs: 0
+        };
         this.pixiOverlay = new PixiSceneOverlay(this.pixiOverlayHost);
         this.applyOverlayVisibility();
+    }
+
+    recordRenderPerfSample(totalMs, pixiMs, infoMs) {
+        if (!this.perfDebug?.enabled) {
+            return;
+        }
+
+        this.perfDebug.renderSamples += 1;
+        this.perfDebug.renderTotalMs += Math.max(0, Number(totalMs));
+        this.perfDebug.renderPixiMs += Math.max(0, Number(pixiMs));
+        this.perfDebug.renderInfoMs += Math.max(0, Number(infoMs));
+
+        const now = performance.now();
+        const lastReportAt = Number(this.perfDebug.lastReportAt);
+        const reportIntervalMs = Math.max(1000, Number(this.perfDebug.reportIntervalMs));
+        if (now - lastReportAt < reportIntervalMs || this.perfDebug.renderSamples <= 0) {
+            return;
+        }
+
+        const sampleCount = this.perfDebug.renderSamples;
+        const averageTotal = this.perfDebug.renderTotalMs / sampleCount;
+        const averagePixi = this.perfDebug.renderPixiMs / sampleCount;
+        const averageInfo = this.perfDebug.renderInfoMs / sampleCount;
+
+        console.info(
+            `[perf][ui] samples=${sampleCount} avgRender=${averageTotal.toFixed(2)}ms avgPixi=${averagePixi.toFixed(2)}ms avgInfo=${averageInfo.toFixed(2)}ms`
+        );
+
+        this.perfDebug.lastReportAt = now;
+        this.perfDebug.renderSamples = 0;
+        this.perfDebug.renderTotalMs = 0;
+        this.perfDebug.renderPixiMs = 0;
+        this.perfDebug.renderInfoMs = 0;
     }
 
     getUiElement(id) {
@@ -116,7 +176,7 @@ class UI {
             return this.uiElementCache.get(elementId);
         }
 
-        const element = document.getElementById(elementId) || null;
+        const element = document.getElementById(elementId);
         if (element) {
             this.uiElementCache.set(elementId, element);
         }
@@ -124,10 +184,6 @@ class UI {
     }
 
     getGameRenderContext() {
-        if (!this.game?.world || !this.game?.player || !this.game?.fov) {
-            return null;
-        }
-
         return {
             world: this.game.world,
             player: this.game.player,
@@ -137,51 +193,83 @@ class UI {
 
     renderCurrentGameState() {
         const renderContext = this.getGameRenderContext();
-        if (!renderContext) {
-            return false;
-        }
-
         this.render(renderContext.world, renderContext.player, renderContext.fov);
         return true;
     }
 
-    getPlayerAllies(player = this.game?.player, options = {}) {
+    getPlayerAllies(player = this.game.player, options = {}) {
         const { aliveOnly = false } = options;
-        const allies = Array.isArray(player?.allies) ? player.allies : [];
-        return allies.filter((ally) => Boolean(ally) && (!aliveOnly || ally?.isAlive?.()));
+        const allies = Array.isArray(player.allies) ? player.allies : [];
+        return allies.filter((ally) => Boolean(ally) && (!aliveOnly || ally.isAlive()));
     }
 
-    getPlayerInventoryItems(player = this.game?.player) {
-        const inventory = player?.getInventory?.();
+    getPlayerInventoryItems(player = this.game.player) {
+        const inventory = player.getInventory();
         return Array.isArray(inventory) ? inventory : [];
     }
 
     formatActorConditionText(actor) {
-        const conditionEntries = Array.from(actor?.conditions?.entries?.() || []);
+        const conditionEntries = Array.from(actor.conditions.entries());
         return conditionEntries.length > 0
             ? conditionEntries.map(([condition, duration]) => `${condition} (${duration})`).join(', ')
             : 'none';
     }
 
     getWeatherDisplayName(world) {
-        const weatherType = world?.getCurrentFloor?.()?.meta?.weather
-            || world?.currentFloorObj?.meta?.weather
-            || WEATHER_TYPES.NONE;
+        const weatherType = world.getCurrentFloor().meta.weather;
         const definition = typeof WEATHER_DEFINITIONS !== 'undefined'
             ? WEATHER_DEFINITIONS[weatherType]
             : null;
 
-        if (typeof definition?.name === 'string' && definition.name.length > 0) {
+        if (typeof definition.name === 'string' && definition.name.length > 0) {
             return definition.name;
         }
 
         return weatherType && weatherType.charAt
             ? weatherType.charAt(0).toUpperCase() + weatherType.slice(1)
-            : 'None';
+            : '';
     }
 
     hasPendingPresentationAnimation() {
-        return this.hasActiveVisualEffects();
+        if (!Array.isArray(this.activeVisualEffects) || this.activeVisualEffects.length === 0) {
+            return false;
+        }
+
+        const hasNonWalkEffect = this.activeVisualEffects.some((effect) => {
+            return Boolean(effect && typeof effect === 'object' && effect.type !== 'player-walk');
+        });
+        if (hasNonWalkEffect) {
+            return true;
+        }
+
+        const moveKeysPressed = Number(this.game.inputController.pressedMoveKeys.size) > 0;
+        return !moveKeysPressed;
+    }
+
+    getPlayerWalkAnimationFrame(now = performance.now()) {
+        if (!Array.isArray(this.activeVisualEffects) || this.activeVisualEffects.length === 0) {
+            return null;
+        }
+
+        let walkEffect = null;
+        for (let i = this.activeVisualEffects.length - 1; i >= 0; i -= 1) {
+            const effect = this.activeVisualEffects[i];
+            if (effect.type === 'player-walk') {
+                walkEffect = effect;
+                break;
+            }
+        }
+
+        if (!walkEffect) {
+            return null;
+        }
+
+        const animationStartAt = Number(walkEffect.animationStartAt);
+        const elapsed = Math.max(0, now - animationStartAt);
+        const duration = Math.max(1, Number(walkEffect.durationMs));
+        const columns = Number(walkEffect.columns);
+        const frameIndex = Math.floor(elapsed / (duration / columns)) % columns;
+        return Number(frameIndex);
     }
 
     getCameraTarget(player) {
@@ -190,33 +278,33 @@ class UI {
     }
 
     getActiveEventBannerData(world) {
-        const activeEvent = world?.getCurrentFloor?.()?.meta?.activeEvent;
+        const activeEvent = world.getCurrentFloor().meta.activeEvent;
         if (!activeEvent) {
             return null;
         }
 
-        const display = activeEvent.display || {};
+        const display = activeEvent.display;
         const turnsValue = Number(activeEvent.turnsRemaining);
         const turnsRemaining = Number.isFinite(turnsValue)
             ? Math.max(0, Math.floor(turnsValue))
             : null;
 
         return {
-            title: display.title || 'Random Event Active',
-            objective: display.objective || 'Complete the event objective.',
+            title: display.title,
+            objective: display.objective,
             turnsRemaining,
             appendTurnsRemaining: display.appendTurnsRemaining !== false
         };
     }
 
     getEnemyDisplayName(enemy) {
-        const baseName = String(enemy?.name || '').trim();
+        const baseName = String(enemy.name).trim();
         if (!baseName) {
             return '';
         }
 
-        if (enemy?.isAlly) {
-            const allyLevel = Math.max(1, Math.floor(Number(enemy?.allyLevel) || 1));
+        if (enemy.isAlly) {
+            const allyLevel = Math.max(1, Math.floor(Number(enemy.allyLevel)));
             return `Lv${allyLevel} ${baseName}`;
         }
 
@@ -229,19 +317,15 @@ class UI {
             return null;
         }
 
-        return items[items.length - 1]?.type || null;
-    }
-
-    getTrapIcon(trapType) {
-        return getTrapDefinition(trapType)?.icon || null;
+        return items[items.length - 1].type;
     }
 
     isActorBlind(actor) {
-        return typeof actor?.hasCondition === 'function' && actor.hasCondition(CONDITIONS.BLIND);
+        return actor.hasCondition(CONDITIONS.BLIND);
     }
 
     isEnemyInvisible(enemy) {
-        return typeof enemy?.hasCondition === 'function' && enemy.hasCondition(CONDITIONS.INVISIBLE);
+        return enemy.hasCondition(CONDITIONS.INVISIBLE);
     }
 
     shouldRenderEnemy(enemy, isVisibleFn = () => true) {
@@ -255,19 +339,11 @@ class UI {
     }
 
     isEnemyVisibleInFov(enemy, fov) {
-        return this.shouldRenderEnemy(enemy, (x, y) => Boolean(fov?.isVisible(x, y)));
+        return this.shouldRenderEnemy(enemy, (x, y) => Boolean(fov.isVisible(x, y)));
     }
 
-    getWeatherTypeForWorld(world) {
-        return world?.getCurrentFloor?.()?.meta?.weather || WEATHER_TYPES.NONE;
-    }
-
-    shouldUseFogForFloor(floorOrWorld) {
-        if (floorOrWorld && typeof floorOrWorld === 'object') {
-            return this.getWeatherTypeForWorld(floorOrWorld) === WEATHER_TYPES.FOGGY;
-        }
-
-        return Number.isInteger(floorOrWorld) && floorOrWorld >= 25;
+    shouldUseFogForFloor(world) {
+        return world.getCurrentFloor().meta.weather === WEATHER_TYPES.FOGGY;
     }
 
     shouldHideUnseenTilesForFloor(floorIndex) {
@@ -275,7 +351,7 @@ class UI {
     }
 
     isTileRevealed(x, y, fov, shouldHideUnseenTiles) {
-        if (this.isActorBlind(this.game?.player)) {
+        if (this.isActorBlind(this.game.player)) {
             return false;
         }
 
@@ -283,7 +359,7 @@ class UI {
     }
 
     isTileCurrentlyVisible(x, y, fov, shouldHideUnseenTiles) {
-        if (this.isActorBlind(this.game?.player)) {
+        if (this.isActorBlind(this.game.player)) {
             return false;
         }
 
@@ -291,24 +367,15 @@ class UI {
     }
 
     getTileOverlayData(world, x, y) {
-        const playerHasTrapSight = typeof this.game?.player?.revealsTraps === 'function'
-            && this.game.player.revealsTraps();
+        const playerHasTrapSight = this.game.player.revealsTraps();
 
         return {
-            hazard: typeof world.getHazard === 'function' ? world.getHazard(x, y) : null,
-            trapType: typeof world.getTrap === 'function' ? world.getTrap(x, y) : null,
+            hazard: world.getHazard(x, y),
+            trapType: world.getTrap(x, y),
             trapRevealed: playerHasTrapSight
                 ? true
-                : (typeof world.isTrapRevealed === 'function' ? world.isTrapRevealed(x, y) : false)
+                : world.isTrapRevealed(x, y)
         };
-    }
-
-    parseGridKey(key) {
-        return fromGridKey(key);
-    }
-
-    getVisibilityAlpha(isVisible) {
-        return isVisible ? COLORS.VISIBLE : COLORS.EXPLORED;
     }
 
     // ...existing code...
@@ -323,17 +390,10 @@ class UI {
     }
 
     getSceneViewportSize() {
-        if (this.pixiOverlay && typeof this.pixiOverlay.getRenderViewportSize === 'function') {
-            const viewport = this.pixiOverlay.getRenderViewportSize();
-            return {
-                width: Math.max(1, Math.floor(Number(viewport?.width) || 1)),
-                height: Math.max(1, Math.floor(Number(viewport?.height) || 1))
-            };
-        }
-
+        const viewport = this.pixiOverlay.getRenderViewportSize();
         return {
-            width: Math.max(1, Math.floor(Number(this.game?.canvas?.width) || window.innerWidth || 1)),
-            height: Math.max(1, Math.floor(Number(this.game?.canvas?.height) || window.innerHeight || 1))
+            width: Math.max(1, Math.floor(Number(viewport.width))),
+            height: Math.max(1, Math.floor(Number(viewport.height)))
         };
     }
 
@@ -345,19 +405,6 @@ class UI {
 
         const { width, height } = this.getSceneViewportSize();
 
-        if (this.mapOpen) {
-            this.mapTileSize = Math.max(1, Math.floor(Math.min(width / GRID_SIZE, height / GRID_SIZE)));
-            this.topDownOffsetX = Math.max(0, Math.floor((width - this.mapTileSize * GRID_SIZE) / 2));
-            this.topDownOffsetY = Math.max(0, Math.floor((height - this.mapTileSize * GRID_SIZE) / 2));
-            this.cameraBounds = {
-                minX: 0,
-                maxX: GRID_SIZE - 1,
-                minY: 0,
-                maxY: GRID_SIZE - 1
-            };
-            return;
-        }
-
         const baseVisibleTilesY = 15;
         this.mapTileSize = Math.max(1, Math.floor(height / baseVisibleTilesY));
         const visibleTiles = this.getVisibleTileCounts(width, height);
@@ -368,8 +415,8 @@ class UI {
     }
 
     getCameraBounds(centerX, centerY, visibleTileCounts = this.getVisibleTileCounts()) {
-        const visibleTilesX = Math.max(1, Math.min(GRID_SIZE, Math.floor(Number(visibleTileCounts?.x) || 1)));
-        const visibleTilesY = Math.max(1, Math.min(GRID_SIZE, Math.floor(Number(visibleTileCounts?.y) || 1)));
+        const visibleTilesX = Math.max(1, Math.min(GRID_SIZE, Math.floor(Number(visibleTileCounts.x))));
+        const visibleTilesY = Math.max(1, Math.min(GRID_SIZE, Math.floor(Number(visibleTileCounts.y))));
 
         // Center camera on player
         let minX = Math.floor(centerX - (visibleTilesX - 1) / 2);
@@ -417,7 +464,7 @@ class UI {
     }
 
     getFuserFusionSummary(enemy) {
-        if (!enemy || typeof enemy.hasEnemyType !== 'function' || !enemy.hasEnemyType(ENEMY_TYPES.FUSER)) {
+        if (!enemy.hasEnemyType(ENEMY_TYPES.FUSER)) {
             return '';
         }
 
@@ -427,7 +474,7 @@ class UI {
 
         const entries = [];
         for (const [itemType, item] of enemy.swallowedItems.entries()) {
-            const itemLabel = getItemLabel(item, String(itemType));
+            const itemLabel = getItemLabel(item);
             entries.push(`${itemType}=${itemLabel}`);
         }
 
@@ -440,15 +487,11 @@ class UI {
     }
 
     getVisibleTileCounts(viewportWidth = null, viewportHeight = null) {
-        if (this.mapOpen) {
-            return { x: GRID_SIZE, y: GRID_SIZE };
-        }
-
         const viewport = Number.isFinite(viewportWidth) && Number.isFinite(viewportHeight)
             ? { width: viewportWidth, height: viewportHeight }
             : this.getSceneViewportSize();
         const visibleTilesY = 15;
-        const tileSize = Math.max(1, Math.floor(Number(this.mapTileSize) || 1));
+        const tileSize = Math.max(1, Math.floor(Number(this.mapTileSize)));
         const visibleTilesX = Math.max(1, Math.min(GRID_SIZE, Math.floor(viewport.width / tileSize)));
 
         return {
@@ -457,12 +500,25 @@ class UI {
         };
     }
 
-    render(world, player, fov) {
-        // ...existing code...
-        this.pruneExpiredVisualEffects(performance.now());
+    render(world, player, fov, options = {}) {
+        const { skipInfoPanel = false } = options;
+        const renderStart = performance.now();
+        this.pruneExpiredVisualEffects(renderStart);
         this.updateCamera(player);
-        this.pixiOverlay?.render(this, world, player, fov);
-        this.updateInfoPanel(player, world, fov);
+
+        const pixiStart = performance.now();
+        this.pixiOverlay.render(this, world, player, fov);
+        const pixiMs = performance.now() - pixiStart;
+
+        let infoMs = 0;
+
+        if (!skipInfoPanel) {
+            const infoStart = performance.now();
+            this.updateInfoPanel(player, world, fov);
+            infoMs = performance.now() - infoStart;
+        }
+
+        this.recordRenderPerfSample(performance.now() - renderStart, pixiMs, infoMs);
     }
 
     scheduleVisualEffectRender() {
@@ -478,14 +534,9 @@ class UI {
             }
 
             const renderContext = this.getGameRenderContext();
-            if (!renderContext) {
-                if (this.hasPendingPresentationAnimation()) {
-                    this.scheduleVisualEffectRender();
-                }
-                return;
-            }
-
-            this.render(renderContext.world, renderContext.player, renderContext.fov);
+            this.render(renderContext.world, renderContext.player, renderContext.fov, {
+                skipInfoPanel: true
+            });
 
             if (this.hasPendingPresentationAnimation()) {
                 this.scheduleVisualEffectRender();

@@ -17,6 +17,32 @@ Game.prototype.clearAutoExploreTargets = function() {
     this.autoExploreTargetFloor = false;
 };
 
+Game.prototype.resetAutoExploreState = function(options = {}) {
+    const {
+        clearTargets = true,
+        resetStuckCount = true,
+        resetRecentPositions = true,
+        resetForcedDetour = true,
+        resetNoProgressCount = true
+    } = options;
+
+    if (clearTargets) {
+        this.clearAutoExploreTargets();
+    }
+    if (resetStuckCount) {
+        this.autoExploreStuckCount = 0;
+    }
+    if (resetRecentPositions) {
+        this.autoExploreRecentPositions = [];
+    }
+    if (resetForcedDetour) {
+        this.autoExploreForcedDetour = null;
+    }
+    if (resetNoProgressCount) {
+        this.autoExploreNoProgressCount = 0;
+    }
+};
+
 Game.prototype.recordAutoExplorePosition = function(x, y) {
     if (!Array.isArray(this.autoExploreRecentPositions)) {
         this.autoExploreRecentPositions = [];
@@ -58,6 +84,14 @@ Game.prototype.handleAutoExploreNoProgress = function() {
 
 Game.prototype.resetAutoExploreProgressWatchdog = function() {
     this.autoExploreNoProgressCount = 0;
+};
+
+Game.prototype.ensureAutoExploreForcedDetour = function() {
+    if (!this.autoExploreForcedDetour) {
+        this.autoExploreForcedDetour = this.getAutoExploreForcedDetour();
+    }
+
+    return this.autoExploreForcedDetour;
 };
 
 Game.prototype.isAutoExploreOscillating = function() {
@@ -105,6 +139,10 @@ Game.prototype.getAutoExploreForcedDetour = function() {
             continue;
         }
 
+        if (this.shouldAutoExploreAvoidTrapAt(nx, ny)) {
+            continue;
+        }
+
         if (this.world.canPlayerOccupy(nx, ny)) {
             return { type: 'move', dx: direction.x, dy: direction.y };
         }
@@ -116,8 +154,8 @@ Game.prototype.getAutoExploreForcedDetour = function() {
 Game.prototype.isAutoExploreBlockedByPopup = function() {
     return Boolean(
         this.inventoryOpen
-        || this.ui?.settingsOpen
-        || this.ui?.dungeonSelectionOpen
+        || this.ui.settingsOpen
+        || this.ui.dungeonSelectionOpen
     );
 };
 
@@ -136,6 +174,24 @@ Game.prototype.queueAutoExploreTick = function(delayMs = 60) {
     }, Math.max(0, Number(delayMs) || 0));
 };
 
+Game.prototype.resolveAutoExploreStuckState = function(stopMessage) {
+    this.clearAutoExploreTargets();
+    this.autoExploreStuckCount = (this.autoExploreStuckCount || 0) + 1;
+
+    if (this.ensureAutoExploreForcedDetour()) {
+        this.queueAutoExploreTick(0);
+        return true;
+    }
+
+    if (this.autoExploreStuckCount >= 5) {
+        this.ui.addMessage(stopMessage);
+        this.stopAutoExplore();
+        return true;
+    }
+
+    return this.handleAutoExploreNoProgress();
+};
+
 Game.prototype.runAutoExploreTick = function() {
     if (!this.autoExploreActive || this.isGameOver) {
         return;
@@ -148,25 +204,7 @@ Game.prototype.runAutoExploreTick = function() {
 
     const autoMoveInput = this.performAutoExploreTurn();
     if (!autoMoveInput) {
-        this.clearAutoExploreTargets();
-        this.autoExploreStuckCount = (this.autoExploreStuckCount || 0) + 1;
-
-        if (!this.autoExploreForcedDetour) {
-            this.autoExploreForcedDetour = this.getAutoExploreForcedDetour();
-        }
-
-        if (this.autoExploreForcedDetour) {
-            this.queueAutoExploreTick(0);
-            return;
-        }
-
-        if (this.autoExploreStuckCount >= 5) {
-            this.ui.addMessage('Auto-explore stopped: no valid path found.');
-            this.stopAutoExplore();
-            return;
-        }
-
-        return this.handleAutoExploreNoProgress();
+        return this.resolveAutoExploreStuckState('Auto-explore stopped: no valid path found.');
     }
 
     if (autoMoveInput.type === 'move' || autoMoveInput.type === 'attack') {
@@ -183,25 +221,7 @@ Game.prototype.runAutoExploreTick = function() {
     this.performTurn(autoMoveInput);
 
     if (autoMoveInput.type === 'move' && this.player.x === prevX && this.player.y === prevY) {
-        // Player didn't move — invalidate sticky targets and count the failure
-        this.clearAutoExploreTargets();
-        this.autoExploreStuckCount = (this.autoExploreStuckCount || 0) + 1;
-
-        if (!this.autoExploreForcedDetour) {
-            this.autoExploreForcedDetour = this.getAutoExploreForcedDetour();
-        }
-
-        if (this.autoExploreForcedDetour) {
-            this.queueAutoExploreTick(0);
-            return;
-        }
-
-        if (this.autoExploreStuckCount >= 5) {
-            this.ui.addMessage('Auto-explore stopped: path blocked.');
-            this.stopAutoExplore();
-            return;
-        }
-        return this.handleAutoExploreNoProgress();
+        return this.resolveAutoExploreStuckState('Auto-explore stopped: path blocked.');
     } else if (autoMoveInput.type === 'move') {
         this.recordAutoExplorePosition(this.player.x, this.player.y);
         this.resetAutoExploreProgressWatchdog();
@@ -257,10 +277,47 @@ Game.prototype.getAutoExploreAttackInputTowardEnemy = function(enemy) {
     return null;
 };
 
+Game.prototype.findNearestAutoExploreEnemy = function(enemies) {
+    if (!Array.isArray(enemies) || enemies.length === 0) {
+        return null;
+    }
+
+    return enemies.reduce((bestEnemy, enemy) => {
+        const enemyDistance = Math.max(Math.abs(enemy.x - this.player.x), Math.abs(enemy.y - this.player.y));
+        const bestDistance = Math.max(Math.abs(bestEnemy.x - this.player.x), Math.abs(bestEnemy.y - this.player.y));
+        return enemyDistance < bestDistance ? enemy : bestEnemy;
+    });
+};
+
+Game.prototype.getAutoExploreMoveInputToward = function(targetX, targetY) {
+    const moveDir = this.getAutoExploreMoveDirection(targetX, targetY);
+    return moveDir ? { type: 'move', dx: moveDir.dx, dy: moveDir.dy } : null;
+};
+
+Game.prototype.getAutoExploreRandomWalkInput = function() {
+    const directions = Object.values(DIRECTIONS).slice();
+    for (let i = directions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [directions[i], directions[j]] = [directions[j], directions[i]];
+    }
+
+    for (const direction of directions) {
+        const nx = this.player.x + direction.x;
+        const ny = this.player.y + direction.y;
+        if (this.shouldAutoExploreAvoidTrapAt(nx, ny)) {
+            continue;
+        }
+
+        if (this.world.canPlayerOccupy(nx, ny)) {
+            return { type: 'move', dx: direction.x, dy: direction.y };
+        }
+    }
+
+    return null;
+};
+
 Game.prototype.getEnemiesWithinDistance = function(x, y, distance) {
-    const enemies = typeof this.world.getHostileEnemies === 'function'
-        ? this.world.getHostileEnemies()
-        : this.world.getEnemies();
+    const enemies = this.world.getHostileActors();
 
     return enemies.filter((enemy) => {
         if (!enemy.isAlive?.()) {
@@ -272,7 +329,7 @@ Game.prototype.getEnemiesWithinDistance = function(x, y, distance) {
         }
 
         // Exclude neutral NPCs
-        if (typeof enemy.isNeutralNpc === 'function' && enemy.isNeutralNpc()) {
+        if (enemy.isNeutralNpc()) {
             return false;
         }
 
@@ -281,11 +338,7 @@ Game.prototype.getEnemiesWithinDistance = function(x, y, distance) {
             return false;
         }
 
-        if (typeof enemy.hasLineOfSight === 'function') {
-            return enemy.hasLineOfSight(this.world, x, y);
-        }
-
-        return true;
+        return enemy.hasLineOfSight(this.world, x, y);
     });
 };
 
@@ -300,10 +353,7 @@ Game.prototype.startAutoExplore = function() {
     }
 
     this.autoExploreActive = true;
-    this.clearAutoExploreTargets();
-    this.autoExploreStuckCount = 0;
-    this.autoExploreForcedDetour = null;
-    this.autoExploreNoProgressCount = 0;
+    this.resetAutoExploreState();
     this.resetAutoExploreRecentPositions();
     this.ui.addMessage('Auto-exploring...');
     this.queueAutoExploreTick(0);
@@ -313,11 +363,7 @@ Game.prototype.startAutoExplore = function() {
 Game.prototype.stopAutoExplore = function() {
     if (this.autoExploreActive) {
         this.autoExploreActive = false;
-        this.clearAutoExploreTargets();
-        this.autoExploreStuckCount = 0;
-        this.autoExploreRecentPositions = [];
-        this.autoExploreForcedDetour = null;
-        this.autoExploreNoProgressCount = 0;
+        this.resetAutoExploreState();
         if (this.autoExploreLoopTimer !== null) {
             window.clearTimeout(this.autoExploreLoopTimer);
             this.autoExploreLoopTimer = null;
@@ -393,6 +439,46 @@ Game.prototype.getPickupTargets = function() {
     return targets;
 };
 
+Game.prototype.findNearestAutoExploreTarget = function(targets, stickyTarget, stickyTargetKey) {
+    if (!Array.isArray(targets) || targets.length === 0) {
+        if (stickyTargetKey) {
+            this[stickyTargetKey] = null;
+        }
+        return null;
+    }
+
+    if (stickyTarget && Number.isFinite(stickyTarget.x) && Number.isFinite(stickyTarget.y)) {
+        const persistedTarget = targets.find((target) => target.x === stickyTarget.x && target.y === stickyTarget.y);
+        if (persistedTarget) {
+            const path = this.findPathForAutoExplore(persistedTarget.x, persistedTarget.y);
+            if (path && path.length >= 2) {
+                return persistedTarget;
+            }
+        }
+    }
+
+    let nearestTarget = targets[0];
+    let nearestDistance = Math.hypot(
+        nearestTarget.x - this.player.x,
+        nearestTarget.y - this.player.y
+    );
+
+    for (let i = 1; i < targets.length; i++) {
+        const target = targets[i];
+        const distance = Math.hypot(target.x - this.player.x, target.y - this.player.y);
+        if (distance < nearestDistance) {
+            nearestTarget = target;
+            nearestDistance = distance;
+        }
+    }
+
+    if (stickyTargetKey) {
+        this[stickyTargetKey] = { x: nearestTarget.x, y: nearestTarget.y };
+    }
+
+    return nearestTarget;
+};
+
 Game.prototype.getVisiblePickupTargets = function() {
     const targets = this.getPickupTargets();
     if (!this.fov || typeof this.fov.isVisible !== 'function') {
@@ -404,80 +490,12 @@ Game.prototype.getVisiblePickupTargets = function() {
 
 Game.prototype.findNearestUnexploredTile = function() {
     const unexplored = this.getUnexploredTiles();
-    if (unexplored.length === 0) {
-        return null;
-    }
-
-    // Reuse sticky target if it's still unexplored and reachable
-    if (this.autoExploreTargetTile) {
-        const still = unexplored.find(
-            (t) => t.x === this.autoExploreTargetTile.x && t.y === this.autoExploreTargetTile.y
-        );
-        if (still) {
-            const path = this.findPathForAutoExplore(still.x, still.y);
-            if (path && path.length >= 2) {
-                return still;
-            }
-        }
-        this.autoExploreTargetTile = null;
-    }
-
-    let nearest = unexplored[0];
-    let nearestDist = Math.hypot(
-        nearest.x - this.player.x,
-        nearest.y - this.player.y
-    );
-
-    for (let i = 1; i < unexplored.length; i++) {
-        const tile = unexplored[i];
-        const dist = Math.hypot(tile.x - this.player.x, tile.y - this.player.y);
-        if (dist < nearestDist) {
-            nearest = tile;
-            nearestDist = dist;
-        }
-    }
-
-    this.autoExploreTargetTile = { x: nearest.x, y: nearest.y };
-    return nearest;
+    return this.findNearestAutoExploreTarget(unexplored, this.autoExploreTargetTile, 'autoExploreTargetTile');
 };
 
 Game.prototype.findNearestPickupTarget = function(targetsOverride = null) {
     const targets = Array.isArray(targetsOverride) ? targetsOverride : this.getPickupTargets();
-    if (targets.length === 0) {
-        return null;
-    }
-
-    // Reuse sticky target if it's still on the floor and reachable
-    if (this.autoExploreTargetItem) {
-        const still = targets.find(
-            (t) => t.x === this.autoExploreTargetItem.x && t.y === this.autoExploreTargetItem.y
-        );
-        if (still) {
-            const path = this.findPathForAutoExplore(still.x, still.y);
-            if (path && path.length >= 2) {
-                return still;
-            }
-        }
-        this.autoExploreTargetItem = null;
-    }
-
-    let nearest = targets[0];
-    let nearestDist = Math.hypot(
-        nearest.x - this.player.x,
-        nearest.y - this.player.y
-    );
-
-    for (let i = 1; i < targets.length; i++) {
-        const target = targets[i];
-        const dist = Math.hypot(target.x - this.player.x, target.y - this.player.y);
-        if (dist < nearestDist) {
-            nearest = target;
-            nearestDist = dist;
-        }
-    }
-
-    this.autoExploreTargetItem = { x: nearest.x, y: nearest.y };
-    return nearest;
+    return this.findNearestAutoExploreTarget(targets, this.autoExploreTargetItem, 'autoExploreTargetItem');
 };
 
 Game.prototype.getAutoExploreMoveDirection = function(targetX, targetY) {
@@ -491,6 +509,19 @@ Game.prototype.getAutoExploreMoveDirection = function(targetX, targetY) {
     const dy = Math.sign(nextStep.y - this.player.y);
 
     return { dx, dy };
+};
+
+Game.prototype.shouldAutoExploreAvoidTrapAt = function(x, y) {
+    const trapType = this.world.getTrap(x, y);
+    if (!trapType) {
+        return false;
+    }
+
+    const playerHasTrapSight = typeof this.player?.revealsTraps === 'function'
+        && this.player.revealsTraps();
+    const trapIsVisible = playerHasTrapSight
+        || this.world.isTrapRevealed(x, y);
+    return trapIsVisible;
 };
 
 Game.prototype.findPathForAutoExplore = function(targetX, targetY) {
@@ -508,8 +539,17 @@ Game.prototype.findPathForAutoExplore = function(targetX, targetY) {
             }
         }
 
+        if (!isGoal && this.shouldAutoExploreAvoidTrapAt(nx, ny)) {
+            return false;
+        }
+
         return isGoal || this.world.canPlayerOccupy(nx, ny);
     });
+};
+
+Game.prototype.getAutoExploreDownstairsMove = function() {
+    const stairs = this.world.getCurrentFloor?.()?.meta?.stairPositions?.down;
+    return stairs ? this.getAutoExploreMoveInputToward(stairs.x, stairs.y) : null;
 };
 
 Game.prototype.performAutoExploreTurn = function() {
@@ -521,31 +561,14 @@ Game.prototype.performAutoExploreTurn = function() {
     const isBlind = this.player.hasCondition?.(CONDITIONS.BLIND);
     const isConfused = this.player.hasCondition?.(CONDITIONS.CONFUSED);
     if (isBlind || isConfused) {
-        const dirs = Object.values(DIRECTIONS);
-        // Shuffle
-        for (let i = dirs.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
-        }
-        for (const dir of dirs) {
-            const nx = this.player.x + dir.x;
-            const ny = this.player.y + dir.y;
-            if (this.world.canPlayerOccupy(nx, ny)) {
-                return { type: 'move', dx: dir.x, dy: dir.y };
-            }
-        }
-        return null;
+        return this.getAutoExploreRandomWalkInput();
     }
 
     // Check if any enemy within 3 tiles
     const nearbyEnemies = this.getEnemiesWithinDistance(this.player.x, this.player.y, 3);
     if (nearbyEnemies.length > 0) {
         if (this.hasCheaterEquipment()) {
-            const nearest = nearbyEnemies.reduce((best, enemy) => {
-                const d = Math.max(Math.abs(enemy.x - this.player.x), Math.abs(enemy.y - this.player.y));
-                const bd = Math.max(Math.abs(best.x - this.player.x), Math.abs(best.y - this.player.y));
-                return d < bd ? enemy : best;
-            });
+            const nearest = this.findNearestAutoExploreEnemy(nearbyEnemies);
             const attackInput = this.getAutoExploreAttackInputTowardEnemy(nearest);
             if (attackInput) {
                 return attackInput;
@@ -567,47 +590,30 @@ Game.prototype.performAutoExploreTurn = function() {
     if (this.settings?.autoExploreDescendImmediately) {
         const visiblePickupTarget = this.findNearestPickupTarget(this.getVisiblePickupTargets());
         if (visiblePickupTarget) {
-            const moveDir = this.getAutoExploreMoveDirection(visiblePickupTarget.x, visiblePickupTarget.y);
-            if (moveDir) {
-                return { type: 'move', dx: moveDir.dx, dy: moveDir.dy };
-            }
+            return this.getAutoExploreMoveInputToward(visiblePickupTarget.x, visiblePickupTarget.y);
         }
 
-        const floor = this.world.getCurrentFloor();
-        const stairs = floor?.meta?.stairPositions?.down;
-        if (stairs) {
-            const moveDir = this.getAutoExploreMoveDirection(stairs.x, stairs.y);
-            if (moveDir) {
-                return { type: 'move', dx: moveDir.dx, dy: moveDir.dy };
-            }
+        const downstairsMove = this.getAutoExploreDownstairsMove();
+        if (downstairsMove) {
+            return downstairsMove;
         }
     }
 
     // Priority 1: Pick up nearby items
     const pickupTarget = this.findNearestPickupTarget();
     if (pickupTarget) {
-        const distToItem = Math.max(Math.abs(pickupTarget.x - this.player.x), Math.abs(pickupTarget.y - this.player.y));
-        if (distToItem <= 1) {
-            // Adjacent to item, move to it
-            const moveDir = this.getAutoExploreMoveDirection(pickupTarget.x, pickupTarget.y);
-            if (moveDir) {
-                return { type: 'move', dx: moveDir.dx, dy: moveDir.dy };
-            }
-        } else {
-            // Move toward nearest item
-            const moveDir = this.getAutoExploreMoveDirection(pickupTarget.x, pickupTarget.y);
-            if (moveDir) {
-                return { type: 'move', dx: moveDir.dx, dy: moveDir.dy };
-            }
+        const pickupMove = this.getAutoExploreMoveInputToward(pickupTarget.x, pickupTarget.y);
+        if (pickupMove) {
+            return pickupMove;
         }
     }
 
     // Priority 2: Move to unexplored tiles
     const unexploredTile = this.findNearestUnexploredTile();
     if (unexploredTile) {
-        const moveDir = this.getAutoExploreMoveDirection(unexploredTile.x, unexploredTile.y);
-        if (moveDir) {
-            return { type: 'move', dx: moveDir.dx, dy: moveDir.dy };
+        const unexploredMove = this.getAutoExploreMoveInputToward(unexploredTile.x, unexploredTile.y);
+        if (unexploredMove) {
+            return unexploredMove;
         }
     }
 
@@ -616,25 +622,9 @@ Game.prototype.performAutoExploreTurn = function() {
     const noItems = this.getPickupTargets().length === 0;
 
     if (allExplored && noItems) {
-        // Find stairs and move toward them
-        const floor = this.world.getCurrentFloor();
-        const stairs = floor?.meta?.stairPositions?.down;
-        
-        if (stairs) {
-            const distToStairs = Math.max(Math.abs(stairs.x - this.player.x), Math.abs(stairs.y - this.player.y));
-            if (distToStairs <= 1) {
-                // Move onto stairs to descend
-                const moveDir = this.getAutoExploreMoveDirection(stairs.x, stairs.y);
-                if (moveDir) {
-                    return { type: 'move', dx: moveDir.dx, dy: moveDir.dy };
-                }
-            } else {
-                // Move toward stairs
-                const moveDir = this.getAutoExploreMoveDirection(stairs.x, stairs.y);
-                if (moveDir) {
-                    return { type: 'move', dx: moveDir.dx, dy: moveDir.dy };
-                }
-            }
+        const downstairsMove = this.getAutoExploreDownstairsMove();
+        if (downstairsMove) {
+            return downstairsMove;
         }
         
         // No stairs found or stuck, stop exploring

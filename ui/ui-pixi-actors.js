@@ -5,7 +5,7 @@
 
 Object.assign(PixiSceneOverlay.prototype, {
     renderActors(renderState) {
-        const { ui, player, tileSize, visibleActors } = renderState;
+        const { ui, player, visibleActors } = renderState;
 
         if (renderState.playerBlind) {
             return;
@@ -26,83 +26,100 @@ Object.assign(PixiSceneOverlay.prototype, {
         this.renderActorMarker(renderState, player, true);
     },
 
-    renderActorMarker(renderState, actor, isPlayer) {
+    getActorRenderFrameData(renderState, actor, isPlayer) {
         const { ui, tileSize, now } = renderState;
         const screenPos = this.getScreenPositionFromState(renderState, actor.x, actor.y);
         const centerX = screenPos.x + tileSize / 2;
         const centerY = screenPos.y + tileSize / 2;
         const groundY = screenPos.y + tileSize * 0.8;
         const animationTime = now;
+        const playerWalkFrame = isPlayer ? ui.getPlayerWalkAnimationFrame(now) : null;
         const bobOffset = Math.sin((animationTime * 0.004) + (actor.x * 0.9) + (actor.y * 0.6)) * Math.max(1, tileSize * 0.04);
-        const breatheScale = 1 + Math.sin((animationTime * 0.0032) + (actor.x * 0.5) + (actor.y * 0.35)) * 0.025;
-        const actorTexture = this.getActorSpriteTexture(actor, isPlayer, tileSize);
-        this.renderActorGlow(actor, centerX, groundY + bobOffset * 0.2, tileSize, isPlayer);
+        const breatheScale = isPlayer ? 1 : 1 + Math.sin((animationTime * 0.0032) + (actor.x * 0.5) + (actor.y * 0.35)) * 0.025;
+
+        return {
+            screenPos,
+            centerX,
+            centerY,
+            groundY,
+            animationTime,
+            playerWalkFrame,
+            bobOffset,
+            breatheScale
+        };
+    },
+
+    getSpriteDimensions(sprite, tileSize, breatheScale) {
+        const sourceWidth = Number(sprite.texture.orig?.width);
+        const sourceHeight = Number(sprite.texture.orig?.height);
+        const desiredWidth = tileSize * 1.4 * breatheScale;
+        const desiredHeight = Math.max(tileSize * 0.95, desiredWidth * (sourceHeight / sourceWidth));
+
+        return {
+            width: desiredWidth,
+            height: desiredHeight
+        };
+    },
+
+    renderActorMarker(renderState, actor, isPlayer) {
+        const { tileSize } = renderState;
+        const frameData = this.getActorRenderFrameData(renderState, actor, isPlayer);
+        const actorTexture = this.getActorSpriteTexture(
+            actor,
+            isPlayer,
+            tileSize,
+            frameData.animationTime,
+            frameData.playerWalkFrame
+        );
+
+        this.renderActorGlow(
+            actor,
+            frameData.centerX,
+            frameData.groundY + (isPlayer ? 0 : frameData.bobOffset * 0.2),
+            tileSize,
+            isPlayer
+        );
+
         if (actorTexture) {
             const sprite = this.acquireSprite(actorTexture);
-            sprite.anchor.set(0.5, 0.58);
-            sprite.x = centerX;
-            sprite.y = screenPos.y + tileSize * 0.58 + bobOffset;
-            sprite.width = tileSize;
-            sprite.height = tileSize;
-            sprite.scale.x = (isPlayer ? 1.04 : 1) * breatheScale;
-            sprite.scale.y = (isPlayer ? 1.04 : 1) * breatheScale;
+            sprite.anchor.set(0.5, 0.64);
+            sprite.x = frameData.centerX;
+            // Position the sprite so its feet stay grounded while bobbing.
+            sprite.y = frameData.screenPos.y + tileSize * 0.95 + (isPlayer ? 0 : frameData.bobOffset);
+            const spriteSize = this.getSpriteDimensions(sprite, tileSize, frameData.breatheScale);
+            sprite.width = spriteSize.width;
+            sprite.height = spriteSize.height;
             this.actorSpriteLayer.addChild(sprite);
         }
 
         if (isPlayer) {
-            this.renderPlayerFacingArrow(actor, centerX, centerY + bobOffset, tileSize);
-            this.renderPlayerLowHungerAlert(actor, centerX, screenPos.y, tileSize, bobOffset);
-            this.renderHealthBar(actor, screenPos.x, screenPos.y, HEALTH_BAR_PALETTES.player, tileSize);
+            this.renderPlayerLowHungerAlert(actor, frameData.centerX, frameData.screenPos.y, tileSize, frameData.bobOffset);
+            this.renderHealthBar(actor, frameData.screenPos.x, frameData.screenPos.y, HEALTH_BAR_PALETTES.player, tileSize);
             return;
         }
 
         this.renderHealthBar(
             actor,
-            screenPos.x,
-            screenPos.y,
+            frameData.screenPos.x,
+            frameData.screenPos.y,
             HEALTH_BAR_PALETTES.enemy,
-            tileSize,
-            ui.getEnemyDisplayName(actor)
+            tileSize
         );
     },
 
     renderActorGlow(actor, centerX, centerY, tileSize, isPlayer) {
         const glowColor = isPlayer
             ? 0x91dfff
-            : (actor?.isAlly ? 0x97e89c : (isNeutralNpcActor(actor) ? 0xf4cc82 : 0xff7b73));
-        const alpha = isPlayer ? 0.12 : (actor?.isAlly ? 0.1 : 0.06);
+            : (actor.isAlly ? 0x97e89c : (isNeutralNpcActor(actor) ? 0xf4cc82 : 0xff7b73));
+        const alpha = isPlayer ? 0.12 : (actor.isAlly ? 0.1 : 0.06);
 
         this.actorLayer.beginFill(glowColor, alpha);
-        this.actorLayer.drawEllipse(centerX, centerY + tileSize * 0.04, tileSize * 0.28, tileSize * 0.18);
+        this.actorLayer.drawEllipse(centerX, centerY + tileSize * (isPlayer ? 0.02 : 0.04), tileSize * (isPlayer ? 0.38 : 0.28), tileSize * (isPlayer ? 0.26 : 0.18));
         this.actorLayer.endFill();
-    },
-
-    renderPlayerFacingArrow(player, centerX, centerY, tileSize) {
-        const facing = getActorFacing(player);
-        const direction = normalizeDirection(facing?.dx, facing?.dy, { dx: 0, dy: -1 });
-        const ux = direction.dx;
-        const uy = direction.dy;
-        const px = -uy;
-        const py = ux;
-        const offset = tileSize * 0.24;
-        const length = tileSize * 0.16;
-        const halfWidth = tileSize * 0.08;
-        const baseCenterX = centerX + ux * offset;
-        const baseCenterY = centerY + uy * offset;
-
-        this.actorLayer.lineStyle(Math.max(1, Math.round(tileSize * 0.045)), 0xffffff, 0.95);
-        this.actorLayer.beginFill(this.toPixiColor(UI_VISUALS.playerFacingArrow), 0.95);
-        this.actorLayer.drawPolygon([
-            baseCenterX + ux * length, baseCenterY + uy * length,
-            baseCenterX - ux * length * 0.55 + px * halfWidth, baseCenterY - uy * length * 0.55 + py * halfWidth,
-            baseCenterX - ux * length * 0.55 - px * halfWidth, baseCenterY - uy * length * 0.55 - py * halfWidth
-        ]);
-        this.actorLayer.endFill();
-        this.actorLayer.lineStyle(0, 0, 0);
     },
 
     renderPlayerLowHungerAlert(player, centerX, screenY, tileSize, bobOffset = 0) {
-        const hunger = Number(player?.hunger || 0);
+        const hunger = Number(player.hunger);
         if (!Number.isFinite(hunger) || hunger > 5) {
             return;
         }
@@ -123,8 +140,8 @@ Object.assign(PixiSceneOverlay.prototype, {
     },
 
     renderHealthBar(actor, screenX, screenY, palette, tileSize, labelText = '') {
-        const maxHealth = Math.max(1, Number(actor?.maxHealth) || 1);
-        const health = clamp(Number(actor?.health) || 0, 0, maxHealth);
+        const maxHealth = Math.max(1, Number(actor.maxHealth));
+        const health = clamp(Number(actor.health), 0, maxHealth);
         const ratio = health / maxHealth;
         const trimmedLabel = typeof labelText === 'string' ? labelText.trim() : '';
         const showLabel = trimmedLabel.length > 0;
@@ -176,9 +193,5 @@ Object.assign(PixiSceneOverlay.prototype, {
         text.x = barX + barWidth / 2;
         text.y = barY + barHeight / 2;
         this.actorLabelLayer.addChild(text);
-    },
-
-    renderEnemyLabel() {
-        return;
     }
 });

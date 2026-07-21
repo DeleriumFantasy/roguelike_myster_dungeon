@@ -68,7 +68,7 @@ Game.prototype.announceThiefStealEvent = function(enemyName, result) {
 };
 
 Game.prototype.announceVandalRangedAttackEvent = function(enemyName, result) {
-    const rockLabel = getItemLabel(result?.item, 'Sharp rock');
+    const rockLabel = getItemLabel(result.item);
     this.ui.addMessage(`${enemyName} throws ${rockLabel}.`);
 
     if (result?.outcome === 'hit-player') {
@@ -121,7 +121,7 @@ Game.prototype.processEnemyAttackPlayerActionResult = function(enemy, result) {
 
     this.ui.playMeleeStrikeEffect?.(enemy.x, enemy.y, this.player.x, this.player.y, { attackerSide: 'enemy' });
     this.ui.playHitPulseEffect?.(this.player.x, this.player.y, { targetSide: 'player' });
-    this.announceCombatHit(enemy.name, 'you', result.damage);
+    this.announceCombatHit(enemy.name, 'you', result?.damage || 0);
     return this.createEnemyActionResult({
         handled: true,
         continueTurnFlow: this.player.isAlive(),
@@ -136,7 +136,7 @@ Game.prototype.processEnemyAttackEnemyActionResult = function(enemy, result) {
 
     this.ui.playMeleeStrikeEffect?.(enemy.x, enemy.y, result.target.x, result.target.y, { attackerSide: 'enemy' });
     this.ui.playHitPulseEffect?.(result.target.x, result.target.y, { targetSide: 'enemy' });
-    this.announceCombatHit(enemy.name, result.target.name, result.damage);
+    this.announceCombatHit(enemy.name, result.target.name, result?.damage || 0);
     if (!result.target.isAlive()) {
         if (enemy.isAlly) {
             this.handleEnemyDefeat(result.target, { announceDefeat: true, grantExp: true, killer: enemy });
@@ -245,7 +245,7 @@ Game.prototype.processEnemyTurn = function(enemy) {
     }
 
     if (enemy.isAlly && result?.type === 'move') {
-        this.tryWakeGuardedRoomEvent?.();
+        this.tryWakeGuardedRoomEvent();
     }
 
     return this.resolveEnemyActionResult(enemy, result);
@@ -253,9 +253,7 @@ Game.prototype.processEnemyTurn = function(enemy) {
 
 Game.prototype.processEnemyTurns = function() {
     let processedEnemies = 0;
-    const isOverworld = typeof this.isOverworldFloor === 'function'
-        ? this.isOverworldFloor(this.world.currentFloor)
-        : false;
+    const isOverworld = this.isOverworldFloor(this.world.currentFloor);
     const npcs = isOverworld ? [] : [...(this.world.getNpcs?.() || [])];
     const actors = [...this.world.getEnemies(), ...npcs];
 
@@ -296,7 +294,7 @@ Game.prototype.removeEnemyFromCurrentFloor = function(enemy) {
 
     const floorEnemies = this.world.getEnemies();
     if (floorEnemies.includes(enemy)) {
-        this.world.removeEnemy(enemy);
+        this.world.removeActor(enemy);
     }
 };
 
@@ -322,7 +320,7 @@ Game.prototype.announcePlayerExpGain = function(expGain) {
 };
 
 Game.prototype.announceAllyExpGain = function(ally, expGain) {
-    if (!ally || typeof ally.addAllyExp !== 'function') {
+    if (!ally) {
         return;
     }
 
@@ -337,7 +335,7 @@ Game.prototype.awardPlayerKillExp = function(killer, defeatedExp) {
     const killerIsPlayer = killer === this.player;
     const allies = this.getPlayerAllies({
         aliveOnly: true,
-        filter: (ally) => typeof ally.addAllyExp === 'function'
+        filter: () => true
     });
     const hasAllies = allies.length > 0;
     const playerExpGain = killerIsPlayer
@@ -354,7 +352,7 @@ Game.prototype.awardPlayerKillExp = function(killer, defeatedExp) {
     }
 
     for (const ally of allies) {
-        if (!ally || !ally.isAlive?.() || typeof ally.addAllyExp !== 'function') {
+        if (!ally || !ally.isAlive?.()) {
             continue;
         }
 
@@ -367,7 +365,7 @@ Game.prototype.awardAllyKillExp = function(killer, defeatedExp) {
     const allyShare = Math.max(0, Math.ceil(defeatedExp * 0.5));
     const allies = this.getPlayerAllies({
         aliveOnly: true,
-        filter: (ally) => typeof ally.addAllyExp === 'function'
+        filter: () => true
     });
 
     if (playerShare > 0) {
@@ -383,7 +381,7 @@ Game.prototype.awardAllyKillExp = function(killer, defeatedExp) {
             continue;
         }
 
-        if (!ally || !ally.isAlive?.() || typeof ally.addAllyExp !== 'function') {
+        if (!ally || !ally.isAlive?.()) {
             continue;
         }
 
@@ -417,8 +415,8 @@ Game.prototype.handleEnemyDefeat = function(enemy, options = {}) {
         this.stallAllyWithHandler(enemy);
     }
     this.removeEnemyFromCurrentFloor(enemy);
-    this.trackQuestProgressForEnemyDefeat?.(enemy, { killer, defeatSource });
-    this.handleFloorEventEnemyDefeat?.(enemy, { killer, defeatSource });
+    this.trackQuestProgressForEnemyDefeat(enemy, { killer, defeatSource });
+    this.handleFloorEventEnemyDefeat(enemy, { killer, defeatSource });
     this.resolveEnemyDefeatDrops(enemy);
     this.awardEnemyDefeatExp(enemy, grantExp, killer);
 
@@ -435,15 +433,11 @@ Game.prototype.stallAllyWithHandler = function(ally) {
     const currentAllyExp = Math.max(0, Math.floor(Number(ally.allyExp) || 0));
     const lostExp = Math.floor(currentAllyExp / 2);
     ally.allyExp = Math.max(0, currentAllyExp - lostExp);
-    if (typeof ally.getAllyExpToNextLevel === 'function') {
-        ally.allyExpToNextLevel = ally.getAllyExpToNextLevel();
-    }
+    ally.allyExpToNextLevel = ally.getAllyExpToNextLevel();
 
     const handler = this.getHandlerNpc();
     if (!handler) {
-        if (typeof ally.untame === 'function') {
-            ally.untame();
-        }
+        ally.untame();
         return;
     }
 
@@ -457,5 +451,5 @@ Game.prototype.stallAllyWithHandler = function(ally) {
 };
 
 Game.prototype.getHandlerNpc = function() {
-    return this.findNpcByRole?.('handler') || null;
+    return this.findNpcByRole('handler');
 };

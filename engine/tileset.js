@@ -38,6 +38,33 @@ class Tileset {
             }
         };
 
+        if (typeof PLAYER_SPRITESHEET_PATH === 'string' && PLAYER_SPRITESHEET_PATH.length > 0) {
+            configs.player = {
+                key: 'player',
+                path: PLAYER_SPRITESHEET_PATH,
+                version: typeof PLAYER_SPRITESHEET_VERSION === 'string' ? PLAYER_SPRITESHEET_VERSION : '1',
+                tileWidth: typeof PLAYER_SPRITESHEET_TILE_WIDTH === 'number' && Number.isFinite(PLAYER_SPRITESHEET_TILE_WIDTH)
+                    ? Math.max(1, PLAYER_SPRITESHEET_TILE_WIDTH)
+                    : 0,
+                tileHeight: typeof PLAYER_SPRITESHEET_TILE_HEIGHT === 'number' && Number.isFinite(PLAYER_SPRITESHEET_TILE_HEIGHT)
+                    ? Math.max(1, PLAYER_SPRITESHEET_TILE_HEIGHT)
+                    : 0,
+                spacing: typeof PLAYER_SPRITESHEET_SPACING === 'number' && Number.isFinite(PLAYER_SPRITESHEET_SPACING)
+                    ? Math.max(0, Math.floor(PLAYER_SPRITESHEET_SPACING))
+                    : 0,
+                margin: typeof PLAYER_SPRITESHEET_MARGIN === 'number' && Number.isFinite(PLAYER_SPRITESHEET_MARGIN)
+                    ? Math.max(0, Math.floor(PLAYER_SPRITESHEET_MARGIN))
+                    : 0,
+                columns: typeof PLAYER_SPRITESHEET_COLUMNS === 'number' && Number.isFinite(PLAYER_SPRITESHEET_COLUMNS)
+                    ? Math.max(1, Math.floor(PLAYER_SPRITESHEET_COLUMNS))
+                    : 5,
+                rows: typeof PLAYER_SPRITESHEET_ROWS === 'number' && Number.isFinite(PLAYER_SPRITESHEET_ROWS)
+                    ? Math.max(1, Math.floor(PLAYER_SPRITESHEET_ROWS))
+                    : 8,
+                enabled: true
+            };
+        }
+
         // Dynamically load sheet configs from situationed spritesheet families
         if (typeof SITUATIONED_SPRITESHEET_FAMILIES === 'object' && SITUATIONED_SPRITESHEET_FAMILIES !== null) {
             for (const [familyName, familyConfig] of Object.entries(SITUATIONED_SPRITESHEET_FAMILIES)) {

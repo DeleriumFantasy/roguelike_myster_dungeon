@@ -6,11 +6,7 @@ Object.assign(Game.prototype, {
             return false;
         }
 
-        if (typeof this.player.hasEquippedEnchantment === 'function') {
-            return this.player.hasEquippedEnchantment(enchantmentKey);
-        }
-
-        return false;
+        return this.player.hasEquippedEnchantment(enchantmentKey);
     },
 
     tryKnockbackEnemy(enemy, fromX, fromY) {
@@ -36,11 +32,11 @@ Object.assign(Game.prototype, {
             return false;
         }
 
-        if (typeof enemy.canOccupyTile === 'function' && !enemy.canOccupyTile(this.world, targetX, targetY, this.player)) {
+        if (!enemy.canOccupyTile(this.world, targetX, targetY, this.player)) {
             return false;
         }
 
-        this.world.moveEnemy(enemy, targetX, targetY);
+        this.world.moveActor(enemy, targetX, targetY);
         return true;
     },
 
@@ -70,11 +66,11 @@ Object.assign(Game.prototype, {
                 break;
             }
 
-            if (typeof enemy.canOccupyTile === 'function' && !enemy.canOccupyTile(this.world, targetX, targetY, this.player)) {
+            if (!enemy.canOccupyTile(this.world, targetX, targetY, this.player)) {
                 break;
             }
 
-            this.world.moveEnemy(enemy, targetX, targetY);
+            this.world.moveActor(enemy, targetX, targetY);
             stepsMoved += 1;
         }
 
